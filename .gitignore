@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+build
+
+# Test coverage / static analysis (artefactos generados, no forman parte del código)
+coverage
+.scannerwork
+sonar-project.properties
+
+# Env vars
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store

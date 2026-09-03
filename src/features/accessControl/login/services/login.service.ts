@@ -20,8 +20,6 @@ interface LoginResult {
 }
 
 async function login(input: LoginInput): Promise<LoginResult> {
-    // Single round trip: user + role + permissions, so the JWT carries everything
-    // authorize() needs and no further access-control queries happen on later requests.
     const user = await User.findOne({
         where: { username: input.username, isActive: true },
         include: [{

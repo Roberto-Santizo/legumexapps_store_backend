@@ -1,6 +1,3 @@
-// Única fuente de verdad para la carga masiva de Empaques (importar Excel + plantilla
-// descargable) -- mismo principio que unitCatalog.ts: un solo lugar a mantener sincronizado
-// en vez de que el parser y el generador de plantilla diverjan con el tiempo.
 
 export type PackagingImportField = "displayName" | "packagingRole" | "packagingMaterial" | "unitCost"
 

@@ -14,8 +14,6 @@ export const createProductSchema = z.object({
     displayName: z.string().trim().min(1).max(120),
     isOrganic: z.boolean().optional(),
     isCustomizable: z.boolean().optional(),
-    // Ajuste manual de costo por unidad (costos aún no definidos en el catálogo). Nullable a
-    // propósito: mandar null lo "elimina" (vuelve a no aplicar ningún ajuste) -- ver Product.model.ts.
     additionalCostPerUnit: z.number().nonnegative().nullable().optional(),
     image: imageInputSchema,
     translations: z.object({ en: productTranslationInputSchema.optional() }).optional(),

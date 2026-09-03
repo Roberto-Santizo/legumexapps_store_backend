@@ -27,11 +27,6 @@ class Ingredient extends BaseCatalogModel {
     })
     declare ingredientType: string
 
-    // true = esta fila del catálogo ES la variante orgánica (con su propio costo, ej. "Piña
-    // Orgánica" vs "Piña"). No es "esta materia prima admite pedirse orgánica" -- convencional
-    // y orgánico son filas separadas en este catálogo, este flag distingue cuál es cuál.
-    // La columna física sigue llamándose "isOrganicAvailable" (no hace falta migrar nada);
-    // solo se renombra el nombre en código para que el significado quede claro.
     @Column({
         type: DataType.BOOLEAN,
         allowNull: false,
@@ -66,7 +61,6 @@ class Ingredient extends BaseCatalogModel {
     @HasMany(() => ProductIngredient, "ingredientId")
     declare productIngredients: ProductIngredient[]
 
-    // Traducciones a idiomas distintos al español -- ver IngredientTranslation.model.ts.
     @HasMany(() => IngredientTranslation, "ingredientId")
     declare translations: IngredientTranslation[]
 }

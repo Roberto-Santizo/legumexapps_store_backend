@@ -1,6 +1,3 @@
-// Única fuente de verdad para la carga masiva de Ingredientes (importar Excel + plantilla
-// descargable) -- mismo diseño que packagingImport.constant.ts (ver esa entrada de memoria del
-// proyecto), solo cambian las columnas/validaciones porque el catálogo es distinto.
 
 export type IngredientImportField =
     | "displayName"
@@ -13,8 +10,6 @@ export type IngredientImportField =
 
 interface ImportColumnDef {
     header: string
-    // Encabezados alternativos aceptados (ya normalizados: trim + minúsculas + sin acentos, ver
-    // normalizeImportText en shared/utils/excelImport.util.ts).
     aliases: string[]
 }
 
@@ -28,9 +23,7 @@ export const INGREDIENT_IMPORT_COLUMNS: Record<IngredientImportField, ImportColu
     displayNameEn: { header: "Nombre (inglés)", aliases: ["nombre (ingles)", "nombre ingles", "nombre en ingles"] },
 }
 
-// isOrganic/isMixable tienen default de negocio (false/true respectivamente, ver
-// Ingredient.model.ts) si la celda queda vacía -- no son obligatorios. displayNameEn es
-// traducción opcional (igual que en el formulario normal, ver ingredient.schema.ts).
+
 export const REQUIRED_INGREDIENT_IMPORT_FIELDS: IngredientImportField[] = [
     "displayName",
     "ingredientType",
@@ -38,8 +31,7 @@ export const REQUIRED_INGREDIENT_IMPORT_FIELDS: IngredientImportField[] = [
     "costUnitId",
 ]
 
-// Etiquetas en español que ve el admin en el dropdown del formulario normal
-// (ingredientForm.component.tsx) -- se reusan tal cual en la plantilla descargable.
+
 export const INGREDIENT_TYPE_LABELS: Record<string, string> = {
     fruit: "Fruta",
     vegetable: "Vegetal",
@@ -47,8 +39,7 @@ export const INGREDIENT_TYPE_LABELS: Record<string, string> = {
     other: "Otro",
 }
 
-// Texto libre -> key interna del enum. Acepta tanto el label en español como la key interna en
-// inglés. Las claves de este mapa ya están normalizadas (ver normalizeImportText).
+
 export const INGREDIENT_TYPE_LABEL_TO_KEY: Record<string, string> = {
     fruta: "fruit",
     fruit: "fruit",
@@ -60,11 +51,8 @@ export const INGREDIENT_TYPE_LABEL_TO_KEY: Record<string, string> = {
     other: "other",
 }
 
-// Booleanos por defecto cuando la celda queda vacía -- mismo default que Ingredient.model.ts
-// (isOrganic=false, isMixable=true), para que "dejar la celda en blanco" en el Excel produzca
-// exactamente el mismo resultado que dejar el checkbox sin marcar/marcado en el form normal.
+
 export const INGREDIENT_IS_ORGANIC_DEFAULT = false
 export const INGREDIENT_IS_MIXABLE_DEFAULT = true
 
-// Tope defensivo de filas por archivo -- mismo criterio que MAX_PACKAGING_IMPORT_ROWS.
 export const MAX_INGREDIENT_IMPORT_ROWS = 1000

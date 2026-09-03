@@ -63,12 +63,8 @@ interface DashboardSummary {
     range: { startDate: Date | null; endDate: Date | null }
     overview: DashboardOverview
     trend: DashboardTrendPoint[]
-    // El front usa esto para rotular cada punto ("dia" vs "semana del ...") sin tener que
-    // adivinar la granularidad a partir del espaciado entre bucketStart.
     trendGranularity: "day" | "week"
     topProducts: DashboardTopProduct[]
-    // Mismos productos, mismo shape, ordenados por ingresos en vez de unidades -- solo para el
-    // pastel de participación de ingresos (ver buildTopProductsByRevenue).
     topProductsByRevenue: DashboardTopProduct[]
     topCustomers: DashboardTopCustomer[]
     topIngredients: DashboardTopIngredient[]
@@ -96,10 +92,6 @@ function weekKey(date: Date): string {
 
 function buildOverview(quotes: Quote[]): DashboardOverview {
     const totalQuotes = quotes.length
-    // totalRevenue es dinero -- se suma en decimal.js (sumMoney, mismo punto único de redondeo
-    // que usa quoteService, ver money.util.ts) para no filtrar ruido de floats nativos
-    // (ej. 0.30010000000000003 en vez de 0.3001) directo en el JSON de /admin/dashboard/summary.
-    // totalPallets/totalUnits son conteos enteros, no dinero -- `+` nativo es seguro para esos.
     const totalRevenue = sumMoney(quotes.map(quote => Number(quote.totalCost)))
     const totalPallets = quotes.reduce((sum, quote) => sum + Number(quote.requestedPallets), 0)
     const totalUnits = quotes.reduce((sum, quote) => sum + Number(quote.totalUnits), 0)
@@ -127,12 +119,6 @@ function buildTrend(
     const rangeEndMs = endDate ? endOfDay(endDate).getTime() : Math.max(...timestamps)
     const spanDays = Math.max(1, Math.ceil((rangeEndMs - rangeStartMs) / MS_PER_DAY) + 1)
     const granularity: "day" | "week" = spanDays > MAX_DAILY_BUCKETS ? "week" : "day"
-
-    // revenue se acumula como Decimal (no Number) mientras se recorren las cotizaciones -- solo
-    // se convierte a Number una vez, al construir `points`, con roundMoney. Sumar en Decimal y
-    // convertir a Number en cada iteración reintroduciría el mismo ruido de floats nativos que
-    // sumMoney existe para evitar (ver money.util.ts): el redondeo debe pasar una sola vez, al
-    // final, no en cada paso intermedio.
     const buckets = new Map<string, { count: number; revenue: Decimal }>()
     for (const quote of quotes) {
         const createdAt = new Date(quote.get("createdAt") as Date)
@@ -150,14 +136,6 @@ function buildTrend(
     return { granularity, points }
 }
 
-// "Mas vendido" en un cotizador se mide por lo unico que existe: cotizaciones guardadas por los
-// clientes (ver memoria del proyecto -- no hay concepto de orden/venta confirmada todavia).
-// Se agrupa por el id real del producto (via ProductVariant.parentProduct), no por el nombre
-// congelado en la cotizacion, para que un producto renombrado no se parta en dos filas; el nombre
-// mostrado sí es el snapshot mas reciente (las cotizaciones vienen ordenadas ASC por fecha, así
-// que la ultima escritura en el Map es la mas reciente).
-// totalRevenue se acumula en Decimal (no Number) por la misma razón que en buildTrend -- el
-// redondeo a precisión monetaria pasa una sola vez, al convertir a plano en el `map` final.
 type ProductAccumulator = Omit<DashboardTopProduct, "totalRevenue"> & { totalRevenue: Decimal }
 
 function groupProductsByRealId(quotes: Quote[]): DashboardTopProduct[] {
@@ -191,9 +169,6 @@ function buildTopProducts(quotes: Quote[]): DashboardTopProduct[] {
         .slice(0, TOP_LIST_LIMIT)
 }
 
-// Mismo agrupamiento que buildTopProducts, pero ordenado por ingresos -- lo usa el front para
-// armar el pastel de participación de ingresos por producto (buildTopProducts está ordenado por
-// unidades, que no es el orden correcto para esa gráfica).
 function buildTopProductsByRevenue(quotes: Quote[]): DashboardTopProduct[] {
     return groupProductsByRealId(quotes)
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
@@ -230,9 +205,7 @@ function buildTopCustomers(quotes: Quote[]): DashboardTopCustomer[] {
         .slice(0, TOP_LIST_LIMIT)
 }
 
-// Se rankea por costo total consumido (no por cantidad) porque cada ingrediente puede estar
-// cotizado en una unidad de costeo distinta (kg, lb, litro...) -- sumar cantidades crudas entre
-// ingredientes de unidades distintas no significa nada, pero el costo ya esta en la misma moneda.
+
 type IngredientAccumulator = Omit<DashboardTopIngredient, "totalCost"> & { totalCost: Decimal }
 
 function buildTopIngredients(quotes: Quote[]): DashboardTopIngredient[] {

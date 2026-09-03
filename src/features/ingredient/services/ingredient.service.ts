@@ -46,8 +46,6 @@ async function getIngredientById(id: number): Promise<Ingredient> {
     return ingredient
 }
 
-// Mismo patrón que category.service.ts::syncEnglishTranslation -- ver ese comentario. Ingredient
-// solo tiene displayName (no descripción), así que este helper es más chico.
 async function syncEnglishTranslation(ingredientId: number, en: IngredientTranslationInput | undefined): Promise<void> {
     if (!en?.displayName) return
     const [translation] = await IngredientTranslation.findOrCreate({
@@ -81,19 +79,13 @@ async function deleteIngredient(id: number): Promise<void> {
     await ingredient.update({ isActive: false })
 }
 
-// Contexto compartido por los helpers de resolución de campo de una fila -- cada helper le
-// agrega su propio RowIssue (si falla) y, cuando corresponde, marca el campo en
-// manuallyValidatedFields para no duplicarlo con el error genérico de zod (ver collectZodIssues).
+
 type IngredientRowValidation = {
     rowNumber: number
     rowIssues: RowIssue[]
     manuallyValidatedFields: Set<string>
 }
 
-// "Tipo de ingrediente" se resuelve a mano (no solo con zod) porque el texto libre en español
-// necesita resolverse a la key interna del enum ANTES de poder validarlo -- un mensaje de zod
-// genérico ("valor inválido") no le diría al usuario qué palabras sí son válidas. Mismo patrón
-// que packagingRole en Empaques (packaging.service.ts).
 function resolveIngredientTypeField(rawType: ImportCellValue, ctx: IngredientRowValidation): string | undefined {
     if (rawType === null) return undefined
     const resolvedType = INGREDIENT_TYPE_LABEL_TO_KEY[normalizeImportText(rawType)]
@@ -109,11 +101,7 @@ function resolveIngredientTypeField(rawType: ImportCellValue, ctx: IngredientRow
     return undefined
 }
 
-// "Unidad de costo" es una FK a un catálogo real (Unit), no un enum fijo -- se resuelve por
-// NOMBRE contra las unidades activas existentes (precargadas una sola vez en
-// loadActiveUnitsByNormalizedName, no una query por fila). Ambigüedad (dos unidades activas con
-// el mismo nombre, caso real permitido por el modelo -- ver Unit.model.ts, displayName no es
-// único) se rechaza en vez de adivinar cuál usar.
+
 function resolveIngredientCostUnitField(
     rawCostUnit: ImportCellValue,
     unitsByNormalizedName: Map<string, Unit[]>,
@@ -134,8 +122,6 @@ function resolveIngredientCostUnitField(
     return matches[0].id
 }
 
-// "Es la variante orgánica"/"Se puede mezclar" son Sí/No opcionales -- celda vacía toma el
-// default de negocio (false/true), texto no reconocido se rechaza (no se asume nada).
 function resolveIngredientBooleanField(
     rawValue: ImportCellValue,
     defaultValue: boolean,
@@ -171,9 +157,7 @@ function buildIngredientImportCandidate(fields: {
     }
 }
 
-// zod valida el candidato ya armado -- los campos resueltos a mano arriba (manuallyValidatedFields)
-// se excluyen del error genérico de zod para no duplicar el mismo problema con dos mensajes
-// distintos (mismo patrón que Empaques).
+
 function collectZodIssues(
     candidate: unknown,
     manuallyValidatedFields: Set<string>,
@@ -191,13 +175,6 @@ function collectZodIssues(
     return { issues }
 }
 
-// displayName normalizado -> primera fila donde apareció, mismo chequeo de duplicados dentro del
-// MISMO archivo que bulkImportPackagings (no compara contra ingredientes ya existentes en la BD
-// -- displayName tampoco es único ahí, ver Ingredient.model.ts). Si pasa ese chequeo, genera el
-// urlSlug igual que createIngredient (nunca se acepta del archivo), revisando tanto la BD como
-// los slugs ya asignados en ESTE mismo archivo (dos nombres parecidos, ej. "Piña" y "PIÑA",
-// generan el mismo slug base; generateUniqueSlug por sí solo solo mira la BD, no las filas
-// anteriores del mismo lote todavía sin persistir).
 async function finalizeIngredientImportCandidate(
     validated: CreateIngredientInput,
     rowNumber: number,
@@ -228,8 +205,7 @@ async function finalizeIngredientImportCandidate(
     return { ...validated, urlSlug }
 }
 
-// Une los helpers de arriba para procesar una fila completa -- devuelve el candidato ya validado
-// y con urlSlug asignado, o null si la fila tuvo algún problema (ya empujado a `rowIssues`).
+
 async function processIngredientImportRow(
     row: ExcelJS.Row,
     rowNumber: number,
@@ -270,8 +246,7 @@ async function processIngredientImportRow(
     return finalizeIngredientImportCandidate(validated!, rowNumber, firstRowByNormalizedName, assignedSlugs, rowIssues)
 }
 
-// Precarga de unidades activas para resolver "Unidad de costo" (texto libre) -> costUnitId --
-// una sola query para el archivo completo, no una por fila.
+
 async function loadActiveUnitsByNormalizedName(): Promise<Map<string, Unit[]>> {
     const activeUnits = await Unit.findAll({ where: { isActive: true } })
     const unitsByNormalizedName = new Map<string, Unit[]>()
@@ -295,12 +270,7 @@ function validateIngredientImportHeaders(sheet: ExcelJS.Worksheet): Map<Ingredie
     return columnIndexByField
 }
 
-// bulkCreate de los ingredientes primero (sin las traducciones -- translations no es una columna
-// real de esta tabla) y, si alguno trajo nombre en inglés, un segundo bulkCreate de
-// IngredientTranslation usando los ids ya asignados. bulkCreate conserva el orden del arreglo de
-// entrada en su resultado (documentado por Sequelize), así que emparejar por índice con
-// `candidates` es seguro. `returning: true` asegura que cada fila creada traiga su id real de
-// Postgres (por defecto no todos los dialectos lo garantizan sin esta opción).
+
 async function persistImportedIngredients(candidates: (CreateIngredientInput & { urlSlug: string })[]): Promise<Ingredient[]> {
     const ingredientRecords = candidates.map(({ translations: _translations, urlSlug, ...rest }) => ({ ...rest, urlSlug }))
     const createdIngredients = await Ingredient.bulkCreate(ingredientRecords, { returning: true })
@@ -319,12 +289,7 @@ async function persistImportedIngredients(candidates: (CreateIngredientInput & {
     return createdIngredients
 }
 
-// Carga masiva atómica -- mismo diseño que bulkImportPackagings (packaging.service.ts,
-// ver esa entrada de memoria del proyecto): se valida el archivo COMPLETO primero contra el
-// mismo createIngredientSchema que usa el formulario normal, y solo si CERO filas tienen
-// problemas se insertan todas de un solo golpe. La resolución de cada fila (columnas propias de
-// Ingredientes: tipo, unidad de costo, orgánico/mezclable, slug) vive en los helpers de arriba --
-// ver sus comentarios para el detalle de cada validación.
+
 async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
     const workbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
@@ -339,8 +304,7 @@ async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
     const unitsByNormalizedName = await loadActiveUnitsByNormalizedName()
 
     const rowIssues: RowIssue[] = []
-    // urlSlug se resuelve por fila (async, depende de una query) -- se guarda junto al candidato
-    // ya validado en vez de recalcularlo después.
+
     const candidates: (CreateIngredientInput & { urlSlug: string })[] = []
     const firstRowByNormalizedName = new Map<string, number>()
     const assignedSlugs = new Set<string>()
@@ -365,12 +329,7 @@ async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
     return persistImportedIngredients(candidates)
 }
 
-// Plantilla descargable: mismos encabezados/etiquetas que el parser de arriba
-// (INGREDIENT_IMPORT_COLUMNS/INGREDIENT_TYPE_LABELS, única fuente de verdad). Segunda hoja con
-// los tipos de ingrediente permitidos -- "Unidad de costo" NO se lista ahí porque depende del
-// catálogo real de Unidades de cada instalación (dinámico, no un enum fijo como el rol de
-// Empaques o el tipo de ingrediente), así que el ejemplo usa nombres típicos del catálogo por
-// defecto (ver unitCatalog.ts) a modo de referencia.
+
 async function buildIngredientImportTemplate(): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
 

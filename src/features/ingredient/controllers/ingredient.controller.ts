@@ -58,11 +58,9 @@ async function destroy(req: Request, res: Response, next: NextFunction): Promise
     }
 }
 
-// Mismo patrón que packagingController.bulkImport/downloadTemplate -- ver ese archivo para el
-// razonamiento completo (por qué el tipo se valida acá y no con `fileFilter` de multer, etc.).
 const EXCEL_MIME_TYPES = new Set([
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-    "application/vnd.ms-excel", // .xls
+    "application/vnd.ms-excel", 
 ])
 
 async function bulkImport(req: Request, res: Response, next: NextFunction): Promise<void> {

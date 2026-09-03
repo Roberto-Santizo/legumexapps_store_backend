@@ -333,10 +333,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         displayName: destination.displayName,
         baseCost: transportCost
     }
-
-    // Ajuste manual de costo por unidad (ver Product.model.ts::additionalCostPerUnit) -- costos
-    // que todavía no están bien definidos en el catálogo. Se multiplica por totalUnits igual que
-    // materia prima/empaque; null/sin valor = sin línea, no infla el total.
+ 
     const additionalCostPerUnit = toDecimal(variant.parentProduct?.additionalCostPerUnit ?? 0)
     const adjustmentCost = roundMoney(additionalCostPerUnit.times(totalUnits))
     const adjustment: AdjustmentLine | null = additionalCostPerUnit.greaterThan(0)
@@ -514,9 +511,7 @@ async function saveQuote(customerId: number, input: CalculateQuoteInput, languag
     }
 }
 
-// Panel admin: TODAS las cotizaciones que llegan, sin importar el cliente que las generó.
-// Trae el cliente (nombre/empresa/email) para que el admin sepa quién la pidió sin tener que
-// entrar a "Clientes" a buscarlo aparte.
+
 async function listAllQuotes(): Promise<Quote[]> {
     return Quote.findAll({
         include: [{ model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] }],

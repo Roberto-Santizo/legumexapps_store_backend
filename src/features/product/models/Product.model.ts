@@ -59,11 +59,6 @@ class Product extends BaseCatalogModel {
     })
     declare imageUrl: string | null
 
-    // Ajuste manual de costo por unidad (ej. Q0.03, Q0.30) para costos que todavía no están bien
-    // definidos en el catálogo (materia prima/empaque/palet/transporte) y que el negocio quiere
-    // poder subir/bajar/quitar sin tener que editar ningún catálogo. Nullable a propósito: NULL =
-    // sin ajuste (se puede "eliminar" limpiando el campo). Se multiplica por totalUnits igual que
-    // el resto de líneas de costo -- ver quoteService.calculateQuote.
     @Column({
         type: DataType.DECIMAL(10, 4),
         allowNull: true

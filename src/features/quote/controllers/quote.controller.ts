@@ -37,7 +37,6 @@ async function destinations(_req: Request, res: Response, next: NextFunction): P
     }
 }
 
-// Panel admin (staff, protegido con "quotes:view"): todas las cotizaciones, sin importar el cliente.
 async function indexAll(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const data = await quoteService.listAllQuotes()
@@ -57,12 +56,7 @@ async function previewForAdmin(req: Request, res: Response, next: NextFunction):
 }
 
 
-// Tipo de cambio USD->GTQ (Banco de Guatemala) para el toggle de moneda del cotizador -- ver
-// shared/services/exchangeRate.service.ts. Es una lectura simple, sin efectos secundarios sobre
-// ninguna cotización (el desglose persistido siempre queda en GTQ, esto solo alimenta la
-// conversión de PANTALLA en el front). Si Banguat está caído y nunca hubo cache (arranque en
-// frío), getUsdToGtqRate() propaga el error: se traduce a un 503 con mensaje claro en vez de
-// dejar que caiga al 500 genérico.
+
 async function exchangeRate(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const rate = await getUsdToGtqRate()

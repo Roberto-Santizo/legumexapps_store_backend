@@ -2,7 +2,6 @@ import { Sequelize } from "sequelize-typescript"
 import colors from "colors"
 import { env } from "../config/env"
 import { runSeeders } from "./seeders"
-
 import Category from "../features/category/models/Category.model"
 import CategoryTranslation from "../features/category/models/CategoryTranslation.model"
 import SubCategory from "../features/category/models/SubCategory.model"

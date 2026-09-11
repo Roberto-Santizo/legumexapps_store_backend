@@ -17,9 +17,6 @@ jest.mock("../services/quote.service", () => ({
 jest.mock("../../../shared/services/email.service", () => ({
     emailService: { sendMailWithAttachment: jest.fn() }
 }))
-jest.mock("../../../shared/services/exchangeRate.service", () => ({
-    getUsdToGtqRate: jest.fn()
-}))
 
 import request from "supertest"
 import jwt from "jsonwebtoken"
@@ -27,7 +24,6 @@ import { buildTestApp } from "../../../shared/test-utils/testApp"
 import quoteRouter from "./quote.routes"
 import { quoteService } from "../services/quote.service"
 import { emailService } from "../../../shared/services/email.service"
-import { getUsdToGtqRate } from "../../../shared/services/exchangeRate.service"
 import { AppError } from "../../../shared/errors/AppError"
 
 const app = buildTestApp("/api/quotes", quoteRouter)
@@ -114,31 +110,6 @@ describe("quoteRouter (HTTP)", () => {
             expect(res.status).toBe(500)
             expect(JSON.stringify(res.body)).not.toContain("10.0.4.2")
             consoleErrorSpy.mockRestore()
-        })
-    })
-
-    describe("GET /exchange-rate", () => {
-        it("200 con el tipo de cambio que devuelve el service, para un token de cliente válido", async () => {
-            (getUsdToGtqRate as jest.Mock).mockResolvedValue(7.8)
-
-            const res = await request(app).get("/api/quotes/exchange-rate").set("Authorization", `Bearer ${customerToken}`)
-
-            expect(res.status).toBe(200)
-            expect(res.body).toEqual({ data: { rate: 7.8 } })
-        })
-
-        it("rechaza sin token de cliente, igual que el resto de rutas de quoteRouter", async () => {
-            const res = await request(app).get("/api/quotes/exchange-rate")
-            expect(res.status).toBe(401)
-        })
-
-        it("503 con mensaje claro si Banguat falla y no hay cache (nunca 500 genérico)", async () => {
-            (getUsdToGtqRate as jest.Mock).mockRejectedValue(new Error("timeout"))
-
-            const res = await request(app).get("/api/quotes/exchange-rate").set("Authorization", `Bearer ${customerToken}`)
-
-            expect(res.status).toBe(503)
-            expect(res.body.message).toBe("No se pudo obtener el tipo de cambio en este momento. Intenta de nuevo más tarde.")
         })
     })
 

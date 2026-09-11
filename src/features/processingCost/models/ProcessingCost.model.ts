@@ -20,7 +20,7 @@ class ProcessingCost extends BaseCatalogModel {
     })
     declare displayName: string
 
-    // Monto en Quetzales. Por ahora SIEMPRE "por libra" (ver quote.service.ts) -- no hay un
+    // Monto en dólares (USD). Por ahora SIEMPRE "por libra" (ver quote.service.ts) -- no hay un
     // campo de unidad de costeo aquí como en Ingredient/Packaging porque el negocio define este
     // catálogo específicamente como costos por libra de materia prima, no un costeo genérico.
     // DECIMAL(10,4) igual que Packaging.unitCost/Destination.baseCost -- alimenta el motor de

@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express"
 import { AppError } from "../../../shared/errors/AppError"
 import { quoteService } from "../services/quote.service"
 import { emailService } from "../../../shared/services/email.service"
-import { getUsdToGtqRate } from "../../../shared/services/exchangeRate.service"
 import { resolveContentLanguage } from "../../../shared/utils/translation.util"
 import { SendQuotePdfEmailInput } from "../schemas/quote.schema"
 
@@ -57,15 +56,6 @@ async function previewForAdmin(req: Request, res: Response, next: NextFunction):
 
 
 
-async function exchangeRate(_req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-        const rate = await getUsdToGtqRate()
-        res.json({ data: { rate } })
-    } catch (error) {
-        next(new AppError(503, "errors.exchange_rate_unavailable"))
-    }
-}
-
 async function sendPdfEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
 
@@ -100,6 +90,5 @@ export const quoteController = {
     save,
     indexAll,
     previewForAdmin,
-    exchangeRate,
     sendPdfEmail,
 }

@@ -16,7 +16,6 @@ quoteRouter.use(authenticateCustomer)
 
 quoteRouter.get("/products", quoteController.products)
 quoteRouter.get("/destinations", quoteController.destinations)
-quoteRouter.get("/exchange-rate", quoteController.exchangeRate)
 quoteRouter.post("/", validate(calculateQuoteSchema), quoteController.save)
 quoteRouter.post("/send-email", upload.single("file"), validate(sendQuotePdfEmailSchema), quoteController.sendPdfEmail)
 

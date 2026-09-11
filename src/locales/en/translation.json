@@ -49,8 +49,7 @@
         "bulk_import_unit_ambiguous": "There is more than one active Unit named \"{{value}}\" -- it's not possible to know which one to use. Fix the Units catalog first.",
         "bulk_import_invalid_boolean": "\"{{value}}\" is not a valid value. Use Yes or No.",
         "quote_pdf_missing_file": "You must attach the quote PDF.",
-        "quote_pdf_invalid_file_type": "The attached file must be a PDF.",
-        "exchange_rate_unavailable": "Could not fetch the exchange rate right now. Please try again later."
+        "quote_pdf_invalid_file_type": "The attached file must be a PDF."
     },
     "success": {
         "created": "{{resource}} created successfully",

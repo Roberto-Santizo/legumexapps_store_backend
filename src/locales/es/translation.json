@@ -49,8 +49,7 @@
         "bulk_import_unit_ambiguous": "Hay más de una Unidad activa llamada \"{{value}}\" -- no se puede saber cuál usar. Corrige el catálogo de Unidades primero.",
         "bulk_import_invalid_boolean": "\"{{value}}\" no es un valor válido. Usa Sí o No.",
         "quote_pdf_missing_file": "Debes adjuntar el PDF de la cotización.",
-        "quote_pdf_invalid_file_type": "El archivo adjunto debe ser un PDF.",
-        "exchange_rate_unavailable": "No se pudo obtener el tipo de cambio en este momento. Intenta de nuevo más tarde."
+        "quote_pdf_invalid_file_type": "El archivo adjunto debe ser un PDF."
     },
     "success": {
         "created": "Creación de {{resource}} exitosa",

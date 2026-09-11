@@ -11,14 +11,6 @@ function getRequiredEnv(key: string): string {
     return value
 }
 
-function getHttpsUrlEnv(key: string, defaultValue: string): string {
-    const value = process.env[key] ?? defaultValue
-    if (!value.startsWith("https://")) {
-        throw new Error(`${key} debe ser una URL https:// (recibido: ${value})`)
-    }
-    return value
-}
-
 export const env = {
     nodeEnv: process.env.NODE_ENV ?? "development",
     serverPort: Number(process.env.SERVER_PORT) || 3000,
@@ -39,11 +31,4 @@ export const env = {
     microsoftClientId: getRequiredEnv("MICROSOFT_CLIENT_ID"),
     microsoftClientSecret: getRequiredEnv("MICROSOFT_CLIENT_SECRET"),
     noreplyUser: getRequiredEnv("NOREPLY_USER"),
-
-    banguatExchangeRateUrl: getHttpsUrlEnv(
-        "BANGUAT_EXCHANGE_RATE_URL",
-        "https://www.banguat.gob.gt/variables/ws/TipoCambio.asmx/TipoCambioDia"
-    ),
-    exchangeRateCacheTtlMs: Number(process.env.EXCHANGE_RATE_CACHE_TTL_MS) || 6 * 60 * 60 * 1000,
-    exchangeRateFetchTimeoutMs: Number(process.env.EXCHANGE_RATE_FETCH_TIMEOUT_MS) || 5000,
 } as const

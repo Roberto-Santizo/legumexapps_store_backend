@@ -55,8 +55,18 @@ async function syncEnglishTranslation(ingredientId: number, en: IngredientTransl
     await translation.update({ displayName: en.displayName })
 }
 
+// El código es manual (nunca se autogenera, a diferencia de urlSlug) y único -- se rechaza con
+// un error de negocio claro ANTES de llegar al unique constraint de la columna (que daría el
+// 409 genérico "errors.unique_constraint" vía errorHandler, menos útil para el admin).
+async function assertCodeIsUnique(code: string, excludeId?: number): Promise<void> {
+    const where: WhereOptions = excludeId ? { code, id: { [Op.ne]: excludeId } } : { code }
+    const existing = await Ingredient.findOne({ where })
+    if (existing) throw new AppError(409, "errors.ingredient_code_already_exists", { code })
+}
+
 async function createIngredient(input: CreateIngredientInput): Promise<Ingredient> {
     const { translations, ...rest } = input
+    await assertCodeIsUnique(rest.code)
     const urlSlug = await generateUniqueSlug(rest.displayName, async (candidate) => {
         const existing = await Ingredient.findOne({ where: { urlSlug: candidate } })
         return !!existing
@@ -69,6 +79,7 @@ async function createIngredient(input: CreateIngredientInput): Promise<Ingredien
 async function updateIngredient(id: number, input: UpdateIngredientInput): Promise<Ingredient> {
     const ingredient = await getIngredientById(id)
     const { translations, ...rest } = input
+    if (rest.code) await assertCodeIsUnique(rest.code, id)
     await ingredient.update(rest)
     await syncEnglishTranslation(id, translations?.en)
     return getIngredientById(id)
@@ -137,6 +148,7 @@ function resolveIngredientBooleanField(
 }
 
 function buildIngredientImportCandidate(fields: {
+    rawCode: ImportCellValue
     rawDisplayName: ImportCellValue
     resolvedType: string | undefined
     resolvedIsOrganic: boolean | undefined
@@ -147,6 +159,10 @@ function buildIngredientImportCandidate(fields: {
 }) {
     const displayNameEn = typeof fields.rawDisplayNameEn === "string" ? fields.rawDisplayNameEn.trim() : ""
     return {
+        // String(...) y no el mismo trim condicional que displayName: un código como "007" o
+        // "12345" entrado sin formato de texto en Excel llega como number -- hay que forzarlo a
+        // string siempre para no perder ceros a la izquierda ni romper el schema (code es string).
+        code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         ingredientType: fields.resolvedType,
         isOrganic: fields.resolvedIsOrganic,
@@ -179,21 +195,52 @@ async function finalizeIngredientImportCandidate(
     validated: CreateIngredientInput,
     rowNumber: number,
     firstRowByNormalizedName: Map<string, number>,
+    firstRowByNormalizedCode: Map<string, number>,
+    existingCodesByNormalized: Set<string>,
     assignedSlugs: Set<string>,
     rowIssues: RowIssue[]
 ): Promise<(CreateIngredientInput & { urlSlug: string }) | null> {
+    // A diferencia de displayName (no es único a nivel de columna, solo se revisa dentro del
+    // archivo), code SÍ es único en la BD -- se reportan ambos problemas si aplican, en vez de
+    // cortar en el primero, para que el admin vea todos los errores de la fila de una vez.
+    let hasIssue = false
+
     const normalizedName = normalizeImportText(validated.displayName)
-    const firstRow = firstRowByNormalizedName.get(normalizedName)
-    if (firstRow) {
+    const firstNameRow = firstRowByNormalizedName.get(normalizedName)
+    if (firstNameRow) {
         rowIssues.push({
             row: rowNumber,
             field: "displayName",
             key: "errors.bulk_import_duplicate_name_in_file",
-            params: { displayName: validated.displayName, firstRow }
+            params: { displayName: validated.displayName, firstRow: firstNameRow }
         })
-        return null
+        hasIssue = true
     }
+
+    const normalizedCode = normalizeImportText(validated.code)
+    const firstCodeRow = firstRowByNormalizedCode.get(normalizedCode)
+    if (firstCodeRow) {
+        rowIssues.push({
+            row: rowNumber,
+            field: "code",
+            key: "errors.bulk_import_duplicate_code_in_file",
+            params: { code: validated.code, firstRow: firstCodeRow }
+        })
+        hasIssue = true
+    } else if (existingCodesByNormalized.has(normalizedCode)) {
+        rowIssues.push({
+            row: rowNumber,
+            field: "code",
+            key: "errors.ingredient_code_already_exists",
+            params: { code: validated.code }
+        })
+        hasIssue = true
+    }
+
+    if (hasIssue) return null
+
     firstRowByNormalizedName.set(normalizedName, rowNumber)
+    firstRowByNormalizedCode.set(normalizedCode, rowNumber)
 
     const urlSlug = await generateUniqueSlug(validated.displayName, async (candidateSlug) => {
         if (assignedSlugs.has(candidateSlug)) return true
@@ -212,9 +259,12 @@ async function processIngredientImportRow(
     columnIndexByField: Map<IngredientImportField, number>,
     unitsByNormalizedName: Map<string, Unit[]>,
     firstRowByNormalizedName: Map<string, number>,
+    firstRowByNormalizedCode: Map<string, number>,
+    existingCodesByNormalized: Set<string>,
     assignedSlugs: Set<string>,
     rowIssues: RowIssue[]
 ): Promise<(CreateIngredientInput & { urlSlug: string }) | null> {
+    const rawCode = readImportCell(row, columnIndexByField.get("code"))
     const rawDisplayName = readImportCell(row, columnIndexByField.get("displayName"))
     const rawType = readImportCell(row, columnIndexByField.get("ingredientType"))
     const rawIsOrganic = readImportCell(row, columnIndexByField.get("isOrganic"))
@@ -231,7 +281,7 @@ async function processIngredientImportRow(
     const resolvedIsMixable = resolveIngredientBooleanField(rawIsMixable, INGREDIENT_IS_MIXABLE_DEFAULT, "isMixable", ctx)
 
     const candidate = buildIngredientImportCandidate({
-        rawDisplayName, resolvedType, resolvedIsOrganic, resolvedIsMixable, rawCostPerUnit, resolvedCostUnitId, rawDisplayNameEn
+        rawCode, rawDisplayName, resolvedType, resolvedIsOrganic, resolvedIsMixable, rawCostPerUnit, resolvedCostUnitId, rawDisplayNameEn
     })
 
     const { validated, issues: zodIssues } = collectZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
@@ -243,9 +293,20 @@ async function processIngredientImportRow(
     }
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rowIssues vacío arriba garantiza que zod sí validó
-    return finalizeIngredientImportCandidate(validated!, rowNumber, firstRowByNormalizedName, assignedSlugs, rowIssues)
+    return finalizeIngredientImportCandidate(
+        validated!, rowNumber, firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized, assignedSlugs, rowIssues
+    )
 }
 
+
+// Preload de todos los códigos de ingrediente ya existentes (activos o no -- mismo criterio que
+// el chequeo de urlSlug de arriba, que tampoco filtra por isActive) para poder rechazar
+// duplicados-contra-la-BD con un RowIssue claro ANTES de intentar el bulkCreate, en vez de dejar
+// que Postgres reviente el batch completo con una violación de unique constraint genérica.
+async function loadExistingIngredientCodes(): Promise<Set<string>> {
+    const existingIngredients = await Ingredient.findAll({ attributes: ["code"] })
+    return new Set(existingIngredients.map(ingredient => normalizeImportText(ingredient.code)))
+}
 
 async function loadActiveUnitsByNormalizedName(): Promise<Map<string, Unit[]>> {
     const activeUnits = await Unit.findAll({ where: { isActive: true } })
@@ -302,11 +363,13 @@ async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
 
     const columnIndexByField = validateIngredientImportHeaders(sheet)
     const unitsByNormalizedName = await loadActiveUnitsByNormalizedName()
+    const existingCodesByNormalized = await loadExistingIngredientCodes()
 
     const rowIssues: RowIssue[] = []
 
     const candidates: (CreateIngredientInput & { urlSlug: string })[] = []
     const firstRowByNormalizedName = new Map<string, number>()
+    const firstRowByNormalizedCode = new Map<string, number>()
     const assignedSlugs = new Set<string>()
 
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
@@ -314,7 +377,9 @@ async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
         if (isImportRowBlank(row, columnIndexByField)) continue
 
         const candidate = await processIngredientImportRow(
-            row, rowNumber, columnIndexByField, unitsByNormalizedName, firstRowByNormalizedName, assignedSlugs, rowIssues
+            row, rowNumber, columnIndexByField, unitsByNormalizedName,
+            firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized,
+            assignedSlugs, rowIssues
         )
         if (candidate) candidates.push(candidate)
     }
@@ -335,6 +400,10 @@ async function buildIngredientImportTemplate(): Promise<Buffer> {
 
     const sheet = workbook.addWorksheet("Ingredientes")
     sheet.columns = [
+        // "Código" va PRIMERO a propósito (columna de identificación del ingrediente) -- el
+        // parser en sí no depende del orden físico de columnas (mapImportHeaders matchea por
+        // nombre de encabezado), pero la plantilla descargable sí debe mostrarlo primero.
+        { header: INGREDIENT_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: INGREDIENT_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 28 },
         { header: INGREDIENT_IMPORT_COLUMNS.ingredientType.header, key: "ingredientType", width: 20 },
         { header: INGREDIENT_IMPORT_COLUMNS.isOrganic.header, key: "isOrganic", width: 26 },
@@ -345,6 +414,7 @@ async function buildIngredientImportTemplate(): Promise<Buffer> {
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
+        code: "PIN-001",
         displayName: "Piña",
         ingredientType: INGREDIENT_TYPE_LABELS.fruit,
         isOrganic: "No",
@@ -354,6 +424,7 @@ async function buildIngredientImportTemplate(): Promise<Buffer> {
         displayNameEn: "Pineapple"
     })
     sheet.addRow({
+        code: "PIN-002",
         displayName: "Piña Orgánica",
         ingredientType: INGREDIENT_TYPE_LABELS.fruit,
         isOrganic: "Sí",
@@ -363,6 +434,7 @@ async function buildIngredientImportTemplate(): Promise<Buffer> {
         displayNameEn: "Organic Pineapple"
     })
     sheet.addRow({
+        code: "CHO-001",
         displayName: "Chocolate Oscuro",
         ingredientType: INGREDIENT_TYPE_LABELS.other,
         isOrganic: "No",
@@ -377,6 +449,7 @@ async function buildIngredientImportTemplate(): Promise<Buffer> {
     helpSheet.getRow(1).font = { bold: true }
     Object.values(INGREDIENT_TYPE_LABELS).forEach(label => helpSheet.addRow({ type: label }))
     helpSheet.addRow({})
+    helpSheet.addRow({ type: `"${INGREDIENT_IMPORT_COLUMNS.code.header}" es un texto libre (letras, números y símbolos) que tú defines -- debe ser único, no puede repetirse entre ingredientes ni dentro del mismo archivo.` })
     helpSheet.addRow({ type: `"${INGREDIENT_IMPORT_COLUMNS.costUnitId.header}" debe ser el nombre EXACTO de una Unidad ya creada en el catálogo (ej. "Kilogramo", "Libra") -- ver el módulo de Unidades.` })
     helpSheet.addRow({ type: `"${INGREDIENT_IMPORT_COLUMNS.isOrganic.header}" y "${INGREDIENT_IMPORT_COLUMNS.isMixable.header}" aceptan Sí/No -- vacío toma el valor por defecto (No y Sí respectivamente).` })
 

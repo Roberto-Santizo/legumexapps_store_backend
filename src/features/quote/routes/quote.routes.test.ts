@@ -66,7 +66,7 @@ describe("quoteRouter (HTTP)", () => {
             const res = await request(app)
                 .post("/api/quotes")
                 .set("Authorization", `Bearer ${customerToken}`)
-                .send({ requestedPallets: 0 }) // faltan productVariantId/destinationId, y 0 < mínimo de 1 palet
+                .send({ requestedPallets: 0 }) // falta productVariantId (destinationId ya es opcional), y 0 < mínimo de 1 palet
 
             expect(res.status).toBe(400)
             expect(Array.isArray(res.body.details)).toBe(true)

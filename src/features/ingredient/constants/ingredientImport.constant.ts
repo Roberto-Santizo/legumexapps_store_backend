@@ -1,5 +1,6 @@
 
 export type IngredientImportField =
+    | "code"
     | "displayName"
     | "ingredientType"
     | "isOrganic"
@@ -14,6 +15,9 @@ interface ImportColumnDef {
 }
 
 export const INGREDIENT_IMPORT_COLUMNS: Record<IngredientImportField, ImportColumnDef> = {
+    // Primera columna de la plantilla a propósito (ver buildIngredientImportTemplate) -- el
+    // mapeo real de columnas es por nombre de encabezado (mapImportHeaders), no por posición.
+    code: { header: "Código", aliases: ["codigo", "código", "code"] },
     displayName: { header: "Nombre", aliases: ["nombre"] },
     ingredientType: { header: "Tipo de ingrediente", aliases: ["tipo de ingrediente", "tipo"] },
     isOrganic: { header: "Es la variante orgánica (Sí/No)", aliases: ["es la variante organica (si/no)", "es la variante organica", "organico", "es organico"] },
@@ -25,6 +29,7 @@ export const INGREDIENT_IMPORT_COLUMNS: Record<IngredientImportField, ImportColu
 
 
 export const REQUIRED_INGREDIENT_IMPORT_FIELDS: IngredientImportField[] = [
+    "code",
     "displayName",
     "ingredientType",
     "costPerUnit",

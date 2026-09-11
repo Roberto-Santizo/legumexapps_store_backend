@@ -4,6 +4,7 @@ import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema
 const packagingRoleEnum = z.enum(["unit", "intermediate", "pallet"])
 
 export const createPackagingSchema = z.object({
+    code: z.string().trim().min(1).max(60),
     displayName: z.string().trim().min(1).max(80),
     packagingRole: packagingRoleEnum,
     packagingMaterial: z.string().trim().max(80).optional(),
@@ -16,6 +17,7 @@ export const packagingIdParamSchema = z.object({
 
 
 export const updatePackagingSchema = createPackagingSchema.partial().extend({
+    code: createPackagingSchema.shape.code,
     packagingRole: createPackagingSchema.shape.packagingRole,
     unitCost: createPackagingSchema.shape.unitCost,
 })

@@ -7,6 +7,21 @@ import ProductVariantPalletMaterial from "../../product/models/ProductVariantPal
     tableName: "packagings"
 })
 class Packaging extends BaseCatalogModel {
+    // Código manual del material (ej. SKU/referencia interna) -- lo escribe el admin a mano,
+    // nunca se autogenera. Único a nivel de columna para que no puedan existir dos materiales
+    // con el mismo código -- ver packaging.service.ts::assertCodeIsUnique para el chequeo
+    // explícito que da un error de negocio claro antes de llegar a este constraint. Mismo
+    // patrón que Ingredient.code (ver Ingredient.model.ts).
+    @Column({
+        type: DataType.STRING(60),
+        allowNull: false,
+        unique: true,
+        validate: {
+            notEmpty: true
+        }
+    })
+    declare code: string
+
     @Column({
         type: DataType.STRING(80),
         allowNull: false

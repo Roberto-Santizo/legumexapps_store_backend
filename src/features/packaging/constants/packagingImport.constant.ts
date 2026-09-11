@@ -1,5 +1,5 @@
 
-export type PackagingImportField = "displayName" | "packagingRole" | "packagingMaterial" | "unitCost"
+export type PackagingImportField = "code" | "displayName" | "packagingRole" | "packagingMaterial" | "unitCost"
 
 interface ImportColumnDef {
     header: string
@@ -7,6 +7,9 @@ interface ImportColumnDef {
 }
 
 export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumnDef> = {
+    // Primera columna de la plantilla a propósito (ver buildPackagingImportTemplate) -- el
+    // mapeo real de columnas es por nombre de encabezado (mapImportHeaders), no por posición.
+    code: { header: "Código", aliases: ["codigo", "código", "code"] },
     displayName: { header: "Nombre", aliases: ["nombre"] },
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
     packagingMaterial: { header: "Material", aliases: ["material"] },
@@ -14,7 +17,7 @@ export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumn
 }
 
 
-export const REQUIRED_PACKAGING_IMPORT_FIELDS: PackagingImportField[] = ["displayName", "packagingRole", "unitCost"]
+export const REQUIRED_PACKAGING_IMPORT_FIELDS: PackagingImportField[] = ["code", "displayName", "packagingRole", "unitCost"]
 
 export const PACKAGING_ROLE_LABELS: Record<string, string> = {
     unit: "Empaque individual",

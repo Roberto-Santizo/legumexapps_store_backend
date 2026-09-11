@@ -49,8 +49,25 @@ describe("calculateQuoteSchema", () => {
             expect(calculateQuoteSchema.safeParse({ ...validInput(), productVariantId: -5 }).success).toBe(false)
         })
 
-        it("rechaza destinationId decimal", () => {
+        it("rechaza destinationId decimal (si se manda, sigue validado)", () => {
             expect(calculateQuoteSchema.safeParse({ ...validInput(), destinationId: 2.5 }).success).toBe(false)
+        })
+
+        it("rechaza destinationId <= 0 (si se manda, sigue validado)", () => {
+            expect(calculateQuoteSchema.safeParse({ ...validInput(), destinationId: 0 }).success).toBe(false)
+        })
+    })
+
+    describe("destinationId -- opcional (2026-09-10, transporte apagado: el cliente ya no elige destino)", () => {
+        it("acepta el input sin destinationId en absoluto", () => {
+            const { destinationId, ...rest } = validInput()
+            const result = calculateQuoteSchema.safeParse(rest)
+            expect(result.success).toBe(true)
+            if (result.success) expect(result.data.destinationId).toBeUndefined()
+        })
+
+        it("acepta destinationId: undefined explícito", () => {
+            expect(calculateQuoteSchema.safeParse({ ...validInput(), destinationId: undefined }).success).toBe(true)
         })
     })
 

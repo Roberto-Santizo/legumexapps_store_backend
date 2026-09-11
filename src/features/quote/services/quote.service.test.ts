@@ -17,17 +17,31 @@ jest.mock("../models/Quote.model", () => ({
     __esModule: true,
     default: { create: jest.fn() }
 }))
+// Catálogo de costos adicionales -- por defecto SIN filas activas (ver beforeEach) para que
+// todos los tests existentes (escritos antes de esta feature) sigan calculando exactamente
+// igual que antes; los tests dedicados a "costos adicionales" más abajo pisan este mock.
+jest.mock("../../processingCost/models/ProcessingCost.model", () => ({
+    __esModule: true,
+    default: { findAll: jest.fn() }
+}))
 
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Destination from "../../destination/models/Destination.model"
 import Quote from "../models/Quote.model"
+import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import { quoteService } from "./quote.service"
 import { NotFoundError } from "../../../shared/errors/AppError"
 import { CalculateQuoteInput } from "../schemas/quote.schema"
+// Se importa el catálogo REAL (no mockeado -- es un módulo de constantes puro, sin Sequelize) para
+// derivar el factor gramos->libras de la misma fuente que usa quote.service.ts, en vez de
+// hardcodear "453.592" una tercera vez en este archivo. Si algún día quote.service.ts dejara de
+// leer este catálogo y usara una constante propia desalineada, estos tests lo detectan solos.
+import { getUnitCatalogEntry } from "../../unit/constants/unitCatalog"
 
 const mockVariantFindOne = ProductVariant.findOne as unknown as jest.Mock
 const mockDestinationFindOne = Destination.findOne as unknown as jest.Mock
 const mockQuoteCreate = Quote.create as unknown as jest.Mock
+const mockProcessingCostFindAll = ProcessingCost.findAll as unknown as jest.Mock
 
 // Costo de destino usado en todos los casos salvo que un test lo pise explícitamente.
 const DESTINATION = { id: 900, displayName: "Puerto Cortés", baseCost: 50 }
@@ -39,6 +53,7 @@ function stubDestination(overrides: Partial<typeof DESTINATION> = {}): void {
 describe("quoteService.calculateQuote", () => {
     beforeEach(() => {
         stubDestination()
+        mockProcessingCostFindAll.mockResolvedValue([]) // catálogo vacío por defecto, ver comentario del mock arriba
     })
 
     const baseInput: CalculateQuoteInput = {
@@ -71,6 +86,67 @@ describe("quoteService.calculateQuote", () => {
             mockVariantFindOne.mockResolvedValue({ id: 10, unitsPerPallet: 0, parentProduct: { isCustomizable: false, productIngredients: [] } })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.pallet_not_configured" })
+        })
+    })
+
+    describe("transporte apagado (sin destinationId, 2026-09-10 -- el cliente ya no elige destino)", () => {
+        function stubMinimalVariant(): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet: 20,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Piña en Trozos",
+                    productIngredients: [
+                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                    ]
+                },
+                sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 2000 },
+                usedPackaging: { id: 5, displayName: "Bolsa plástica", unitCost: 1 },
+                palletMaterials: []
+            })
+        }
+
+        const inputWithoutDestination: CalculateQuoteInput = { productVariantId: 10, requestedPallets: 1 }
+
+        it("no consulta Destination y resuelve transporte en $0 cuando destinationId no viene en el input", async () => {
+            stubMinimalVariant()
+
+            const result = await quoteService.calculateQuote(inputWithoutDestination)
+
+            expect(mockDestinationFindOne).not.toHaveBeenCalled()
+            expect(result.transportCost).toBe(0)
+            expect(result.destinationId).toBeNull()
+            expect(result.breakdown.transport).toEqual({ destinationId: null, displayName: "Sin destino", baseCost: 0 })
+        })
+
+        it("el total no incluye transporte y no da NaN/undefined cuando no hay destino", async () => {
+            stubMinimalVariant()
+
+            const result = await quoteService.calculateQuote(inputWithoutDestination)
+
+            // rawMaterialCost = costPerUnit(20) * quantityValue(0.5) * totalUnits(20) = 200
+            // unitPackagingCost = unitCost(1) * totalUnits(20) = 20
+            // total = 220, SIN componente de transporte (antes habría sido 220 + 50 de baseCost)
+            expect(result.totalCost).toBe(220)
+            expect(Number.isNaN(result.totalCost)).toBe(false)
+        })
+
+        it("sigue rechazando un destinationId que sí se manda pero no existe -- solo dejó de ser obligatorio, no dejó de validarse", async () => {
+            stubMinimalVariant()
+            mockDestinationFindOne.mockResolvedValue(null)
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toBeInstanceOf(NotFoundError)
+        })
+
+        it("saveQuote persiste destinationId: null y transportCost: 0 sin lanzar error cuando no se manda destino", async () => {
+            stubMinimalVariant()
+            mockQuoteCreate.mockResolvedValueOnce({ id: 99, get: () => new Date("2026-09-10T00:00:00Z") })
+
+            const saved = await quoteService.saveQuote(42, inputWithoutDestination)
+
+            expect(saved.destinationId).toBeNull()
+            expect(mockQuoteCreate.mock.calls[0][0]).toMatchObject({ destinationId: null, transportCost: 0 })
         })
     })
 
@@ -306,6 +382,477 @@ describe("quoteService.calculateQuote", () => {
 
             expect(result.adjustmentCost).toBe(0)
             expect(result.breakdown.adjustment).toBeNull()
+        })
+    })
+
+    describe("costos adicionales por peso (catálogo ProcessingCost, energía/mano de obra/etc.)", () => {
+        function stubVariantForProcessingCosts(netWeightGrams: number | null): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet: 20,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Piña en Trozos",
+                    productIngredients: [
+                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                    ]
+                },
+                sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams },
+                usedPackaging: { id: 5, displayName: "Bolsa plástica", unitCost: 1 },
+                palletMaterials: []
+            })
+        }
+
+        it("no agrega ninguna línea ni costo si el catálogo está vacío (estado inicial, el admin todavía no cargó nada)", async () => {
+            stubVariantForProcessingCosts(2000)
+            mockProcessingCostFindAll.mockResolvedValue([])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.processingCostTotal).toBe(0)
+            expect(result.breakdown.processingCosts).toEqual([])
+        })
+
+        it("consulta SOLO costos activos con calculationType 'per_weight' (excluye inactivos y 'percentage' a nivel de query)", async () => {
+            stubVariantForProcessingCosts(2000)
+            mockProcessingCostFindAll.mockResolvedValue([])
+
+            await quoteService.calculateQuote(baseInput)
+
+            expect(mockProcessingCostFindAll).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { isActive: true, calculationType: "per_weight" } })
+            )
+        })
+
+        it("aplica un costo activo sobre el peso total (netWeightGrams * totalUnits, convertido de gramos a libras)", async () => {
+            // Presentación de 2000g, 1 palet * 20 unidades/palet = 20 unidades -> 40000g totales.
+            // 40000g / 453.592 g/lb = 88.18490245... lb. Costo Q0.15/lb.
+            stubVariantForProcessingCosts(2000)
+            mockProcessingCostFindAll.mockResolvedValue([
+                { id: 1, displayName: "Energía", value: 0.15, calculationType: "per_weight", translations: [] }
+            ])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            const expectedPounds = 40000 / 453.592
+            const expectedLineTotal = Math.round(0.15 * expectedPounds * 10000) / 10000
+            expect(result.breakdown.processingCosts).toEqual([
+                expect.objectContaining({ processingCostId: 1, displayName: "Energía", value: 0.15, lineTotal: expectedLineTotal })
+            ])
+            expect(result.processingCostTotal).toBe(expectedLineTotal)
+            // rawMaterialCost(200) + unitPackagingCost(20) + processingCostTotal + transportCost(50)
+            expect(result.totalCost).toBe(200 + 20 + expectedLineTotal + 50)
+        })
+
+        it("suma varios costos adicionales activos a la vez (energía + mano de obra indirecta)", async () => {
+            stubVariantForProcessingCosts(2000)
+            mockProcessingCostFindAll.mockResolvedValue([
+                { id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] },
+                { id: 2, displayName: "Mano de obra indirecta", value: 0.05, calculationType: "per_weight", translations: [] }
+            ])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.breakdown.processingCosts).toHaveLength(2)
+            expect(result.processingCostTotal).toBe(
+                result.breakdown.processingCosts[0].lineTotal + result.breakdown.processingCosts[1].lineTotal
+            )
+        })
+
+        it("usa la traducción al inglés del nombre cuando se pide language='en'", async () => {
+            stubVariantForProcessingCosts(2000)
+            mockProcessingCostFindAll.mockResolvedValue([
+                { id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [{ language: "en", displayName: "Energy" }] }
+            ])
+
+            const result = await quoteService.calculateQuote(baseInput, "en")
+
+            expect(result.breakdown.processingCosts[0].displayName).toBe("Energy")
+        })
+
+        it("rechaza si hay costos activos pero la presentación no tiene peso neto configurado", async () => {
+            stubVariantForProcessingCosts(null)
+            mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
+        })
+
+        it("no exige peso neto si el catálogo está vacío (no rompe productos de receta fija existentes sin este dato)", async () => {
+            stubVariantForProcessingCosts(null)
+            mockProcessingCostFindAll.mockResolvedValue([])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.processingCostTotal).toBe(0)
+        })
+
+        it("rechaza si netWeightGrams es exactamente 0 (no solo null/undefined) mientras hay costos activos -- nunca se asume peso 0 en silencio", async () => {
+            stubVariantForProcessingCosts(0)
+            mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
+        })
+
+        it("rechaza si netWeightGrams es negativo (dato corrupto) mientras hay costos activos", async () => {
+            stubVariantForProcessingCosts(-500)
+            mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
+        })
+
+        it("rechaza si la variante no tiene sizePresentation en absoluto (undefined, no solo netWeightGrams vacío) mientras hay costos activos", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet: 20,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Piña en Trozos",
+                    productIngredients: [
+                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                    ]
+                },
+                // sin sizePresentation -- variant.sizePresentation?.netWeightGrams debe caer a undefined, no reventar
+                usedPackaging: { id: 5, displayName: "Bolsa plástica", unitCost: 1 },
+                palletMaterials: []
+            })
+            mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
+        })
+
+        it("acepta netWeightGrams como string (\"2000\") -- Sequelize devuelve columnas DECIMAL como string en un SELECT normal", async () => {
+            // @ts-expect-error -- simula deliberadamente la forma cruda que devuelve Sequelize (string) en vez del tipo declarado (number)
+            stubVariantForProcessingCosts("2000")
+            mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.processingCostTotal).toBeGreaterThan(0)
+            expect(Number.isFinite(result.processingCostTotal)).toBe(true)
+        })
+
+        it("acepta el value de un ProcessingCost como string (\"0.15\") -- mismo motivo, DECIMAL crudo de Sequelize", async () => {
+            stubVariantForProcessingCosts(453.592) // exactamente 1 libra por unidad
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Piña en Trozos",
+                    productIngredients: [{ ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }]
+                },
+                sizePresentation: { displayLabel: "Bolsa", netWeightGrams: 453.592 },
+                usedPackaging: null,
+                palletMaterials: []
+            })
+            // El mock no está tipado contra el modelo real (ver "as unknown as jest.Mock" arriba),
+            // así que "2" como string pasa el compilador igual que en producción: Sequelize
+            // devuelve DECIMAL crudo como string y toDecimal() del backend ya sabe leerlo.
+            mockProcessingCostFindAll.mockResolvedValue([
+                { id: 1, displayName: "Energía", value: "2", calculationType: "per_weight", translations: [] }
+            ])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            // totalUnits = 1 palet * 1 unidad/palet = 1; 1 unidad * 453.592g = exactamente 1 libra.
+            expect(result.processingCostTotal).toBe(2)
+        })
+
+        describe("conversión gramos->libras usa el baseFactor REAL del catálogo de unidades, no una constante duplicada", () => {
+            function stubVariantWithWeight(netWeightGrams: number, unitsPerPallet: number): void {
+                mockVariantFindOne.mockResolvedValue({
+                    id: 10,
+                    unitsPerPallet,
+                    parentProduct: {
+                        isCustomizable: false,
+                        displayName: "Producto de prueba",
+                        productIngredients: [{ ingredientId: 1, quantityValue: 0.1, usedIngredient: { displayName: "X", costPerUnit: 1 } }]
+                    },
+                    sizePresentation: { displayLabel: "Presentación", netWeightGrams },
+                    usedPackaging: null,
+                    palletMaterials: []
+                })
+            }
+
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
+            const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
+
+            it("1 unidad de exactamente 1 libra de peso neto, costo Q2/lb -> Q2 exactos (número limpio, verificable a mano)", async () => {
+                stubVariantWithWeight(GRAMS_PER_POUND, 1) // 1 palet * 1 unidad/palet = 1 unidad de 1lb
+                mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 2, calculationType: "per_weight", translations: [] }])
+
+                const result = await quoteService.calculateQuote(baseInput)
+
+                expect(result.processingCostTotal).toBe(2)
+                expect(result.breakdown.processingCosts[0].totalWeightPounds).toBe(1)
+            })
+
+            it("1 unidad de exactamente 2 libras de peso neto, costo Q1/lb -> Q2 exactos", async () => {
+                stubVariantWithWeight(GRAMS_PER_POUND * 2, 1)
+                mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
+
+                const result = await quoteService.calculateQuote(baseInput)
+
+                expect(result.processingCostTotal).toBe(2)
+                expect(result.breakdown.processingCosts[0].totalWeightPounds).toBe(2)
+            })
+
+            it("10 unidades de exactamente 1 libra cada una, costo Q1/lb -> Q10 exactos (escala con totalUnits)", async () => {
+                stubVariantWithWeight(GRAMS_PER_POUND, 10) // 1 palet * 10 unidades/palet
+                mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
+
+                const result = await quoteService.calculateQuote(baseInput)
+
+                expect(result.processingCostTotal).toBe(10)
+                expect(result.breakdown.processingCosts[0].totalWeightPounds).toBe(10)
+            })
+
+            it("usa el mismo baseFactor que expone el catálogo de unidades para un peso NO limpio (1000g) -- si quote.service.ts usara una constante propia desalineada, este número no coincidiría", async () => {
+                stubVariantWithWeight(1000, 1)
+                mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
+
+                const result = await quoteService.calculateQuote(baseInput)
+
+                const expectedPounds = 1000 / GRAMS_PER_POUND
+                const expectedLineTotal = Math.round(1 * expectedPounds * 10000) / 10000
+                expect(result.processingCostTotal).toBe(expectedLineTotal)
+            })
+        })
+
+        it("suma exacta de 3 costos adicionales activos a la vez (energía + análisis de laboratorio + mantenimiento), no solo una comparación relativa", async () => {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
+            const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Producto de prueba",
+                    productIngredients: [{ ingredientId: 1, quantityValue: 0.1, usedIngredient: { displayName: "X", costPerUnit: 1 } }]
+                },
+                sizePresentation: { displayLabel: "Presentación", netWeightGrams: GRAMS_PER_POUND * 10 }, // 10 lb por unidad, 1 unidad
+                usedPackaging: null,
+                palletMaterials: []
+            })
+            mockProcessingCostFindAll.mockResolvedValue([
+                { id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] },
+                { id: 2, displayName: "Análisis de laboratorio", value: 0.2, calculationType: "per_weight", translations: [] },
+                { id: 3, displayName: "Mantenimiento", value: 0.05, calculationType: "per_weight", translations: [] }
+            ])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            // 10 libras * cada costo: 0.1*10=1, 0.2*10=2, 0.05*10=0.5 -> total exacto 3.5
+            expect(result.breakdown.processingCosts.map(line => line.lineTotal)).toEqual([1, 2, 0.5])
+            expect(result.processingCostTotal).toBe(3.5)
+        })
+
+        it("excluye una fila 'percentage' de la respuesta aunque el catálogo la devuelva junto a filas 'per_weight' (defensa en profundidad: quote.service.ts vuelve a validar calculationType en código, no confía solo en el filtro WHERE de la query)", async () => {
+            stubVariantForProcessingCosts(2000)
+            // Simula qué pasaría si la query alguna vez dejara de filtrar por calculationType (ej.
+            // un refactor futuro que solo filtre por isActive) -- el mock, a diferencia de Postgres,
+            // no aplica el WHERE por sí solo, así que esto reproduce ese escenario a propósito.
+            mockProcessingCostFindAll.mockResolvedValue([
+                { id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] },
+                { id: 2, displayName: "Contingencia 2%", value: 2, calculationType: "percentage", translations: [] }
+            ])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.breakdown.processingCosts.map(line => line.processingCostId)).toEqual([1])
+        })
+
+        it("con el catálogo vacío, el total es IDÉNTICO al comportamiento histórico de antes de esta feature (regresión de compatibilidad hacia atrás)", async () => {
+            stubVariantForProcessingCosts(2000)
+            mockProcessingCostFindAll.mockResolvedValue([])
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            // rawMaterialCost(200) + unitPackagingCost(20) + transportCost(50), sin materiales de
+            // palet en este fixture -- el punto es que el total NO se mueve ni un centavo por la
+            // sola presencia de esta feature cuando el catálogo de costos adicionales está vacío.
+            expect(result.processingCostTotal).toBe(0)
+            expect(result.totalCost).toBe(270)
+        })
+
+        it("el total incluye TODAS las líneas a la vez (materia prima + empaque unitario + empaque intermedio + costos adicionales + materiales de palet + transporte + ajuste), sumadas y redondeadas correctamente", async () => {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
+            const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet: 10,
+                unitsPerIntermediatePackage: 5,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Producto completo",
+                    productIngredients: [{ ingredientId: 1, quantityValue: 1, usedIngredient: { displayName: "X", costPerUnit: 2 } }],
+                    additionalCostPerUnit: 0.5
+                },
+                sizePresentation: { displayLabel: "Bolsa", netWeightGrams: GRAMS_PER_POUND }, // 1 lb por unidad
+                usedPackaging: { id: 5, displayName: "Bolsa", unitCost: 1 },
+                usedIntermediatePackaging: { id: 6, displayName: "Bolsa grande", unitCost: 3 },
+                palletMaterials: [{ packagingId: 7, quantityValue: 2, usedPalletMaterial: { displayName: "Caja", unitCost: 4 } }]
+            })
+            mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
+
+            const result = await quoteService.calculateQuote(baseInput) // requestedPallets=1 -> totalUnits = 10
+
+            // rawMaterialCost = costPerUnit(2) * quantityValue(1) * totalUnits(10) = 20
+            expect(result.rawMaterialCost).toBe(20)
+            // unitPackagingCost = unitCost(1) * totalUnits(10) = 10
+            expect(result.unitPackagingCost).toBe(10)
+            // intermediatePackagingCost = ceil(10/5)=2 paquetes * unitCost(3) = 6
+            expect(result.intermediatePackagingCost).toBe(6)
+            // processingCostTotal = 10 unidades * 1lb c/u = 10lb * Q1/lb = 10
+            expect(result.processingCostTotal).toBe(10)
+            // palletMaterialCost = unitCost(4) * quantityValue(2) * requestedPallets(1) = 8
+            expect(result.palletMaterialCost).toBe(8)
+            // transportCost = baseCost del destino stubeado = 50
+            expect(result.transportCost).toBe(50)
+            // adjustmentCost = additionalCostPerUnit(0.5) * totalUnits(10) = 5
+            expect(result.adjustmentCost).toBe(5)
+            // totalCost = 20 + 10 + 6 + 10 + 8 + 50 + 5 = 109
+            expect(result.totalCost).toBe(109)
+        })
+    })
+
+    describe("costos adicionales tipo porcentaje (Imprevistos/contingencia, aplicados AL FINAL sobre el subtotal ya escalado)", () => {
+        // ProcessingCost.findAll se llama dos veces (una para "per_weight", otra para
+        // "percentage") -- un jest.fn() compartido con mockResolvedValue() respondería lo mismo a
+        // ambas llamadas, así que acá se inspecciona el `where.calculationType` real para
+        // devolver la lista correcta a cada una (mismo patrón ya usado en otras suites del repo
+        // para mocks con más de una forma de "where" posible).
+        function stubProcessingCosts(rows: { perWeight?: unknown[]; percentage?: unknown[] } = {}): void {
+            const perWeightRows = rows.perWeight ?? []
+            const percentageRows = rows.percentage ?? []
+            mockProcessingCostFindAll.mockImplementation(({ where }: { where: { calculationType: string } }) =>
+                Promise.resolve(where.calculationType === "percentage" ? percentageRows : perWeightRows)
+            )
+        }
+
+        // Fixture limpio y "de a mano": 1 palet * 1 unidad/palet (por defecto) = 1 unidad.
+        // rawMaterialCost = costPerUnit(1) * quantityValue(100) * totalUnits(1) = 100
+        // unitPackagingCost = unitCost(20) * totalUnits(1) = 20
+        // palletMaterialCost = unitCost(30) * quantityValue(1) * requestedPallets(1) = 30
+        // percentageBase = 100 + 0(sin costos por peso) + 20 + 0(sin empaque intermedio) + 30 = 150
+        function stubBaseVariant(unitsPerPallet: number): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                unitsPerPallet,
+                parentProduct: {
+                    isCustomizable: false,
+                    displayName: "Producto de prueba",
+                    productIngredients: [{ ingredientId: 1, quantityValue: 100, usedIngredient: { displayName: "X", costPerUnit: 1 } }]
+                },
+                sizePresentation: { displayLabel: "Presentación", netWeightGrams: 1 },
+                usedPackaging: { id: 5, displayName: "Empaque", unitCost: 20 },
+                palletMaterials: [{ packagingId: 7, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 30 } }]
+            })
+        }
+
+        it("aplica el % sobre materia prima + empaque + materiales de palet, EXCLUYE transporte de la base -- valores exactos", async () => {
+            stubBaseVariant(1)
+            stubProcessingCosts({ percentage: [{ id: 1, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] }] })
+
+            const result = await quoteService.calculateQuote(baseInput) // requestedPallets=1 -> totalUnits=1
+
+            expect(result.rawMaterialCost).toBe(100)
+            expect(result.unitPackagingCost).toBe(20)
+            expect(result.palletMaterialCost).toBe(30)
+            // percentageBase = 100 + 20 + 30 = 150 (transporte NO entra -- ver siguiente expect)
+            expect(result.breakdown.percentageCosts).toEqual([
+                expect.objectContaining({ processingCostId: 1, displayName: "Imprevistos", value: 2, baseAmount: 150, lineTotal: 3 })
+            ])
+            expect(result.percentageCostTotal).toBe(3) // 150 * 2 / 100
+            expect(result.transportCost).toBe(50) // el destino stubeado, fuera de la base
+            // totalCost = base(150) + percentage(3) + transporte(50) = 203
+            expect(result.totalCost).toBe(203)
+        })
+
+        it("se calcula sobre el subtotal YA ESCALADO a varios palets, no sobre un monto por unidad sin escalar", async () => {
+            stubBaseVariant(1)
+            stubProcessingCosts({ percentage: [{ id: 1, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] }] })
+
+            const result = await quoteService.calculateQuote({ ...baseInput, requestedPallets: 5 }) // totalUnits = 5
+
+            // Cada línea de la base escala x5 frente al test anterior (1 palet):
+            expect(result.rawMaterialCost).toBe(500) // 100 * 5
+            expect(result.unitPackagingCost).toBe(100) // 20 * 5
+            expect(result.palletMaterialCost).toBe(150) // 30 * 5
+            // percentageBase = 500 + 100 + 150 = 750 (= 150 * 5, la base también escala completa)
+            expect(result.breakdown.percentageCosts[0]).toEqual(
+                expect.objectContaining({ baseAmount: 750, lineTotal: 15 }) // 750 * 2 / 100 = 15
+            )
+            expect(result.percentageCostTotal).toBe(15)
+            expect(result.transportCost).toBe(50) // el transporte NO escala con palets, sigue siendo el mismo baseCost fijo
+            // totalCost = 750 + 15 + 50 = 815
+            expect(result.totalCost).toBe(815)
+        })
+
+        it("varias filas 'percentage' activas se SUMAN sobre la misma base, no se componen/encadenan", async () => {
+            stubBaseVariant(1)
+            stubProcessingCosts({
+                percentage: [
+                    { id: 1, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] },
+                    { id: 2, displayName: "Utilidad", value: 5, calculationType: "percentage", translations: [] }
+                ]
+            })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            // Base = 150 (igual que el primer test). Sumado: 150*2/100 + 150*5/100 = 3 + 7.5 = 10.5.
+            // Si se compusiera en cadena (150*1.02*1.05 - 150 = 10.65) el resultado sería distinto
+            // -- este valor exacto (10.5, no 10.65) es justo lo que distingue "sumado" de "compuesto".
+            expect(result.breakdown.percentageCosts.map(line => line.lineTotal)).toEqual([3, 7.5])
+            expect(result.percentageCostTotal).toBe(10.5)
+            expect(result.totalCost).toBe(150 + 10.5 + 50) // 210.5
+        })
+
+        it("una fila 'per_weight' que se cuele en la respuesta de la query de 'percentage' NO se calcula como porcentaje (defensa en profundidad simétrica a la de per_weight)", async () => {
+            stubBaseVariant(1)
+            stubProcessingCosts({
+                percentage: [
+                    { id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] },
+                    { id: 2, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] }
+                ]
+            })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.breakdown.percentageCosts.map(line => line.processingCostId)).toEqual([2])
+        })
+
+        it("con el catálogo de 'percentage' vacío, el comportamiento es IDÉNTICO al de antes de esta feature (regresión)", async () => {
+            stubBaseVariant(1)
+            stubProcessingCosts() // sin filas de ningún tipo
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.percentageCostTotal).toBe(0)
+            expect(result.breakdown.percentageCosts).toEqual([])
+            expect(result.totalCost).toBe(200) // base(150) + transporte(50), sin percentage ni per_weight
+        })
+
+        it("una cotización ya guardada NO cambia retroactivamente cuando el catálogo de porcentajes se edita/desactiva después (snapshot congelado)", async () => {
+            stubBaseVariant(1)
+            stubProcessingCosts({ percentage: [{ id: 1, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] }] })
+            mockQuoteCreate.mockResolvedValueOnce({ id: 1, get: () => new Date("2026-01-01T00:00:00Z") })
+
+            const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+            expect(quote1.percentageCostTotal).toBe(3)
+
+            // El admin ahora desactiva "Imprevistos" (catálogo cambia) y se cotiza un pedido NUEVO.
+            stubProcessingCosts() // ninguna fila activa de ningún tipo
+            mockQuoteCreate.mockResolvedValueOnce({ id: 2, get: () => new Date("2026-01-02T00:00:00Z") })
+
+            const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+            expect(quote2.percentageCostTotal).toBe(0)
+
+            // Lo que YA se persistió en la primera llamada sigue con el valor congelado (Q3).
+            expect(mockQuoteCreate.mock.calls[0][0]).toMatchObject({ percentageCostTotal: 3 })
+            expect(mockQuoteCreate.mock.calls[1][0]).toMatchObject({ percentageCostTotal: 0 })
+            expect(quote1.percentageCostTotal).toBe(3)
+            expect(quote1.breakdown.percentageCosts).toEqual([expect.objectContaining({ processingCostId: 1, lineTotal: 3 })])
         })
     })
 
@@ -838,6 +1385,7 @@ describe("quoteService.calculateQuote", () => {
 describe("quoteService.saveQuote", () => {
     beforeEach(() => {
         stubDestination()
+        mockProcessingCostFindAll.mockResolvedValue([]) // ver comentario junto al mock del modelo, arriba del archivo
     })
 
     it("nunca confía en el desglose del cliente: siempre persiste lo que devuelve calculateQuote, no el input recibido", async () => {
@@ -873,7 +1421,81 @@ describe("quoteService.saveQuote", () => {
         // rawMaterialCost(200) + unitPackagingCost(20) + palletMaterialCost(0, sin materiales) + transportCost(50)
         expect(saved.totalCost).toBe(270) // recalculado server-side, no 999999
         expect(mockQuoteCreate).toHaveBeenCalledWith(
-            expect.objectContaining({ customerId: 42, totalCost: 270 })
+            expect.objectContaining({ customerId: 42, totalCost: 270, processingCostTotal: 0 })
         )
+    })
+
+    function stubOnePoundVariant(): void {
+        mockVariantFindOne.mockResolvedValue({
+            id: 10,
+            unitsPerPallet: 1,
+            parentProduct: {
+                isCustomizable: false,
+                displayName: "Piña en Trozos",
+                productIngredients: [
+                    { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                ]
+            },
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
+            sizePresentation: { displayLabel: "Bolsa", netWeightGrams: getUnitCatalogEntry("pound")!.baseFactor },
+            usedPackaging: null,
+            palletMaterials: []
+        })
+    }
+
+    it("ignora cualquier processingCostTotal/breakdown.processingCosts que el front intente mandar -- siempre recalcula del catálogo real", async () => {
+        stubOnePoundVariant()
+        mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
+        mockQuoteCreate.mockResolvedValue({ id: 777, get: () => new Date("2026-08-10T00:00:00Z") })
+
+        // Mismo criterio que el test de arriba (totalCost inventado): calculateQuoteSchema no
+        // tiene estos campos, TypeScript los rechazaría en producción -- se fuerza con `as` para
+        // simular un payload HTTP crudo que intenta bypasear el tipo.
+        const tamperedInput = {
+            productVariantId: 10,
+            destinationId: 900,
+            requestedPallets: 1,
+            processingCostTotal: 999999,
+            breakdown: {
+                processingCosts: [
+                    { processingCostId: 999, displayName: "Falso", value: 999, totalWeightPounds: 1, lineTotal: 999999 }
+                ]
+            }
+        } as CalculateQuoteInput
+
+        const saved = await quoteService.saveQuote(42, tamperedInput)
+
+        // totalUnits = 1 palet * 1 unidad/palet = 1; 1 unidad de exactamente 1 libra * Q1/lb = Q1.
+        expect(saved.processingCostTotal).toBe(1)
+        expect(saved.breakdown.processingCosts).toEqual([
+            expect.objectContaining({ processingCostId: 1, lineTotal: 1 })
+        ])
+        expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ processingCostTotal: 1 }))
+    })
+
+    it("una cotización ya guardada NO cambia retroactivamente cuando el catálogo de costos adicionales se edita/desactiva después (el snapshot queda congelado)", async () => {
+        stubOnePoundVariant()
+        mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 3, calculationType: "per_weight", translations: [] }])
+        mockQuoteCreate.mockResolvedValueOnce({ id: 1, get: () => new Date("2026-01-01T00:00:00Z") })
+
+        const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+        expect(quote1.processingCostTotal).toBe(3) // 1 libra * Q3/lb
+
+        // El admin ahora desactiva el costo (simula "el catálogo cambió después") y se cotiza
+        // un pedido NUEVO -- esto no debe tocar en absoluto lo que ya se guardó en quote1.
+        mockProcessingCostFindAll.mockResolvedValue([])
+        mockQuoteCreate.mockResolvedValueOnce({ id: 2, get: () => new Date("2026-01-02T00:00:00Z") })
+
+        const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+        expect(quote2.processingCostTotal).toBe(0)
+
+        // El objeto que YA se le pasó a Quote.create() en la primera llamada sigue teniendo el
+        // valor congelado (Q3), sin importar que el catálogo haya cambiado para la segunda.
+        expect(mockQuoteCreate.mock.calls[0][0]).toMatchObject({ processingCostTotal: 3 })
+        expect(mockQuoteCreate.mock.calls[1][0]).toMatchObject({ processingCostTotal: 0 })
+        // Y el resultado ya devuelto de la primera llamada (lo que viajó a la respuesta HTTP)
+        // tampoco se muta después por la segunda llamada.
+        expect(quote1.processingCostTotal).toBe(3)
+        expect(quote1.breakdown.processingCosts).toEqual([expect.objectContaining({ processingCostId: 1, lineTotal: 3 })])
     })
 })

@@ -21,6 +21,7 @@ import customerLoginRouter from "../features/customer/routes/customerLogin.route
 import quoteRouter from "../features/quote/routes/quote.routes"
 import adminQuoteRouter from "../features/quote/routes/adminQuote.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
+import processingCostRouter from "../features/processingCost/routes/processingCost.routes"
 
 const appRouter = Router()
 
@@ -44,6 +45,7 @@ appRouter.use("/packagings", packagingRouter)
 appRouter.use("/presentations", presentationRouter)
 appRouter.use("/ingredients", ingredientRouter)
 appRouter.use("/destinations", destinationRouter)
+appRouter.use("/processing-costs", processingCostRouter)
 appRouter.use("/product-variants", productVariantRouter)
 appRouter.use("/product-ingredients", productIngredientRouter)
 appRouter.use("/product-variant-pallet-materials", productVariantPalletMaterialRouter)

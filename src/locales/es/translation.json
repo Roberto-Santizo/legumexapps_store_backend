@@ -37,6 +37,9 @@
         "bulk_import_too_many_rows": "El archivo tiene más de {{max}} filas. Divídelo en archivos más pequeños e impórtalos por separado.",
         "bulk_import_unknown_role": "\"{{value}}\" no es un rol válido. Usa uno de estos valores: {{validValues}}.",
         "bulk_import_duplicate_name_in_file": "\"{{displayName}}\" ya aparece en la fila {{firstRow}} de este mismo archivo -- está repetido.",
+        "bulk_import_duplicate_code_in_file": "El código \"{{code}}\" ya aparece en la fila {{firstRow}} de este mismo archivo -- está repetido.",
+        "ingredient_code_already_exists": "Ya existe un ingrediente con el código \"{{code}}\". El código debe ser único.",
+        "packaging_code_already_exists": "Ya existe un material de empaque con el código \"{{code}}\". El código debe ser único.",
         "bulk_import_missing_file": "Debes seleccionar un archivo para importar.",
         "bulk_import_invalid_file_type": "El archivo debe ser Excel (.xlsx o .xls).",
         "bulk_import_file_too_large": "El archivo supera el tamaño máximo permitido (5MB).",
@@ -75,7 +78,8 @@
         "Role": "Rol",
         "Permission": "Permiso",
         "Customer": "Cliente",
-        "Quote": "Cotización"
+        "Quote": "Cotización",
+        "ProcessingCost": "Costo adicional"
     },
     "permissionActions": {
         "view": "Ver",
@@ -98,6 +102,7 @@
         "roles": "roles",
         "permissions": "permisos",
         "quotes": "cotizaciones",
-        "dashboard": "panel"
+        "dashboard": "panel",
+        "processingCosts": "costos adicionales"
     }
 }

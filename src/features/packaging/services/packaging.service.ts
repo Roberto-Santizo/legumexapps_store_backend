@@ -33,12 +33,24 @@ async function getPackagingById(id: number): Promise<Packaging> {
     return packaging
 }
 
+// El código es manual (nunca se autogenera) y único -- se rechaza con un error de negocio claro
+// ANTES de llegar al unique constraint de la columna (que daría el 409 genérico
+// "errors.unique_constraint" vía errorHandler, menos útil para el admin). Mismo patrón que
+// ingredient.service.ts::assertCodeIsUnique.
+async function assertCodeIsUnique(code: string, excludeId?: number): Promise<void> {
+    const where: WhereOptions = excludeId ? { code, id: { [Op.ne]: excludeId } } : { code }
+    const existing = await Packaging.findOne({ where })
+    if (existing) throw new AppError(409, "errors.packaging_code_already_exists", { code })
+}
+
 async function createPackaging(input: CreatePackagingInput): Promise<Packaging> {
+    await assertCodeIsUnique(input.code)
     return Packaging.create(input)
 }
 
 async function updatePackaging(id: number, input: UpdatePackagingInput): Promise<Packaging> {
     const packaging = await getPackagingById(id)
+    if (input.code) await assertCodeIsUnique(input.code, id)
     return packaging.update(input)
 }
 
@@ -69,12 +81,17 @@ function resolvePackagingRoleField(rawRole: ImportCellValue, ctx: PackagingRowVa
 }
 
 function buildPackagingImportCandidate(fields: {
+    rawCode: ImportCellValue
     rawDisplayName: ImportCellValue
     resolvedRole: string | undefined
     rawMaterial: ImportCellValue
     rawUnitCost: ImportCellValue
 }) {
     return {
+        // String(...) y no el mismo trim condicional que displayName: un código entrado sin
+        // formato de texto en Excel puede llegar como number -- hay que forzarlo a string siempre
+        // para no romper el schema (code es string). Mismo criterio que ingredient.service.ts.
+        code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         packagingRole: fields.resolvedRole,
         packagingMaterial: typeof fields.rawMaterial === "string" ? fields.rawMaterial.trim() || undefined : undefined,
@@ -104,20 +121,52 @@ function finalizePackagingImportCandidate(
     validated: CreatePackagingInput,
     rowNumber: number,
     firstRowByNormalizedName: Map<string, number>,
+    firstRowByNormalizedCode: Map<string, number>,
+    existingCodesByNormalized: Set<string>,
     rowIssues: RowIssue[]
 ): CreatePackagingInput | null {
+    // A diferencia de displayName (no es único a nivel de columna, solo se revisa dentro del
+    // archivo), code SÍ es único en la BD -- se reportan ambos problemas si aplican, en vez de
+    // cortar en el primero, para que el admin vea todos los errores de la fila de una vez. Mismo
+    // criterio que ingredient.service.ts::finalizeIngredientImportCandidate.
+    let hasIssue = false
+
     const normalizedName = normalizeImportText(validated.displayName)
-    const firstRow = firstRowByNormalizedName.get(normalizedName)
-    if (firstRow) {
+    const firstNameRow = firstRowByNormalizedName.get(normalizedName)
+    if (firstNameRow) {
         rowIssues.push({
             row: rowNumber,
             field: "displayName",
             key: "errors.bulk_import_duplicate_name_in_file",
-            params: { displayName: validated.displayName, firstRow }
+            params: { displayName: validated.displayName, firstRow: firstNameRow }
         })
-        return null
+        hasIssue = true
     }
+
+    const normalizedCode = normalizeImportText(validated.code)
+    const firstCodeRow = firstRowByNormalizedCode.get(normalizedCode)
+    if (firstCodeRow) {
+        rowIssues.push({
+            row: rowNumber,
+            field: "code",
+            key: "errors.bulk_import_duplicate_code_in_file",
+            params: { code: validated.code, firstRow: firstCodeRow }
+        })
+        hasIssue = true
+    } else if (existingCodesByNormalized.has(normalizedCode)) {
+        rowIssues.push({
+            row: rowNumber,
+            field: "code",
+            key: "errors.packaging_code_already_exists",
+            params: { code: validated.code }
+        })
+        hasIssue = true
+    }
+
+    if (hasIssue) return null
+
     firstRowByNormalizedName.set(normalizedName, rowNumber)
+    firstRowByNormalizedCode.set(normalizedCode, rowNumber)
     return validated
 }
 
@@ -126,8 +175,11 @@ function processPackagingImportRow(
     rowNumber: number,
     columnIndexByField: Map<PackagingImportField, number>,
     firstRowByNormalizedName: Map<string, number>,
+    firstRowByNormalizedCode: Map<string, number>,
+    existingCodesByNormalized: Set<string>,
     rowIssues: RowIssue[]
 ): CreatePackagingInput | null {
+    const rawCode = readImportCell(row, columnIndexByField.get("code"))
     const rawDisplayName = readImportCell(row, columnIndexByField.get("displayName"))
     const rawRole = readImportCell(row, columnIndexByField.get("packagingRole"))
     const rawMaterial = readImportCell(row, columnIndexByField.get("packagingMaterial"))
@@ -136,7 +188,7 @@ function processPackagingImportRow(
     const ctx: PackagingRowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
 
     const resolvedRole = resolvePackagingRoleField(rawRole, ctx)
-    const candidate = buildPackagingImportCandidate({ rawDisplayName, resolvedRole, rawMaterial, rawUnitCost })
+    const candidate = buildPackagingImportCandidate({ rawCode, rawDisplayName, resolvedRole, rawMaterial, rawUnitCost })
 
     const { validated, issues: zodIssues } = collectPackagingZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
     ctx.rowIssues.push(...zodIssues)
@@ -147,7 +199,18 @@ function processPackagingImportRow(
     }
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rowIssues vacío arriba garantiza que zod sí validó
-    return finalizePackagingImportCandidate(validated!, rowNumber, firstRowByNormalizedName, rowIssues)
+    return finalizePackagingImportCandidate(
+        validated!, rowNumber, firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized, rowIssues
+    )
+}
+
+// Preload de todos los códigos de material ya existentes (activos o no) para poder rechazar
+// duplicados-contra-la-BD con un RowIssue claro ANTES de intentar el bulkCreate, en vez de dejar
+// que Postgres reviente el batch completo con una violación de unique constraint genérica. Mismo
+// patrón que ingredient.service.ts::loadExistingIngredientCodes.
+async function loadExistingPackagingCodes(): Promise<Set<string>> {
+    const existingPackagings = await Packaging.findAll({ attributes: ["code"] })
+    return new Set(existingPackagings.map(packaging => normalizeImportText(packaging.code)))
 }
 
 function validatePackagingImportHeaders(sheet: ExcelJS.Worksheet): Map<PackagingImportField, number> {
@@ -174,15 +237,20 @@ async function bulkImportPackagings(buffer: Buffer): Promise<Packaging[]> {
         throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PACKAGING_IMPORT_ROWS })
     }
 
+    const existingCodesByNormalized = await loadExistingPackagingCodes()
+
     const rowIssues: RowIssue[] = []
     const candidates: CreatePackagingInput[] = []
     const firstRowByNormalizedName = new Map<string, number>()
+    const firstRowByNormalizedCode = new Map<string, number>()
 
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
         const row = sheet.getRow(rowNumber)
         if (isImportRowBlank(row, columnIndexByField)) continue
 
-        const candidate = processPackagingImportRow(row, rowNumber, columnIndexByField, firstRowByNormalizedName, rowIssues)
+        const candidate = processPackagingImportRow(
+            row, rowNumber, columnIndexByField, firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized, rowIssues
+        )
         if (candidate) candidates.push(candidate)
     }
 
@@ -201,6 +269,10 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
 
     const sheet = workbook.addWorksheet("Empaques")
     sheet.columns = [
+        // "Código" va PRIMERO a propósito (columna de identificación del material) -- el
+        // parser en sí no depende del orden físico de columnas (mapImportHeaders matchea por
+        // nombre de encabezado), pero la plantilla descargable sí debe mostrarlo primero.
+        { header: PACKAGING_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: PACKAGING_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.packagingRole.header, key: "packagingRole", width: 34 },
         { header: PACKAGING_IMPORT_COLUMNS.packagingMaterial.header, key: "packagingMaterial", width: 24 },
@@ -208,18 +280,21 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
+        code: "BOL-001",
         displayName: "Bolsa plástica 2kg",
         packagingRole: PACKAGING_ROLE_LABELS.unit,
         packagingMaterial: "Polietileno",
         unitCost: 1.25
     })
     sheet.addRow({
+        code: "BOL-002",
         displayName: "Bolsa grande 50 unidades",
         packagingRole: PACKAGING_ROLE_LABELS.intermediate,
         packagingMaterial: "Polipropileno",
         unitCost: 3.5
     })
     sheet.addRow({
+        code: "CAJ-001",
         displayName: "Caja corrugada master",
         packagingRole: PACKAGING_ROLE_LABELS.pallet,
         packagingMaterial: "Cartón corrugado",
@@ -230,6 +305,8 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     helpSheet.columns = [{ header: `${PACKAGING_IMPORT_COLUMNS.packagingRole.header} (valores permitidos)`, key: "role", width: 42 }]
     helpSheet.getRow(1).font = { bold: true }
     Object.values(PACKAGING_ROLE_LABELS).forEach(label => helpSheet.addRow({ role: label }))
+    helpSheet.addRow({})
+    helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}" es un texto libre (letras, números y símbolos) que tú defines -- debe ser único, no puede repetirse entre materiales ni dentro del mismo archivo.` })
 
     return writeWorkbookToBuffer(workbook)
 }

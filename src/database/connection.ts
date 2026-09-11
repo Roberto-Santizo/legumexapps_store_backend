@@ -24,6 +24,8 @@ import Permission from "../features/accessControl/permissions/models/permission.
 import RolePermission from "../features/accessControl/rolePermissions/models/rolePermission.model"
 import Customer from "../features/customer/models/Customer.model"
 import Quote from "../features/quote/models/Quote.model"
+import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
+import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
 
 const sequelize = new Sequelize(env.databaseUrl, {
     logging: env.nodeEnv === "development" ? console.log : false,
@@ -56,7 +58,9 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Permission,
         RolePermission,
         Customer,
-        Quote
+        Quote,
+        ProcessingCost,
+        ProcessingCostTranslation
     ]
 })
 

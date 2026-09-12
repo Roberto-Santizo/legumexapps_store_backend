@@ -4,6 +4,7 @@ import Product from "./Product.model";
 import Presentation from "../../presentation/models/Presentation.model";
 import Packaging from "../../packaging/models/Packaging.model";
 import ProductVariantPalletMaterial from "./ProductVariantPalletMaterial.model";
+import ProductVariantUnitMaterial from "./ProductVariantUnitMaterial.model";
 
 @Table({
     tableName: "productVariants"
@@ -22,13 +23,6 @@ class ProductVariant extends BaseCatalogModel {
         allowNull: true
     })
     declare presentationId: number
-
-    @ForeignKey(() => Packaging)
-    @Column({
-        type: DataType.INTEGER,
-        allowNull: true
-    })
-    declare packagingId: number
 
     @ForeignKey(() => Packaging)
     @Column({
@@ -68,14 +62,17 @@ class ProductVariant extends BaseCatalogModel {
     @BelongsTo(() => Presentation, "presentationId")
     declare sizePresentation: Presentation
 
-    @BelongsTo(() => Packaging, "packagingId")
-    declare usedPackaging: Packaging
-
     @BelongsTo(() => Packaging, "intermediatePackagingId")
     declare usedIntermediatePackaging: Packaging
 
     @HasMany(() => ProductVariantPalletMaterial, "productVariantId")
     declare palletMaterials: ProductVariantPalletMaterial[]
+
+    // Materiales de empaque individual (bolsa + etiqueta + tapa, receta-style) -- reemplaza el
+    // viejo FK único packagingId (ver git history). Modelado exactamente igual que
+    // palletMaterials arriba (join table a nivel de variante, N filas).
+    @HasMany(() => ProductVariantUnitMaterial, "productVariantId")
+    declare unitMaterials: ProductVariantUnitMaterial[]
 }
 
 export default ProductVariant;

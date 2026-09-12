@@ -11,6 +11,7 @@ import destinationRouter from "../features/destination/routes/destination.routes
 import productVariantRouter from "../features/product/routes/productVariant.routes"
 import productIngredientRouter from "../features/product/routes/productIngredient.routes"
 import productVariantPalletMaterialRouter from "../features/product/routes/productVariantPalletMaterial.routes"
+import productVariantUnitMaterialRouter from "../features/product/routes/productVariantUnitMaterial.routes"
 import loginRouter from "../features/accessControl/login/routes/login.routes"
 import userRouter from "../features/accessControl/user/routes/user.routes"
 import roleRouter from "../features/accessControl/roles/routes/role.routes"
@@ -49,5 +50,6 @@ appRouter.use("/processing-costs", processingCostRouter)
 appRouter.use("/product-variants", productVariantRouter)
 appRouter.use("/product-ingredients", productIngredientRouter)
 appRouter.use("/product-variant-pallet-materials", productVariantPalletMaterialRouter)
+appRouter.use("/product-variant-unit-materials", productVariantUnitMaterialRouter)
 
 export default appRouter

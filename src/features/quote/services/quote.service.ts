@@ -12,6 +12,7 @@ import Unit from "../../unit/models/Unit.model"
 import Packaging from "../../packaging/models/Packaging.model"
 import Presentation from "../../presentation/models/Presentation.model"
 import ProductVariantPalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
+import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
 import ProductType from "../../product-type/models/ProductType.model"
 import Destination from "../../destination/models/Destination.model"
 import Customer from "../../customer/models/Customer.model"
@@ -42,10 +43,11 @@ interface RawMaterialLine {
     lineTotal: number
 }
 
-interface UnitPackagingLine {
+interface UnitMaterialLine {
     packagingId: number
     displayName: string
     unitCost: number
+    quantityPerUnit: number
     totalUnits: number
     lineTotal: number
 }
@@ -125,7 +127,7 @@ interface QuoteCalculation {
     totalCost: number
     breakdown: {
         rawMaterials: RawMaterialLine[]
-        unitPackaging: UnitPackagingLine | null
+        unitMaterials: UnitMaterialLine[]
         intermediatePackaging: IntermediatePackagingLine | null
         processingCosts: ProcessingCostLine[]
         palletMaterials: PalletMaterialLine[]
@@ -287,7 +289,6 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
                 ]
             },
             { model: Presentation, as: "sizePresentation" },
-            { model: Packaging, as: "usedPackaging" },
             { model: Packaging, as: "usedIntermediatePackaging" },
             {
                 model: ProductVariantPalletMaterial,
@@ -295,6 +296,13 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
                 where: { isActive: true },
                 required: false,
                 include: [{ model: Packaging, as: "usedPalletMaterial" }]
+            },
+            {
+                model: ProductVariantUnitMaterial,
+                as: "unitMaterials",
+                where: { isActive: true },
+                required: false,
+                include: [{ model: Packaging, as: "usedUnitMaterial" }]
             }
         ]
     })
@@ -302,6 +310,29 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
 
     if (!variant.unitsPerPallet || variant.unitsPerPallet <= 0) {
         throw new AppError(422, "errors.pallet_not_configured")
+    }
+
+    // Guarda de negocio (2026-09-11, a pedido explícito del usuario): un variant con CERO
+    // materiales de empaque individual configurados NO debe cotizarse -- sin esta guarda,
+    // (variant.unitMaterials ?? []).map(...) más abajo simplemente recorre un arreglo vacío y
+    // unitPackagingCost sale en $0 en silencio, exactamente la misma clase de bug que el barrido
+    // histórico de "campos críticos opcionales que corrompen el cálculo en silencio" (ver
+    // memoria del proyecto: costUnitId, ProductVariantPalletMaterial.quantityValue, etc.) --
+    // salvo que acá no hay ningún campo de schema que se pueda volver "requerido": el join puede
+    // estar simplemente vacío (0 filas), el ORM nunca "falla" al traer cero resultados, así que
+    // hay que chequear la longitud explícito. Mismo criterio (422 + AppError) que
+    // pallet_not_configured arriba.
+    if ((variant.unitMaterials ?? []).length === 0) {
+        throw new AppError(422, "errors.unit_materials_not_configured")
+    }
+
+    // Misma guarda, mismo motivo, para el otro join de N filas de la variante: un variant con
+    // CERO materiales de paletización configurados no debe cotizarse -- sin esto,
+    // (variant.palletMaterials ?? []).map(...) más abajo recorre un arreglo vacío y
+    // palletMaterialCost sale en $0 en silencio (2026-09-11, mismo hallazgo que unitMaterials
+    // arriba, ver memoria del proyecto).
+    if ((variant.palletMaterials ?? []).length === 0) {
+        throw new AppError(422, "errors.pallet_materials_not_configured")
     }
 
     // Transporte "apagado" temporalmente (2026-09-10): el cotizador del cliente ya no pide
@@ -330,17 +361,23 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         : buildFixedRecipeRawMaterials(variant.parentProduct?.productIngredients ?? [], totalUnits, language)
     const rawMaterialCost = sumMoney(rawMaterials.map(line => line.lineTotal))
 
-    const unitPackagingUnitCost = toDecimal(variant.usedPackaging?.unitCost ?? 0)
-    const unitPackaging: UnitPackagingLine | null = variant.usedPackaging
-        ? {
-              packagingId: variant.usedPackaging.id,
-              displayName: variant.usedPackaging.displayName,
-              unitCost: unitPackagingUnitCost.toNumber(),
-              totalUnits,
-              lineTotal: roundMoney(unitPackagingUnitCost.times(totalUnits))
-          }
-        : null
-    const unitPackagingCost = unitPackaging?.lineTotal ?? 0
+    // Empaque unitario = SUMA sobre unitMaterials (bolsa + etiqueta + tapa..., receta-style,
+    // reemplaza el viejo FK único usedPackaging) -- cada línea es unitCost * quantityPerUnit *
+    // totalUnits, mismo criterio de redondeo por línea (MONEY_DECIMALS) que el resto del motor.
+    const unitMaterials: UnitMaterialLine[] = (variant.unitMaterials ?? []).map(unitMaterial => {
+        const unitCost = toDecimal(unitMaterial.usedUnitMaterial?.unitCost ?? 0)
+        const quantityPerUnit = toDecimal(unitMaterial.quantityPerUnit ?? 1)
+        const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnits))
+        return {
+            packagingId: unitMaterial.packagingId,
+            displayName: unitMaterial.usedUnitMaterial?.displayName ?? "",
+            unitCost: unitCost.toNumber(),
+            quantityPerUnit: quantityPerUnit.toNumber(),
+            totalUnits,
+            lineTotal
+        }
+    })
+    const unitPackagingCost = sumMoney(unitMaterials.map(line => line.lineTotal))
 
     const intermediatePackaging: IntermediatePackagingLine | null = variant.usedIntermediatePackaging
         ? (() => {
@@ -493,7 +530,8 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         adjustmentCost
     ])
 
-    const variantLabelParts = [variant.sizePresentation?.displayLabel, variant.usedPackaging?.displayName].filter(Boolean)
+    const unitMaterialsLabel = unitMaterials.map(line => line.displayName).filter(Boolean).join(" + ") || null
+    const variantLabelParts = [variant.sizePresentation?.displayLabel, unitMaterialsLabel].filter(Boolean)
 
     return {
         productVariantId: variant.id,
@@ -513,7 +551,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         totalCost,
         breakdown: {
             rawMaterials,
-            unitPackaging,
+            unitMaterials,
             intermediatePackaging,
             processingCosts,
             palletMaterials,
@@ -567,7 +605,13 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 where: { isActive: true, unitsPerPallet: { [Op.not]: null } },
                 include: [
                     { model: Presentation, as: "sizePresentation" },
-                    { model: Packaging, as: "usedPackaging" }
+                    {
+                        model: ProductVariantUnitMaterial,
+                        as: "unitMaterials",
+                        where: { isActive: true },
+                        required: false,
+                        include: [{ model: Packaging, as: "usedUnitMaterial" }]
+                    }
                 ]
             },
             { model: ProductType, as: "parentProductType" },
@@ -627,7 +671,11 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 skuCode: variant.skuCode ?? null,
                 unitsPerPallet: variant.unitsPerPallet as number,
                 presentationLabel: variant.sizePresentation?.displayLabel ?? null,
-                packagingLabel: variant.usedPackaging?.displayName ?? null
+                packagingLabel:
+                    (variant.unitMaterials ?? [])
+                        .map(unitMaterial => unitMaterial.usedUnitMaterial?.displayName)
+                        .filter(Boolean)
+                        .join(" + ") || null
             }))
         }
     })

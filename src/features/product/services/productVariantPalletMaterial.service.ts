@@ -1,5 +1,6 @@
 import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
 import { NotFoundError } from "../../../shared/errors/AppError"
+import { packagingService } from "../../packaging/services/packaging.service"
 import {
     CreateProductVariantPalletMaterialInput,
     UpdateProductVariantPalletMaterialInput
@@ -18,6 +19,7 @@ async function getProductVariantPalletMaterialById(id: number): Promise<ProductV
 async function createProductVariantPalletMaterial(
     input: CreateProductVariantPalletMaterialInput
 ): Promise<ProductVariantPalletMaterial> {
+    await packagingService.assertPackagingHasRole(input.packagingId, "pallet")
     return ProductVariantPalletMaterial.create(input)
 }
 
@@ -26,6 +28,7 @@ async function updateProductVariantPalletMaterial(
     input: UpdateProductVariantPalletMaterialInput
 ): Promise<ProductVariantPalletMaterial> {
     const productVariantPalletMaterial = await getProductVariantPalletMaterialById(id)
+    if (input.packagingId) await packagingService.assertPackagingHasRole(input.packagingId, "pallet")
     return productVariantPalletMaterial.update(input)
 }
 

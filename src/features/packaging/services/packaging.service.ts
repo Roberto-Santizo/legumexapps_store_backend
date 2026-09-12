@@ -59,6 +59,24 @@ async function deletePackaging(id: number): Promise<void> {
     await packaging.update({ isActive: false })
 }
 
+// Defensa en profundidad para los joins de materiales de variante (ProductVariantUnitMaterial
+// "unit" / ProductVariantPalletMaterial "pallet"): hasta ahora el filtro por rol solo vivía en
+// el <select> del frontend (PackagingSelect/PalletMaterialSelect), nunca se revalidaba acá --
+// un cliente que mandara un packagingId de otro rol por fuera de la UI (ej. un material de
+// palet como si fuera empaque individual) se aceptaba en silencio. Mismo criterio que el resto
+// del repo: nunca confiar solo en el filtro de la UI para algo que alimenta el cálculo/catálogo.
+async function assertPackagingHasRole(packagingId: number, expectedRole: string): Promise<Packaging> {
+    const packaging = await getPackagingById(packagingId)
+    if (packaging.packagingRole !== expectedRole) {
+        throw new AppError(422, "errors.packaging_role_mismatch", {
+            packagingId,
+            expectedRole,
+            actualRole: packaging.packagingRole
+        })
+    }
+    return packaging
+}
+
 type PackagingRowValidation = {
     rowNumber: number
     rowIssues: RowIssue[]
@@ -317,6 +335,7 @@ export const packagingService = {
     createPackaging,
     updatePackaging,
     deletePackaging,
+    assertPackagingHasRole,
     bulkImportPackagings,
     buildPackagingImportTemplate,
 }

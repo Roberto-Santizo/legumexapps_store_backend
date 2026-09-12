@@ -1,7 +1,7 @@
 import { Op, WhereOptions } from "sequelize"
 import Product from "../models/Product.model"
 import ProductTranslation from "../models/ProductTranslation.model"
-import { NotFoundError } from "../../../shared/errors/AppError"
+import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductInput, UpdateProductInput, ProductTranslationInput } from "../schemas/product.schema"
 import { generateUniqueSlug } from "../../../shared/utils/slug.util"
 import { resolveCatalogImage } from "../../../shared/utils/catalogImage.util"
@@ -41,8 +41,22 @@ async function syncEnglishTranslation(productId: number, en: ProductTranslationI
     await translation.update({ displayName: en.displayName })
 }
 
+// Case-insensitive (Op.iLike) a propósito -- a diferencia de Packaging.code/Ingredient.code
+// (cuyo chequeo de negocio es exacto), acá el usuario pidió explícitamente que "MP-001" y
+// "mp-001" cuenten como el mismo código. El índice físico (products_codigo_unique, ver
+// Product.model.ts) sigue siendo case-sensitive -- queda como defensa en profundidad para la
+// ventana de carrera entre este chequeo y el INSERT/UPDATE real, no como la regla de negocio.
+async function assertCodigoIsUnique(codigo: string, excludeId?: number): Promise<void> {
+    const where: WhereOptions = excludeId
+        ? { codigo: { [Op.iLike]: codigo }, id: { [Op.ne]: excludeId } }
+        : { codigo: { [Op.iLike]: codigo } }
+    const existing = await Product.findOne({ where })
+    if (existing) throw new AppError(409, "errors.product_codigo_already_exists", { codigo })
+}
+
 async function createProduct(input: CreateProductInput): Promise<Product> {
     const { image, translations, ...rest } = input
+    await assertCodigoIsUnique(rest.codigo)
     const urlSlug = await generateUniqueSlug(rest.displayName, async (candidate) => {
         const existing = await Product.findOne({ where: { urlSlug: candidate } })
         return !!existing
@@ -56,6 +70,7 @@ async function createProduct(input: CreateProductInput): Promise<Product> {
 async function updateProduct(id: number, input: UpdateProductInput): Promise<Product> {
     const product = await findActiveProduct(id)
     const { image, translations, ...rest } = input
+    if (rest.codigo) await assertCodigoIsUnique(rest.codigo, id)
     const imageUrl = await resolveCatalogImage(product.imageUrl, image, IMAGE_FOLDER)
     await product.update({ ...rest, ...(imageUrl !== undefined ? { imageUrl } : {}) })
     await syncEnglishTranslation(id, translations?.en)

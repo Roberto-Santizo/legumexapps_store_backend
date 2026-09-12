@@ -2,6 +2,7 @@ import { Table, Column, DataType, HasMany } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import ProductVariant from "../../product/models/ProductVariant.model";
 import ProductVariantPalletMaterial from "../../product/models/ProductVariantPalletMaterial.model";
+import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitMaterial.model";
 
 @Table({
     tableName: "packagings"
@@ -46,8 +47,8 @@ class Packaging extends BaseCatalogModel {
     })
     declare unitCost: number
 
-    @HasMany(() => ProductVariant, "packagingId")
-    declare packagedVariants: ProductVariant[]
+    @HasMany(() => ProductVariantUnitMaterial, "packagingId")
+    declare unitMaterialUsages: ProductVariantUnitMaterial[]
 
     @HasMany(() => ProductVariant, "intermediatePackagingId")
     declare intermediatePackagingUsages: ProductVariant[]

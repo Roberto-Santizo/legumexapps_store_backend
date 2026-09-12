@@ -11,6 +11,7 @@ import ProductTranslation from "../features/product/models/ProductTranslation.mo
 import ProductVariant from "../features/product/models/ProductVariant.model"
 import ProductIngredient from "../features/product/models/ProductIngredient.model"
 import ProductVariantPalletMaterial from "../features/product/models/ProductVariantPalletMaterial.model"
+import ProductVariantUnitMaterial from "../features/product/models/ProductVariantUnitMaterial.model"
 import ProductType from "../features/product-type/models/ProductType.model"
 import Unit from "../features/unit/models/Unit.model"
 import Presentation from "../features/presentation/models/Presentation.model"
@@ -46,6 +47,7 @@ const sequelize = new Sequelize(env.databaseUrl, {
         ProductVariant,
         ProductIngredient,
         ProductVariantPalletMaterial,
+        ProductVariantUnitMaterial,
         ProductType,
         Unit,
         Presentation,

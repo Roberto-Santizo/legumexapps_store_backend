@@ -7,9 +7,32 @@ import ProductIngredient from "./ProductIngredient.model";
 import ProductTranslation from "./ProductTranslation.model";
 
 @Table({
-    tableName: "products"
+    tableName: "products",
+    indexes: [
+        {
+            name: "products_codigo_unique",
+            unique: true,
+            fields: ["codigo"]
+        }
+    ]
 })
 class Product extends BaseCatalogModel {
+    // Código manual del producto -- lo escribe el admin a mano, nunca se autogenera (a
+    // diferencia de urlSlug). Único a nivel de índice nombrado (products_codigo_unique, ver
+    // arriba) para que sync/alter no duplique el índice en cada arranque -- el chequeo de
+    // negocio real (case-insensitive) vive en product.service.ts::assertCodigoIsUnique, que da
+    // un error traducido claro ANTES de llegar a este constraint (que sería case-sensitive y
+    // daría el 409 genérico "errors.unique_constraint", menos útil para el admin). Mismo patrón
+    // que Packaging.code / Ingredient.code.
+    @Column({
+        type: DataType.STRING(60),
+        allowNull: false,
+        validate: {
+            notEmpty: true
+        }
+    })
+    declare codigo: string
+
     @ForeignKey(() => SubCategory)
     @Column({
         type: DataType.INTEGER,

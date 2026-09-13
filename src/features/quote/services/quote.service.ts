@@ -109,6 +109,11 @@ interface QuoteCalculation {
     variantLabel: string | null
     requestedPallets: number
     totalUnits: number
+    // Cajas por palet (2026-09-12) -- se expone junto al resultado para que el reporte del
+    // cliente pueda mostrar "cajas por palet" en vez de totalUnits (bolsas), que es un dato
+    // interno. Es directamente variant.boxesPerPallet, sin transformar -- ver
+    // QuoteResultCard/QuotePdfDocument para dónde se consume.
+    boxesPerPallet: number
     rawMaterialCost: number
     unitPackagingCost: number
     intermediatePackagingCost: number
@@ -308,9 +313,17 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     })
     if (!variant) throw new NotFoundError("ProductVariant", input.productVariantId)
 
-    if (!variant.unitsPerPallet || variant.unitsPerPallet <= 0) {
+    // "Palet" = cajas por palet × bolsas por caja (2026-09-12) -- reemplaza el viejo input manual
+    // único unitsPerPallet (bolsas por palet, escrito a mano por el admin sin ayuda). Ambos
+    // factores son obligatorios a nivel de schema (ver productVariant.schema.ts) precisamente
+    // porque alimentan esta multiplicación -- ninguno puede faltar en silencio (mismo criterio
+    // que el resto de "campos críticos opcionales que corrompen el cálculo", ver memoria del
+    // proyecto). bagsPerPallet nunca se guarda como columna propia: se deriva acá, una sola vez,
+    // y de ahí en adelante el motor lo usa exactamente como usaba el viejo unitsPerPallet.
+    if (!variant.boxesPerPallet || variant.boxesPerPallet <= 0 || !variant.bagsPerBox || variant.bagsPerBox <= 0) {
         throw new AppError(422, "errors.pallet_not_configured")
     }
+    const bagsPerPallet = variant.boxesPerPallet * variant.bagsPerBox
 
     // Guarda de negocio (2026-09-11, a pedido explícito del usuario): un variant con CERO
     // materiales de empaque individual configurados NO debe cotizarse -- sin esta guarda,
@@ -348,7 +361,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     if (input.destinationId && !destination) throw new NotFoundError("Destination", input.destinationId)
 
     const requestedPallets = input.requestedPallets
-    const totalUnits = requestedPallets * variant.unitsPerPallet
+    const totalUnits = requestedPallets * bagsPerPallet
 
     const rawMaterials: RawMaterialLine[] = variant.parentProduct?.isCustomizable
         ? buildCustomizableRawMaterials(
@@ -540,6 +553,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         variantLabel: variantLabelParts.length > 0 ? variantLabelParts.join(" · ") : null,
         requestedPallets,
         totalUnits,
+        boxesPerPallet: variant.boxesPerPallet,
         rawMaterialCost,
         unitPackagingCost,
         intermediatePackagingCost,
@@ -566,7 +580,8 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
 interface QuotableVariant {
     id: number
     skuCode: string | null
-    unitsPerPallet: number
+    boxesPerPallet: number
+    bagsPerBox: number
     presentationLabel: string | null
     packagingLabel: string | null
 }
@@ -602,7 +617,7 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 model: ProductVariant,
                 as: "productVariants",
                 required: true,
-                where: { isActive: true, unitsPerPallet: { [Op.not]: null } },
+                where: { isActive: true, boxesPerPallet: { [Op.not]: null }, bagsPerBox: { [Op.not]: null } },
                 include: [
                     { model: Presentation, as: "sizePresentation" },
                     {
@@ -669,7 +684,8 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             variants: (plain.productVariants ?? []).map((variant: ProductVariant) => ({
                 id: variant.id,
                 skuCode: variant.skuCode ?? null,
-                unitsPerPallet: variant.unitsPerPallet as number,
+                boxesPerPallet: variant.boxesPerPallet as number,
+                bagsPerBox: variant.bagsPerBox as number,
                 presentationLabel: variant.sizePresentation?.displayLabel ?? null,
                 packagingLabel:
                     (variant.unitMaterials ?? [])

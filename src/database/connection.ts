@@ -27,6 +27,8 @@ import Customer from "../features/customer/models/Customer.model"
 import Quote from "../features/quote/models/Quote.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
+import Lead from "../features/lead/models/Lead.model"
+import SiteImage from "../features/siteImage/models/SiteImage.model"
 
 const sequelize = new Sequelize(env.databaseUrl, {
     logging: env.nodeEnv === "development" ? console.log : false,
@@ -62,7 +64,9 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Customer,
         Quote,
         ProcessingCost,
-        ProcessingCostTranslation
+        ProcessingCostTranslation,
+        Lead,
+        SiteImage
     ]
 })
 

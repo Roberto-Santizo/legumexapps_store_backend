@@ -83,7 +83,9 @@
         "Permission": "Permission",
         "Customer": "Customer",
         "Quote": "Quote",
-        "ProcessingCost": "Additional cost"
+        "ProcessingCost": "Additional cost",
+        "Lead": "Lead",
+        "SiteImage": "Site image"
     },
     "permissionActions": {
         "view": "View",
@@ -107,6 +109,8 @@
         "permissions": "permissions",
         "quotes": "quotes",
         "dashboard": "dashboard",
-        "processingCosts": "additional costs"
+        "processingCosts": "additional costs",
+        "leads": "leads",
+        "siteContent": "site content"
     }
 }

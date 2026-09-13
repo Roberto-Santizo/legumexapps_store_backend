@@ -31,6 +31,9 @@ const EXTRA_PERMISSIONS = [
     { name: "quotes:view" },
     { name: "quotes:calculate" },
     { name: "dashboard:view" },
+    { name: "leads:view" },
+    { name: "leads:edit" },
+    { name: "siteContent:edit" },
 ]
 
 const PERMISSIONS = [

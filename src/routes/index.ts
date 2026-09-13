@@ -23,6 +23,10 @@ import quoteRouter from "../features/quote/routes/quote.routes"
 import adminQuoteRouter from "../features/quote/routes/adminQuote.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
 import processingCostRouter from "../features/processingCost/routes/processingCost.routes"
+import leadRouter from "../features/lead/routes/lead.routes"
+import adminLeadRouter from "../features/lead/routes/adminLead.routes"
+import siteImageRouter from "../features/siteImage/routes/siteImage.routes"
+import adminSiteImageRouter from "../features/siteImage/routes/adminSiteImage.routes"
 
 const appRouter = Router()
 
@@ -36,6 +40,10 @@ appRouter.use("/customer-login", customerLoginRouter)
 appRouter.use("/quotes", quoteRouter)
 appRouter.use("/admin/quotes", adminQuoteRouter)
 appRouter.use("/admin/dashboard", dashboardRouter)
+appRouter.use("/leads", leadRouter)
+appRouter.use("/admin/leads", adminLeadRouter)
+appRouter.use("/site-images", siteImageRouter)
+appRouter.use("/admin/site-images", adminSiteImageRouter)
 
 appRouter.use("/categories", categoryRouter)
 appRouter.use("/sub-categories", subCategoryRouter)

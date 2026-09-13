@@ -24,9 +24,7 @@ export const env = {
     awsAccessKeyId: getRequiredEnv("AWS_ACCESS_KEY_ID"),
     awsSecretAccessKey: getRequiredEnv("AWS_SECRET_ACCESS_KEY"),
     awsS3BucketName: getRequiredEnv("AWS_S3_BUCKET_NAME"),
-    //frontendUrl: process.env.FRONTEND_URL ?? "https://store.legumexapps.com",
-    frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:5173",
-
+    frontendUrl: process.env.FRONTEND_URL ?? "https://store.legumexapps.com",
     microsoftTenantId: getRequiredEnv("MICROSOFT_TENANT_ID"),
     microsoftClientId: getRequiredEnv("MICROSOFT_CLIENT_ID"),
     microsoftClientSecret: getRequiredEnv("MICROSOFT_CLIENT_SECRET"),

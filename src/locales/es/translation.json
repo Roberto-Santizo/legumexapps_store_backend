@@ -83,7 +83,9 @@
         "Permission": "Permiso",
         "Customer": "Cliente",
         "Quote": "Cotización",
-        "ProcessingCost": "Costo adicional"
+        "ProcessingCost": "Costo adicional",
+        "Lead": "Prospecto",
+        "SiteImage": "Imagen del sitio"
     },
     "permissionActions": {
         "view": "Ver",
@@ -107,6 +109,8 @@
         "permissions": "permisos",
         "quotes": "cotizaciones",
         "dashboard": "panel",
-        "processingCosts": "costos adicionales"
+        "processingCosts": "costos adicionales",
+        "leads": "prospectos",
+        "siteContent": "contenido del sitio"
     }
 }

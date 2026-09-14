@@ -17,6 +17,13 @@ jest.mock("../models/Quote.model", () => ({
     __esModule: true,
     default: { create: jest.fn() }
 }))
+// saveQuote ahora también resuelve un Lead (crear-o-reusar por email, ver
+// leadService.findOrCreateLeadForQuote) -- se mockea el modelo, no el service, para ejercitar la
+// regla real de negocio (findOne primero, create solo si no existe) tal como corre en producción.
+jest.mock("../../lead/models/Lead.model", () => ({
+    __esModule: true,
+    default: { findOne: jest.fn(), create: jest.fn() }
+}))
 // Catálogo de costos adicionales -- por defecto SIN filas activas (ver beforeEach) para que
 // todos los tests existentes (escritos antes de esta feature) sigan calculando exactamente
 // igual que antes; los tests dedicados a "costos adicionales" más abajo pisan este mock.
@@ -28,10 +35,11 @@ jest.mock("../../processingCost/models/ProcessingCost.model", () => ({
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Destination from "../../destination/models/Destination.model"
 import Quote from "../models/Quote.model"
+import Lead from "../../lead/models/Lead.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import { quoteService } from "./quote.service"
 import { NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput, SaveQuoteInput } from "../schemas/quote.schema"
 // Se importa el catálogo REAL (no mockeado -- es un módulo de constantes puro, sin Sequelize) para
 // derivar el factor gramos->libras de la misma fuente que usa quote.service.ts, en vez de
 // hardcodear "453.592" una tercera vez en este archivo. Si algún día quote.service.ts dejara de
@@ -42,6 +50,8 @@ const mockVariantFindOne = ProductVariant.findOne as unknown as jest.Mock
 const mockDestinationFindOne = Destination.findOne as unknown as jest.Mock
 const mockQuoteCreate = Quote.create as unknown as jest.Mock
 const mockProcessingCostFindAll = ProcessingCost.findAll as unknown as jest.Mock
+const mockLeadFindOne = Lead.findOne as unknown as jest.Mock
+const mockLeadCreate = Lead.create as unknown as jest.Mock
 
 // Costo de destino usado en todos los casos salvo que un test lo pise explícitamente.
 const DESTINATION = { id: 900, displayName: "Puerto Cortés", baseCost: 50 }
@@ -50,10 +60,20 @@ function stubDestination(overrides: Partial<typeof DESTINATION> = {}): void {
     mockDestinationFindOne.mockResolvedValue({ ...DESTINATION, ...overrides })
 }
 
+// Datos de contacto usados en todos los tests de saveQuote salvo que uno los pise explícitamente
+// -- por defecto, ningún Lead existente con ese email (findOrCreateLeadForQuote crea uno nuevo).
+const LEAD_CONTACT = { fullName: "Juan Pérez", companyName: "Comercial Pérez", email: "juan@example.com", notes: undefined }
+
+function stubLead(overrides: { existing?: { id: number } } = {}): void {
+    mockLeadFindOne.mockResolvedValue(overrides.existing ?? null)
+    mockLeadCreate.mockResolvedValue({ id: overrides.existing?.id ?? 500, ...LEAD_CONTACT })
+}
+
 describe("quoteService.calculateQuote", () => {
     beforeEach(() => {
         stubDestination()
         mockProcessingCostFindAll.mockResolvedValue([]) // catálogo vacío por defecto, ver comentario del mock arriba
+        stubLead()
     })
 
     const baseInput: CalculateQuoteInput = {
@@ -181,7 +201,7 @@ describe("quoteService.calculateQuote", () => {
             stubMinimalVariant()
             mockQuoteCreate.mockResolvedValueOnce({ id: 99, get: () => new Date("2026-09-10T00:00:00Z") })
 
-            const saved = await quoteService.saveQuote(42, inputWithoutDestination)
+            const saved = await quoteService.saveQuote(42, { ...inputWithoutDestination, leadContact: LEAD_CONTACT })
 
             expect(saved.destinationId).toBeNull()
             expect(mockQuoteCreate.mock.calls[0][0]).toMatchObject({ destinationId: null, transportCost: 0 })
@@ -936,14 +956,14 @@ describe("quoteService.calculateQuote", () => {
             stubProcessingCosts({ percentage: [{ id: 1, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] }] })
             mockQuoteCreate.mockResolvedValueOnce({ id: 1, get: () => new Date("2026-01-01T00:00:00Z") })
 
-            const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+            const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
             expect(quote1.percentageCostTotal).toBe(3)
 
             // El admin ahora desactiva "Imprevistos" (catálogo cambia) y se cotiza un pedido NUEVO.
             stubProcessingCosts() // ninguna fila activa de ningún tipo
             mockQuoteCreate.mockResolvedValueOnce({ id: 2, get: () => new Date("2026-01-02T00:00:00Z") })
 
-            const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+            const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
             expect(quote2.percentageCostTotal).toBe(0)
 
             // Lo que YA se persistió en la primera llamada sigue con el valor congelado (Q3).
@@ -1491,12 +1511,66 @@ describe("quoteService.calculateQuote", () => {
             ).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
         })
     })
+
+    describe("etiqueta compuesta de la variante (variantLabel, 2026-09-13)", () => {
+        // Mismo formato que el selector de SKU del cliente (quoteCalculatorForm.component.tsx,
+        // frontend): "{{bagsPerBox}} und × {{presentacion}} · {{boxesPerPallet}} cajas/palet".
+        // No incluye el nombre del producto -- productDisplayName va aparte (ver comentario en
+        // quote.service.ts) y los consumidores (quotedOrderSummary/quotePdfDocument/
+        // adminQuote.page.tsx) ya lo anteponen ellos mismos.
+        function stubVariantForLabel(overrides: { sizePresentation?: { displayLabel: string } | undefined } = {}): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 385,
+                bagsPerBox: 6,
+                parentProduct: { isCustomizable: false, displayName: "Jugo Piña Zanahoria Vidassa", productIngredients: [] },
+                sizePresentation: overrides.sizePresentation,
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Envase", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+        }
+
+        it("compone 'N und × presentación · N cajas/palet' en español", async () => {
+            stubVariantForLabel({ sizePresentation: { displayLabel: "976 ml" } })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.variantLabel).toBe("6 und × 976 ml · 385 cajas/palet")
+        })
+
+        it("en inglés compone con 'units'/'boxes/pallet' en vez de 'und'/'cajas/palet'", async () => {
+            stubVariantForLabel({ sizePresentation: { displayLabel: "976 ml" } })
+
+            const result = await quoteService.calculateQuote(baseInput, "en")
+
+            expect(result.variantLabel).toBe("6 units × 976 ml · 385 boxes/pallet")
+        })
+
+        it("omite el segmento de presentación si la variante no tiene sizePresentation, sin mostrar undefined/null", async () => {
+            stubVariantForLabel({ sizePresentation: undefined })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.variantLabel).toBe("6 und · 385 cajas/palet")
+            expect(result.variantLabel).not.toMatch(/undefined|null/)
+        })
+
+        it("no repite el nombre del producto dentro de variantLabel (productDisplayName va aparte)", async () => {
+            stubVariantForLabel({ sizePresentation: { displayLabel: "976 ml" } })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.productDisplayName).toBe("Jugo Piña Zanahoria Vidassa")
+            expect(result.variantLabel).not.toContain("Jugo Piña Zanahoria Vidassa")
+        })
+    })
 })
 
 describe("quoteService.saveQuote", () => {
     beforeEach(() => {
         stubDestination()
         mockProcessingCostFindAll.mockResolvedValue([]) // ver comentario junto al mock del modelo, arriba del archivo
+        stubLead()
     })
 
     it("nunca confía en el desglose del cliente: siempre persiste lo que devuelve calculateQuote, no el input recibido", async () => {
@@ -1526,7 +1600,8 @@ describe("quoteService.saveQuote", () => {
             destinationId: 900,
             requestedPallets: 1,
             totalCost: 999999,
-        } as CalculateQuoteInput
+            leadContact: LEAD_CONTACT,
+        } as SaveQuoteInput
 
         const saved = await quoteService.saveQuote(42, tamperedInput)
 
@@ -1535,6 +1610,56 @@ describe("quoteService.saveQuote", () => {
         expect(mockQuoteCreate).toHaveBeenCalledWith(
             expect.objectContaining({ customerId: 42, totalCost: 270, processingCostTotal: 0 })
         )
+    })
+
+    describe("vínculo con Lead (prospecto), 2026-09-13 -- crear-o-reusar por email", () => {
+        const baseSaveInput = { productVariantId: 10, destinationId: 900, requestedPallets: 1 }
+
+        function stubMinimalVariantForLead(): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 20,
+                bagsPerBox: 1,
+                parentProduct: { isCustomizable: false, displayName: "Piña en Trozos", productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+        }
+
+        it("crea un Lead nuevo y persiste su id en Quote.leadId cuando no existe ninguno con ese email", async () => {
+            stubMinimalVariantForLead()
+            stubLead() // sin lead existente -> findOrCreateLeadForQuote crea uno (id 500, ver LEAD_CONTACT)
+            mockQuoteCreate.mockResolvedValue({ id: 600, get: () => new Date("2026-09-13T00:00:00Z") })
+
+            const saved = await quoteService.saveQuote(42, { ...baseSaveInput, leadContact: LEAD_CONTACT })
+
+            expect(saved.leadId).toBe(500)
+            expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ leadId: 500 }))
+        })
+
+        it("REUSA un Lead ya existente con ese email en vez de crear uno duplicado", async () => {
+            stubMinimalVariantForLead()
+            stubLead({ existing: { id: 42424 } })
+            mockQuoteCreate.mockResolvedValue({ id: 601, get: () => new Date("2026-09-13T00:00:00Z") })
+
+            const saved = await quoteService.saveQuote(42, { ...baseSaveInput, leadContact: LEAD_CONTACT })
+
+            expect(saved.leadId).toBe(42424)
+            expect(mockLeadCreate).not.toHaveBeenCalled()
+            expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ leadId: 42424 }))
+        })
+
+        it("nunca confía en un leadId que el front intente mandar directo -- solo usa el que resuelve findOrCreateLeadForQuote", async () => {
+            stubMinimalVariantForLead()
+            stubLead({ existing: { id: 7 } })
+            mockQuoteCreate.mockResolvedValue({ id: 602, get: () => new Date("2026-09-13T00:00:00Z") })
+
+            const tamperedInput = { ...baseSaveInput, leadContact: LEAD_CONTACT, leadId: 999999 } as SaveQuoteInput
+            const saved = await quoteService.saveQuote(42, tamperedInput)
+
+            expect(saved.leadId).toBe(7) // no 999999
+            expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ leadId: 7 }))
+        })
     })
 
     function stubOnePoundVariant(): void {
@@ -1573,8 +1698,9 @@ describe("quoteService.saveQuote", () => {
                 processingCosts: [
                     { processingCostId: 999, displayName: "Falso", value: 999, totalWeightPounds: 1, lineTotal: 999999 }
                 ]
-            }
-        } as CalculateQuoteInput
+            },
+            leadContact: LEAD_CONTACT,
+        } as SaveQuoteInput
 
         const saved = await quoteService.saveQuote(42, tamperedInput)
 
@@ -1591,7 +1717,7 @@ describe("quoteService.saveQuote", () => {
         mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 3, calculationType: "per_weight", translations: [] }])
         mockQuoteCreate.mockResolvedValueOnce({ id: 1, get: () => new Date("2026-01-01T00:00:00Z") })
 
-        const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+        const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
         expect(quote1.processingCostTotal).toBe(3) // 1 libra * Q3/lb
 
         // El admin ahora desactiva el costo (simula "el catálogo cambió después") y se cotiza
@@ -1599,7 +1725,7 @@ describe("quoteService.saveQuote", () => {
         mockProcessingCostFindAll.mockResolvedValue([])
         mockQuoteCreate.mockResolvedValueOnce({ id: 2, get: () => new Date("2026-01-02T00:00:00Z") })
 
-        const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
+        const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
         expect(quote2.processingCostTotal).toBe(0)
 
     

@@ -3,7 +3,7 @@ import multer from "multer"
 import { quoteController } from "../controllers/quote.controller"
 import { validate } from "../../../shared/middlewares/validate"
 import { authenticateCustomer } from "../../../shared/middlewares/authenticateCustomer"
-import { calculateQuoteSchema, sendQuotePdfEmailSchema } from "../schemas/quote.schema"
+import { saveQuoteSchema, sendQuotePdfEmailSchema } from "../schemas/quote.schema"
 
 const quoteRouter = Router()
 
@@ -16,7 +16,7 @@ quoteRouter.use(authenticateCustomer)
 
 quoteRouter.get("/products", quoteController.products)
 quoteRouter.get("/destinations", quoteController.destinations)
-quoteRouter.post("/", validate(calculateQuoteSchema), quoteController.save)
+quoteRouter.post("/", validate(saveQuoteSchema), quoteController.save)
 quoteRouter.post("/send-email", upload.single("file"), validate(sendQuotePdfEmailSchema), quoteController.sendPdfEmail)
 
 export default quoteRouter

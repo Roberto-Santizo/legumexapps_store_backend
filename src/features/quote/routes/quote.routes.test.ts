@@ -31,7 +31,12 @@ const app = buildTestApp("/api/quotes", quoteRouter)
 const customerToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const staffToken = jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions: ["*"] }, "test-secret")
 
-const validQuoteBody = { productVariantId: 10, destinationId: 900, requestedPallets: 1 }
+const validQuoteBody = {
+    productVariantId: 10,
+    destinationId: 900,
+    requestedPallets: 1,
+    leadContact: { fullName: "Juan Pérez", companyName: "Comercial Pérez", email: "juan@example.com" },
+}
 
 describe("quoteRouter (HTTP)", () => {
     describe("autenticación", () => {
@@ -66,6 +71,28 @@ describe("quoteRouter (HTTP)", () => {
 
             expect(res.status).toBe(400)
             expect(Array.isArray(res.body.details)).toBe(true)
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("400 si falta leadContact -- toda cotización de cliente debe quedar registrada contra un prospecto (2026-09-13)", async () => {
+            const { leadContact: _leadContact, ...bodyWithoutLeadContact } = validQuoteBody
+
+            const res = await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${customerToken}`)
+                .send(bodyWithoutLeadContact)
+
+            expect(res.status).toBe(400)
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("400 si leadContact viene sin email -- el email es obligatorio", async () => {
+            const res = await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${customerToken}`)
+                .send({ ...validQuoteBody, leadContact: { fullName: "Juan Pérez", companyName: "Comercial Pérez" } })
+
+            expect(res.status).toBe(400)
             expect(quoteService.saveQuote).not.toHaveBeenCalled()
         })
 

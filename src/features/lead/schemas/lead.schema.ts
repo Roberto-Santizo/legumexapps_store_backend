@@ -22,6 +22,19 @@ export const updateLeadSchema = z.object({
     notes: z.string().trim().max(2000).nullable().optional(),
 })
 
+// Datos de contacto capturados en el COTIZADOR del cliente (2026-09-13, ver
+// quoteService.saveQuote / leadService.findOrCreateLeadForQuote) -- reusa los mismos validadores
+// de publicCreateLeadSchema (nombre/empresa/email/notas) en vez de retipearlos, para que ambos
+// orígenes de Lead (formulario público de la landing y el cotizador) queden validados igual.
+// A propósito NO incluye phone/productLineInterest/website: el cotizador no los captura (ver
+// Lead.model.ts, phone ya es opcional en la columna física por este mismo motivo).
+export const quoteLeadContactSchema = z.object({
+    fullName: publicCreateLeadSchema.shape.fullName,
+    companyName: publicCreateLeadSchema.shape.companyName,
+    email: publicCreateLeadSchema.shape.email,
+    notes: publicCreateLeadSchema.shape.notes,
+})
+
 export const leadIdParamSchema = z.object({
     id: z.string().regex(/^\d+$/),
 })
@@ -34,4 +47,5 @@ export const leadQuerySchema = paginationQuerySchema.extend({
 export type LeadStatusInput = z.infer<typeof leadStatusEnum>
 export type PublicCreateLeadInput = z.infer<typeof publicCreateLeadSchema>
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>
+export type QuoteLeadContactInput = z.infer<typeof quoteLeadContactSchema>
 export type LeadQuery = z.infer<typeof leadQuerySchema>

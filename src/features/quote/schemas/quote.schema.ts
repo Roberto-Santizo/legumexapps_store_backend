@@ -1,4 +1,5 @@
 import z from "zod"
+import { quoteLeadContactSchema } from "../../lead/schemas/lead.schema"
 
 const ingredientMixLineSchema = z.object({
     ingredientId: z.number().int().positive(),
@@ -17,8 +18,18 @@ export const calculateQuoteSchema = z.object({
     ingredientMix: z.array(ingredientMixLineSchema).optional(),
 })
 
+// Solo para POST /quotes (guardar, cliente) -- NO para POST /admin/quotes/preview, que sigue
+// validando contra calculateQuoteSchema tal cual (el admin no captura datos de prospecto, ver
+// adminQuoteCalculatorPage.tsx). leadContact es REQUERIDO acá (a diferencia de
+// calculateQuoteSchema, que el admin también usa): cada cotización nueva del cliente debe quedar
+// registrada contra un Lead (ver quoteService.saveQuote / leadService.findOrCreateLeadForQuote).
+export const saveQuoteSchema = calculateQuoteSchema.extend({
+    leadContact: quoteLeadContactSchema,
+})
+
 export type IngredientMixLineInput = z.infer<typeof ingredientMixLineSchema>
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
+export type SaveQuoteInput = z.infer<typeof saveQuoteSchema>
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),
     subject: z.string().min(1).max(200),

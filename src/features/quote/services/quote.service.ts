@@ -17,11 +17,13 @@ import ProductType from "../../product-type/models/ProductType.model"
 import Destination from "../../destination/models/Destination.model"
 import Customer from "../../customer/models/Customer.model"
 import Quote from "../models/Quote.model"
+import Lead from "../../lead/models/Lead.model"
+import { leadService } from "../../lead/services/lead.service"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../../processingCost/models/ProcessingCostTranslation.model"
 import { getUnitCatalogEntry } from "../../unit/constants/unitCatalog"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput, IngredientMixLineInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput, IngredientMixLineInput, SaveQuoteInput } from "../schemas/quote.schema"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
 import Decimal from "decimal.js"
@@ -543,14 +545,43 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         adjustmentCost
     ])
 
-    const unitMaterialsLabel = unitMaterials.map(line => line.displayName).filter(Boolean).join(" + ") || null
-    const variantLabelParts = [variant.sizePresentation?.displayLabel, unitMaterialsLabel].filter(Boolean)
+    // "6 und × 976 ml · 385 cajas/palet" (2026-09-13) -- MISMO formato que el selector de SKU del
+    // cliente (quoteCalculatorForm.component.tsx::variantLabel, frontend), para que el resultado/
+    // PDF/lista de admin lean idéntico a lo que el cliente vio al elegir. No repite el nombre del
+    // producto acá: quotedOrderSummary/quotePdfDocument/adminQuote.page.tsx ya anteponen
+    // productDisplayName por su cuenta (" {{productDisplayName}} · {{variantLabel}}") -- si el
+    // nombre también viniera dentro de variantLabel, se duplicaría en pantalla.
+    // boxesPerPallet/bagsPerBox ya están garantizados no-nulos/positivos en este punto -- la
+    // guarda "pallet_not_configured" de arriba ya cortó la ejecución si faltaran. Lo único que
+    // puede faltar de verdad es sizePresentation (presentationId es opcional en ProductVariant),
+    // que se omite en vez de mostrarse como "undefined"/"null".
+    //
+    // Los textos fijos ("und"/"units", "cajas/palet"/"boxes/pallet") van hardcodeados en
+    // español/inglés acá -- mismo patrón ya usado en este archivo para "Sin destino"/"No
+    // destination" (calculateQuote recibe `language` como string plano, no `req.t`/i18next). Si
+    // alguno cambia, hay que actualizar a mano también
+    // frontend/.../shared/i18n/locales/{es,en}/translation.json ->
+    // site.quoteRequest.form.variantLabel.* -- mismo criterio de "catálogo espejado a mano" que
+    // unitCatalog.ts.
+    const unitsPerBoxLabel = language === "en" ? `${variant.bagsPerBox} units` : `${variant.bagsPerBox} und`
+    const sizePart = variant.sizePresentation?.displayLabel
+        ? `${unitsPerBoxLabel} × ${variant.sizePresentation.displayLabel}`
+        : unitsPerBoxLabel
+    const boxesPerPalletLabel = language === "en"
+        ? `${variant.boxesPerPallet} boxes/pallet`
+        : `${variant.boxesPerPallet} cajas/palet`
+    const variantLabelParts = [sizePart, boxesPerPalletLabel]
 
     return {
         productVariantId: variant.id,
         destinationId: destination?.id ?? null,
         productDisplayName: pickTranslatedName(variant.parentProduct?.displayName ?? "", variant.parentProduct?.translations, language),
-        variantLabel: variantLabelParts.length > 0 ? variantLabelParts.join(" · ") : null,
+        // Ya no puede quedar en null (los dos ingredientes de variantLabelParts están
+        // garantizados) -- el tipo del campo se deja igual (string | null) porque cotizaciones
+        // GUARDADAS antes de este cambio siguen teniendo su valor congelado tal cual se calculó
+        // en su momento (puede ser el formato viejo, o incluso null si son muy antiguas) -- este
+        // cambio solo afecta cotizaciones NUEVAS, nunca reescribe una fila ya persistida.
+        variantLabel: variantLabelParts.join(" · "),
         requestedPallets,
         totalUnits,
         boxesPerPallet: variant.boxesPerPallet,
@@ -702,11 +733,18 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 }
 
 
-async function saveQuote(customerId: number, input: CalculateQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
+async function saveQuote(customerId: number, input: SaveQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date; leadId: number }> {
     const calculation = await calculateQuote(input, language)
+
+    // Todo cliente que cotiza registra/reusa un Lead (prospecto) -- ver
+    // leadService.findOrCreateLeadForQuote para la regla de creación-o-reuso (por email). Nunca
+    // se confía en que el frontend ya haya resuelto esto: input.leadContact viaja crudo (validado
+    // por saveQuoteSchema, ver quote.schema.ts) y se resuelve acá, del lado del servidor.
+    const lead = await leadService.findOrCreateLeadForQuote(input.leadContact)
 
     const quote = await Quote.create({
         customerId,
+        leadId: lead.id,
         productVariantId: calculation.productVariantId,
         destinationId: calculation.destinationId,
         productDisplayName: calculation.productDisplayName,
@@ -728,14 +766,21 @@ async function saveQuote(customerId: number, input: CalculateQuoteInput, languag
     return {
         ...calculation,
         id: quote.id,
-        createdAt: quote.get("createdAt") as Date
+        createdAt: quote.get("createdAt") as Date,
+        leadId: lead.id
     }
 }
 
 
 async function listAllQuotes(): Promise<Quote[]> {
     return Quote.findAll({
-        include: [{ model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] }],
+        include: [
+            { model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] },
+            // Prospecto vinculado (2026-09-13, ver Quote.leadId) -- required:false porque
+            // cotizaciones guardadas ANTES de este cambio no tienen leadId, y no deben
+            // desaparecer del listado por eso.
+            { model: Lead, as: "quotedLead", required: false, attributes: ["id", "fullName", "companyName", "email"] }
+        ],
         order: [["createdAt", "DESC"]]
     })
 }

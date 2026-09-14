@@ -89,7 +89,7 @@ function toUnitCostNumber(packaging: Packaging | undefined): number | null {
     // money.util.ts), Sequelize puede devolverlo como string, y esta respuesta es solo de
     // lectura/display, así que basta un Number() explícito en vez de pasar el string crudo (el
     // schema de respuesta lo tipa z.number(), no z.coerce.number()).
-    if (!packaging || packaging.unitCost === null || packaging.unitCost === undefined) return null
+    if (packaging?.unitCost == null) return null
     return Number(packaging.unitCost)
 }
 

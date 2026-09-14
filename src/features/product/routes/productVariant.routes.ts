@@ -15,14 +15,13 @@ const productVariantRouter = Router()
 
 const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB -- de sobra para una carga de SKUs
+    limits: { fileSize: 5 * 1024 * 1024 },
 })
 
 productVariantRouter.use(authenticate)
 
 productVariantRouter.get("/", authorize("products:view"), productVariantController.index)
 
-// Declaradas ANTES de "/:id" -- si no, Express interpretaría "bulk-import"/"lookup" como el :id.
 productVariantRouter.get("/bulk-import/template", authorize("products:edit"), productVariantController.downloadTemplate)
 productVariantRouter.post("/bulk-import", authorize("products:edit"), upload.single("file"), productVariantController.bulkImport)
 productVariantRouter.get(

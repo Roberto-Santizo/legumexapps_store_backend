@@ -15,8 +15,6 @@ interface ImportColumnDef {
 }
 
 export const INGREDIENT_IMPORT_COLUMNS: Record<IngredientImportField, ImportColumnDef> = {
-    // Primera columna de la plantilla a propósito (ver buildIngredientImportTemplate) -- el
-    // mapeo real de columnas es por nombre de encabezado (mapImportHeaders), no por posición.
     code: { header: "Código", aliases: ["codigo", "código", "code"] },
     displayName: { header: "Nombre", aliases: ["nombre"] },
     ingredientType: { header: "Tipo de ingrediente", aliases: ["tipo de ingrediente", "tipo"] },

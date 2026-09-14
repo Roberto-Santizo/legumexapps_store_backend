@@ -1,7 +1,6 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, Model } from "sequelize-typescript";
 import ProcessingCost from "./ProcessingCost.model";
 
-// Mismo patrón que IngredientTranslation/CategoryTranslation -- ver shared/utils/translation.util.ts.
 @Table({
     tableName: "processingCostTranslations",
     indexes: [

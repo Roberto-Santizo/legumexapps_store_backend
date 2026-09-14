@@ -7,9 +7,9 @@ import ExcelJS from "exceljs"
 // feature (ver packagingImport.constant.ts / ingredientImport.constant.ts).
 
 // Rango Unicode de "combining diacritical marks" (U+0300-U+036F) construido con
-// String.fromCharCode en vez de un literal embebido en el regex -- evita cualquier ambigüedad
+// String.fromCodePoint en vez de un literal embebido en el regex -- evita cualquier ambigüedad
 // de encoding entre el código fuente y los acentos que en realidad tiene que reconocer.
-const COMBINING_DIACRITICS_REGEX = new RegExp(`[${String.fromCharCode(0x0300)}-${String.fromCharCode(0x036f)}]`, "g")
+const COMBINING_DIACRITICS_REGEX = new RegExp(`[${String.fromCodePoint(0x0300)}-${String.fromCodePoint(0x036f)}]`, "g")
 
 // Lo que puede quedar de una celda de Excel ya leída (ver readImportCell) -- null significa
 // "columna no mapeada o celda vacía", nunca "el archivo trae la palabra null". Único alias

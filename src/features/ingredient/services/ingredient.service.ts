@@ -97,6 +97,16 @@ type IngredientRowValidation = {
     manuallyValidatedFields: Set<string>
 }
 
+
+type IngredientImportAccumulators = {
+    unitsByNormalizedName: Map<string, Unit[]>
+    firstRowByNormalizedName: Map<string, number>
+    firstRowByNormalizedCode: Map<string, number>
+    existingCodesByNormalized: Set<string>
+    assignedSlugs: Set<string>
+    rowIssues: RowIssue[]
+}
+
 function resolveIngredientTypeField(rawType: ImportCellValue, ctx: IngredientRowValidation): string | undefined {
     if (rawType === null) return undefined
     const resolvedType = INGREDIENT_TYPE_LABEL_TO_KEY[normalizeImportText(rawType)]
@@ -194,12 +204,10 @@ function collectZodIssues(
 async function finalizeIngredientImportCandidate(
     validated: CreateIngredientInput,
     rowNumber: number,
-    firstRowByNormalizedName: Map<string, number>,
-    firstRowByNormalizedCode: Map<string, number>,
-    existingCodesByNormalized: Set<string>,
-    assignedSlugs: Set<string>,
-    rowIssues: RowIssue[]
+    accumulators: IngredientImportAccumulators
 ): Promise<(CreateIngredientInput & { urlSlug: string }) | null> {
+    const { firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized, assignedSlugs, rowIssues } = accumulators
+
     // A diferencia de displayName (no es único a nivel de columna, solo se revisa dentro del
     // archivo), code SÍ es único en la BD -- se reportan ambos problemas si aplican, en vez de
     // cortar en el primero, para que el admin vea todos los errores de la fila de una vez.
@@ -257,12 +265,7 @@ async function processIngredientImportRow(
     row: ExcelJS.Row,
     rowNumber: number,
     columnIndexByField: Map<IngredientImportField, number>,
-    unitsByNormalizedName: Map<string, Unit[]>,
-    firstRowByNormalizedName: Map<string, number>,
-    firstRowByNormalizedCode: Map<string, number>,
-    existingCodesByNormalized: Set<string>,
-    assignedSlugs: Set<string>,
-    rowIssues: RowIssue[]
+    accumulators: IngredientImportAccumulators
 ): Promise<(CreateIngredientInput & { urlSlug: string }) | null> {
     const rawCode = readImportCell(row, columnIndexByField.get("code"))
     const rawDisplayName = readImportCell(row, columnIndexByField.get("displayName"))
@@ -276,7 +279,7 @@ async function processIngredientImportRow(
     const ctx: IngredientRowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
 
     const resolvedType = resolveIngredientTypeField(rawType, ctx)
-    const resolvedCostUnitId = resolveIngredientCostUnitField(rawCostUnit, unitsByNormalizedName, ctx)
+    const resolvedCostUnitId = resolveIngredientCostUnitField(rawCostUnit, accumulators.unitsByNormalizedName, ctx)
     const resolvedIsOrganic = resolveIngredientBooleanField(rawIsOrganic, INGREDIENT_IS_ORGANIC_DEFAULT, "isOrganic", ctx)
     const resolvedIsMixable = resolveIngredientBooleanField(rawIsMixable, INGREDIENT_IS_MIXABLE_DEFAULT, "isMixable", ctx)
 
@@ -288,14 +291,12 @@ async function processIngredientImportRow(
     ctx.rowIssues.push(...zodIssues)
 
     if (ctx.rowIssues.length > 0) {
-        rowIssues.push(...ctx.rowIssues)
+        accumulators.rowIssues.push(...ctx.rowIssues)
         return null
     }
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rowIssues vacío arriba garantiza que zod sí validó
-    return finalizeIngredientImportCandidate(
-        validated!, rowNumber, firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized, assignedSlugs, rowIssues
-    )
+    return finalizeIngredientImportCandidate(validated!, rowNumber, accumulators)
 }
 
 
@@ -365,27 +366,27 @@ async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
     const unitsByNormalizedName = await loadActiveUnitsByNormalizedName()
     const existingCodesByNormalized = await loadExistingIngredientCodes()
 
-    const rowIssues: RowIssue[] = []
+    const accumulators: IngredientImportAccumulators = {
+        unitsByNormalizedName,
+        firstRowByNormalizedName: new Map<string, number>(),
+        firstRowByNormalizedCode: new Map<string, number>(),
+        existingCodesByNormalized,
+        assignedSlugs: new Set<string>(),
+        rowIssues: [],
+    }
 
     const candidates: (CreateIngredientInput & { urlSlug: string })[] = []
-    const firstRowByNormalizedName = new Map<string, number>()
-    const firstRowByNormalizedCode = new Map<string, number>()
-    const assignedSlugs = new Set<string>()
 
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
         const row = sheet.getRow(rowNumber)
         if (isImportRowBlank(row, columnIndexByField)) continue
 
-        const candidate = await processIngredientImportRow(
-            row, rowNumber, columnIndexByField, unitsByNormalizedName,
-            firstRowByNormalizedName, firstRowByNormalizedCode, existingCodesByNormalized,
-            assignedSlugs, rowIssues
-        )
+        const candidate = await processIngredientImportRow(row, rowNumber, columnIndexByField, accumulators)
         if (candidate) candidates.push(candidate)
     }
 
-    if (rowIssues.length > 0) {
-        throw new BulkImportError(rowIssues)
+    if (accumulators.rowIssues.length > 0) {
+        throw new BulkImportError(accumulators.rowIssues)
     }
     if (candidates.length === 0) {
         throw new AppError(422, "errors.bulk_import_empty_file")

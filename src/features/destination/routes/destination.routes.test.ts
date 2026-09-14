@@ -1,6 +1,4 @@
-// Prueba de contrato HTTP para el RBAC en sí -- authorize.test.ts ya prueba el middleware
-// aislado, esto prueba que quedó CABLEADO correctamente en la ruta real (permiso equivocado,
-// ruta sin proteger, etc. no se detectan con un test unitario del middleware solo).
+
 jest.mock("../../../config/env", () => ({
     env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" }
 }))

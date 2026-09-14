@@ -8,19 +8,12 @@ import IngredientTranslation from "./IngredientTranslation.model";
     tableName: "ingredients"
 })
 class Ingredient extends BaseCatalogModel {
-    // Código manual del ingrediente (ej. SKU/referencia interna) -- lo escribe el admin a mano,
-    // nunca se autogenera (a diferencia de urlSlug). Único a nivel de columna para que no puedan
-    // existir dos ingredientes con el mismo código -- ver ingredient.service.ts::assertCodeIsUnique
-    // para el chequeo explícito que da un error de negocio claro antes de llegar a este constraint.
+
     @Column({
         type: DataType.STRING(60),
         allowNull: false,
         unique: true,
-        // notEmpty: además del allowNull:false (que solo bloquea NULL, no ""), esto rechaza a
-        // nivel de Sequelize una cadena vacía o de puros espacios -- defensa en profundidad para
-        // cualquier escritura que no pase por ingredient.schema.ts (hoy no existe ninguna, ver
-        // ingredient.service.ts: create/bulk import son los únicos dos caminos y ambos validan
-        // con zod primero), no solo para la API HTTP.
+
         validate: {
             notEmpty: true
         }

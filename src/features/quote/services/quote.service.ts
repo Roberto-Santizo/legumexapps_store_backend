@@ -28,12 +28,6 @@ import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from ".
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
 import Decimal from "decimal.js"
 
-// Los costos adicionales ("Costos adicionales" en la UI, "ProcessingCost" en el código -- ver
-// ProcessingCost.model.ts para por qué el nombre difiere) se definen "por libra" de materia
-// prima. Se reutiliza el factor de conversión YA calibrado en el catálogo de Unidades (Libra =
-// 453.592, la misma constante que usa Ingredient.costUnit en cualquier otra conversión de peso)
-// en vez de hardcodear el número una segunda vez.
-// eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
 const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
 
 interface RawMaterialLine {
@@ -90,8 +84,6 @@ interface PalletMaterialLine {
 }
 
 interface TransportLine {
-    // null cuando no se mandó destinationId (transporte "apagado" para el cliente, ver
-    // calculateQuote) -- no se borró el shape, solo se admite el caso sin destino.
     destinationId: number | null
     displayName: string
     baseCost: number
@@ -111,23 +103,12 @@ interface QuoteCalculation {
     variantLabel: string | null
     requestedPallets: number
     totalUnits: number
-    // Cajas por palet (2026-09-12) -- se expone junto al resultado para que el reporte del
-    // cliente pueda mostrar "cajas por palet" en vez de totalUnits (bolsas), que es un dato
-    // interno. Es directamente variant.boxesPerPallet, sin transformar -- ver
-    // QuoteResultCard/QuotePdfDocument para dónde se consume.
     boxesPerPallet: number
     rawMaterialCost: number
     unitPackagingCost: number
     intermediatePackagingCost: number
-    // Nombrado "...Total", no "...Cost", a propósito: "ProcessingCost" ya termina en "Cost" --
-    // seguir el patrón de sufijo de las demás líneas (ej. palletMaterialCost) habría dado
-    // "processingCostCost", que repite la palabra sin sentido.
     processingCostTotal: number
     palletMaterialCost: number
-    // Costos adicionales de tipo "percentage" (ej. "Imprevistos" 2%) -- se calculan al FINAL,
-    // sobre el subtotal ya escalado de materia prima + costos por peso + empaques + materiales de
-    // palet (ver percentageBase en calculateQuote). Nombrado "...Total" por el mismo motivo que
-    // processingCostTotal arriba (el sufijo "+Cost" repetiría la palabra).
     percentageCostTotal: number
     transportCost: number
     adjustmentCost: number
@@ -267,9 +248,9 @@ function buildCustomizableRawMaterials(
     return rawMaterials
 }
 
-async function calculateQuote(input: CalculateQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation> {
+async function loadQuoteVariant(productVariantId: number): Promise<{ variant: ProductVariant; bagsPerPallet: number }> {
     const variant = await ProductVariant.findOne({
-        where: { id: input.productVariantId, isActive: true },
+        where: { id: productVariantId, isActive: true },
         include: [
             {
                 model: Product,
@@ -313,59 +294,38 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
             }
         ]
     })
-    if (!variant) throw new NotFoundError("ProductVariant", input.productVariantId)
+    if (!variant) throw new NotFoundError("ProductVariant", productVariantId)
 
-    // "Palet" = cajas por palet × bolsas por caja (2026-09-12) -- reemplaza el viejo input manual
-    // único unitsPerPallet (bolsas por palet, escrito a mano por el admin sin ayuda). Ambos
-    // factores son obligatorios a nivel de schema (ver productVariant.schema.ts) precisamente
-    // porque alimentan esta multiplicación -- ninguno puede faltar en silencio (mismo criterio
-    // que el resto de "campos críticos opcionales que corrompen el cálculo", ver memoria del
-    // proyecto). bagsPerPallet nunca se guarda como columna propia: se deriva acá, una sola vez,
-    // y de ahí en adelante el motor lo usa exactamente como usaba el viejo unitsPerPallet.
     if (!variant.boxesPerPallet || variant.boxesPerPallet <= 0 || !variant.bagsPerBox || variant.bagsPerBox <= 0) {
         throw new AppError(422, "errors.pallet_not_configured")
     }
     const bagsPerPallet = variant.boxesPerPallet * variant.bagsPerBox
-
-    // Guarda de negocio (2026-09-11, a pedido explícito del usuario): un variant con CERO
-    // materiales de empaque individual configurados NO debe cotizarse -- sin esta guarda,
-    // (variant.unitMaterials ?? []).map(...) más abajo simplemente recorre un arreglo vacío y
-    // unitPackagingCost sale en $0 en silencio, exactamente la misma clase de bug que el barrido
-    // histórico de "campos críticos opcionales que corrompen el cálculo en silencio" (ver
-    // memoria del proyecto: costUnitId, ProductVariantPalletMaterial.quantityValue, etc.) --
-    // salvo que acá no hay ningún campo de schema que se pueda volver "requerido": el join puede
-    // estar simplemente vacío (0 filas), el ORM nunca "falla" al traer cero resultados, así que
-    // hay que chequear la longitud explícito. Mismo criterio (422 + AppError) que
-    // pallet_not_configured arriba.
     if ((variant.unitMaterials ?? []).length === 0) {
         throw new AppError(422, "errors.unit_materials_not_configured")
     }
 
-    // Misma guarda, mismo motivo, para el otro join de N filas de la variante: un variant con
-    // CERO materiales de paletización configurados no debe cotizarse -- sin esto,
-    // (variant.palletMaterials ?? []).map(...) más abajo recorre un arreglo vacío y
-    // palletMaterialCost sale en $0 en silencio (2026-09-11, mismo hallazgo que unitMaterials
-    // arriba, ver memoria del proyecto).
     if ((variant.palletMaterials ?? []).length === 0) {
         throw new AppError(422, "errors.pallet_materials_not_configured")
     }
 
-    // Transporte "apagado" temporalmente (2026-09-10): el cotizador del cliente ya no pide
-    // destino (ver quoteCalculatorForm.component.tsx, prop showDestination), así que
-    // input.destinationId puede no llegar. Si no llega, se salta la consulta y el transporte
-    // queda en $0 más abajo -- NO se lanza error por "falta destino". Si SÍ llega (el admin, en
-    // su cotizador interno, sigue pudiendo mandarlo), se sigue validando que exista, igual que
-    // antes: un id inválido sigue siendo un error real, solo la ausencia total del campo dejó
-    // de serlo.
-    const destination = input.destinationId
-        ? await Destination.findOne({ where: { id: input.destinationId, isActive: true } })
+    return { variant, bagsPerPallet }
+}
+
+async function resolveQuoteDestination(destinationId: number | undefined): Promise<Destination | null> {
+    const destination = destinationId
+        ? await Destination.findOne({ where: { id: destinationId, isActive: true } })
         : null
-    if (input.destinationId && !destination) throw new NotFoundError("Destination", input.destinationId)
+    if (destinationId && !destination) throw new NotFoundError("Destination", destinationId)
+    return destination
+}
 
-    const requestedPallets = input.requestedPallets
-    const totalUnits = requestedPallets * bagsPerPallet
-
-    const rawMaterials: RawMaterialLine[] = variant.parentProduct?.isCustomizable
+function buildRawMaterialLines(
+    variant: ProductVariant,
+    input: CalculateQuoteInput,
+    totalUnits: number,
+    language: ContentLanguage
+): RawMaterialLine[] {
+    return variant.parentProduct?.isCustomizable
         ? buildCustomizableRawMaterials(
               variant.parentProduct.productIngredients ?? [],
               input.ingredientMix,
@@ -374,11 +334,122 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
               language
           )
         : buildFixedRecipeRawMaterials(variant.parentProduct?.productIngredients ?? [], totalUnits, language)
+}
+
+function buildIntermediatePackagingLine(variant: ProductVariant, totalUnits: number): IntermediatePackagingLine | null {
+    if (!variant.usedIntermediatePackaging) return null
+
+    if (!variant.unitsPerIntermediatePackage || variant.unitsPerIntermediatePackage <= 0) {
+        throw new AppError(422, "errors.intermediate_packaging_missing_units")
+    }
+    const unitCost = toDecimal(variant.usedIntermediatePackaging.unitCost ?? 0)
+    const packagesNeeded = Math.ceil(totalUnits / variant.unitsPerIntermediatePackage)
+    return {
+        packagingId: variant.usedIntermediatePackaging.id,
+        displayName: variant.usedIntermediatePackaging.displayName,
+        unitCost: unitCost.toNumber(),
+        unitsPerPackage: variant.unitsPerIntermediatePackage,
+        totalUnits,
+        packagesNeeded,
+        lineTotal: roundMoney(unitCost.times(packagesNeeded))
+    }
+}
+
+async function buildPerWeightProcessingCostLines(
+    variant: ProductVariant,
+    totalUnits: number,
+    language: ContentLanguage
+): Promise<ProcessingCostLine[]> {
+    const activeProcessingCosts = await ProcessingCost.findAll({
+        where: { isActive: true, calculationType: "per_weight" },
+        include: [{ model: ProcessingCostTranslation, as: "translations" }]
+    })
+
+    const perWeightProcessingCosts = activeProcessingCosts.filter(processingCost => processingCost.calculationType === "per_weight")
+    if (perWeightProcessingCosts.length === 0) return []
+
+
+    const netWeightGrams = Number(variant.sizePresentation?.netWeightGrams ?? 0)
+    if (netWeightGrams <= 0) {
+        throw new AppError(422, "errors.presentation_missing_net_weight")
+    }
+
+    const totalWeightGrams = toDecimal(netWeightGrams).times(totalUnits)
+    const totalWeightPounds = totalWeightGrams.dividedBy(GRAMS_PER_POUND)
+
+    return perWeightProcessingCosts.map(processingCost => {
+        const value = toDecimal(processingCost.value)
+        const lineTotal = roundMoney(value.times(totalWeightPounds))
+        return {
+            processingCostId: processingCost.id,
+            displayName: pickTranslatedName(processingCost.displayName, processingCost.translations, language),
+            value: value.toNumber(),
+            totalWeightPounds: totalWeightPounds.toDecimalPlaces(6).toNumber(),
+            lineTotal
+        }
+    })
+}
+
+
+async function buildPercentageCostLines(percentageBase: number, language: ContentLanguage): Promise<PercentageCostLine[]> {
+    const activePercentageCosts = await ProcessingCost.findAll({
+        where: { isActive: true, calculationType: "percentage" },
+        include: [{ model: ProcessingCostTranslation, as: "translations" }]
+    })
+    const percentageOnlyCosts = activePercentageCosts.filter(processingCost => processingCost.calculationType === "percentage")
+    const percentageBaseDecimal = toDecimal(percentageBase)
+    return percentageOnlyCosts.map(processingCost => {
+        const value = toDecimal(processingCost.value)
+        const lineTotal = roundMoney(percentageBaseDecimal.times(value).dividedBy(100))
+        return {
+            processingCostId: processingCost.id,
+            displayName: pickTranslatedName(processingCost.displayName, processingCost.translations, language),
+            value: value.toNumber(),
+            baseAmount: percentageBase,
+            lineTotal
+        }
+    })
+}
+
+function buildTransportLine(destination: Destination | null, language: ContentLanguage): { transportCost: number; transport: TransportLine } {
+    const transportCost = destination ? roundMoney(toDecimal(destination.baseCost)) : 0
+    const transport: TransportLine = destination
+        ? { destinationId: destination.id, displayName: destination.displayName, baseCost: transportCost }
+        : { destinationId: null, displayName: language === "en" ? "No destination" : "Sin destino", baseCost: 0 }
+    return { transportCost, transport }
+}
+
+function buildAdjustmentLine(variant: ProductVariant, totalUnits: number): { adjustmentCost: number; adjustment: AdjustmentLine | null } {
+    const additionalCostPerUnit = toDecimal(variant.parentProduct?.additionalCostPerUnit ?? 0)
+    const adjustmentCost = roundMoney(additionalCostPerUnit.times(totalUnits))
+    const adjustment: AdjustmentLine | null = additionalCostPerUnit.greaterThan(0)
+        ? { unitCost: additionalCostPerUnit.toNumber(), totalUnits, lineTotal: adjustmentCost }
+        : null
+    return { adjustmentCost, adjustment }
+}
+
+
+function buildVariantLabel(variant: ProductVariant, language: ContentLanguage): string {
+    const unitsPerBoxLabel = language === "en" ? `${variant.bagsPerBox} units` : `${variant.bagsPerBox} und`
+    const sizePart = variant.sizePresentation?.displayLabel
+        ? `${unitsPerBoxLabel} × ${variant.sizePresentation.displayLabel}`
+        : unitsPerBoxLabel
+    const boxesPerPalletLabel = language === "en"
+        ? `${variant.boxesPerPallet} boxes/pallet`
+        : `${variant.boxesPerPallet} cajas/palet`
+    return [sizePart, boxesPerPalletLabel].join(" · ")
+}
+
+async function calculateQuote(input: CalculateQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation> {
+    const { variant, bagsPerPallet } = await loadQuoteVariant(input.productVariantId)
+    const destination = await resolveQuoteDestination(input.destinationId)
+
+    const requestedPallets = input.requestedPallets
+    const totalUnits = requestedPallets * bagsPerPallet
+
+    const rawMaterials = buildRawMaterialLines(variant, input, totalUnits, language)
     const rawMaterialCost = sumMoney(rawMaterials.map(line => line.lineTotal))
 
-    // Empaque unitario = SUMA sobre unitMaterials (bolsa + etiqueta + tapa..., receta-style,
-    // reemplaza el viejo FK único usedPackaging) -- cada línea es unitCost * quantityPerUnit *
-    // totalUnits, mismo criterio de redondeo por línea (MONEY_DECIMALS) que el resto del motor.
     const unitMaterials: UnitMaterialLine[] = (variant.unitMaterials ?? []).map(unitMaterial => {
         const unitCost = toDecimal(unitMaterial.usedUnitMaterial?.unitCost ?? 0)
         const quantityPerUnit = toDecimal(unitMaterial.quantityPerUnit ?? 1)
@@ -394,77 +465,10 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     })
     const unitPackagingCost = sumMoney(unitMaterials.map(line => line.lineTotal))
 
-    const intermediatePackaging: IntermediatePackagingLine | null = variant.usedIntermediatePackaging
-        ? (() => {
-              if (!variant.unitsPerIntermediatePackage || variant.unitsPerIntermediatePackage <= 0) {
-                  throw new AppError(422, "errors.intermediate_packaging_missing_units")
-              }
-              const unitCost = toDecimal(variant.usedIntermediatePackaging.unitCost ?? 0)
-              const packagesNeeded = Math.ceil(totalUnits / variant.unitsPerIntermediatePackage)
-              return {
-                  packagingId: variant.usedIntermediatePackaging.id,
-                  displayName: variant.usedIntermediatePackaging.displayName,
-                  unitCost: unitCost.toNumber(),
-                  unitsPerPackage: variant.unitsPerIntermediatePackage,
-                  totalUnits,
-                  packagesNeeded,
-                  lineTotal: roundMoney(unitCost.times(packagesNeeded))
-              }
-          })()
-        : null
+    const intermediatePackaging = buildIntermediatePackagingLine(variant, totalUnits)
     const intermediatePackagingCost = intermediatePackaging?.lineTotal ?? 0
 
-    // "Costos adicionales" (energía, mano de obra indirecta, análisis de laboratorio, almacenaje,
-    // mantenimiento) -- se aplican sobre el peso TOTAL de materia prima de la cotización completa
-    // (todas las unidades, sin distinguir tipo de ingrediente). Solo se consultan los activos con
-    // calculationType "per_weight": "percentage" queda definido en el catálogo como placeholder a
-    // futuro (contingencia 2%) pero SIN ninguna lógica implementada todavía -- se excluye acá a
-    // propósito, no se calcula ni en $0 ni de ninguna otra forma.
-    const activeProcessingCosts = await ProcessingCost.findAll({
-        where: { isActive: true, calculationType: "per_weight" },
-        include: [{ model: ProcessingCostTranslation, as: "translations" }]
-    })
-
-    // Defensa en profundidad: no confiar SOLO en el filtro WHERE de la query de arriba -- se
-    // vuelve a validar calculationType acá, en código, antes de calcular. Mismo principio que el
-    // resto de calculateQuote (ver ingredient_cost_unit_type_mismatch,
-    // product_ingredient_quantity_unit_type_mismatch): un dato crítico para el cálculo de dinero
-    // nunca se confía a un solo punto de validación. Si el WHERE de arriba alguna vez se afloja
-    // (ej. un futuro refactor que solo filtre por isActive), esta línea sigue evitando que una
-    // fila "percentage" (sin lógica implementada todavía) se cuele y se multiplique como si fuera
-    // "per_weight".
-    const perWeightProcessingCosts = activeProcessingCosts.filter(processingCost => processingCost.calculationType === "per_weight")
-
-    let processingCosts: ProcessingCostLine[] = []
-    if (perWeightProcessingCosts.length > 0) {
-        // El peso de una unidad es el peso neto de SU presentación (Presentation.netWeightGrams)
-        // -- misma fuente que ya usa la receta personalizable para derivar % -> gramos, reusada
-        // acá también para receta fija. Se prefirió a "sumar la cantidad de cada línea de
-        // materia prima" porque esa suma no está garantizada a coincidir con el peso neto
-        // declarado (nada en el catálogo lo obliga), y no todo ingrediente de una receta fija
-        // está necesariamente costeado en una unidad de peso (ver ProductIngredient.quantityUnit)
-        // -- netWeightGrams es la única fuente de "peso total" que es siempre inequívoca para
-        // AMBOS tipos de receta.
-        const netWeightGrams = Number(variant.sizePresentation?.netWeightGrams ?? 0)
-        if (netWeightGrams <= 0) {
-            throw new AppError(422, "errors.presentation_missing_net_weight")
-        }
-
-        const totalWeightGrams = toDecimal(netWeightGrams).times(totalUnits)
-        const totalWeightPounds = totalWeightGrams.dividedBy(GRAMS_PER_POUND)
-
-        processingCosts = perWeightProcessingCosts.map(processingCost => {
-            const value = toDecimal(processingCost.value)
-            const lineTotal = roundMoney(value.times(totalWeightPounds))
-            return {
-                processingCostId: processingCost.id,
-                displayName: pickTranslatedName(processingCost.displayName, processingCost.translations, language),
-                value: value.toNumber(),
-                totalWeightPounds: totalWeightPounds.toDecimalPlaces(6).toNumber(),
-                lineTotal
-            }
-        })
-    }
+    const processingCosts = await buildPerWeightProcessingCostLines(variant, totalUnits, language)
     const processingCostTotal = sumMoney(processingCosts.map(line => line.lineTotal))
 
     const palletMaterials: PalletMaterialLine[] = (variant.palletMaterials ?? []).map(palletMaterial => {
@@ -482,57 +486,12 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     })
     const palletMaterialCost = sumMoney(palletMaterials.map(line => line.lineTotal))
 
-    // Costos adicionales de tipo "percentage" (ej. "Imprevistos" 2%) -- se aplican AL FINAL, sobre
-    // el subtotal YA ESCALADO de todo el producto (materia prima + costos por peso + empaque
-    // unitario + empaque intermedio + materiales de palet). El ÚNICO costo que queda FUERA de esa
-    // base es el transporte -- se suma después, nunca dentro. El ajuste manual legacy
-    // (adjustmentCost / Product.additionalCostPerUnit) tampoco entra a la base ni se ve afectado
-    // por este cambio: sigue siendo una línea aparte, exactamente como antes de esta feature
-    // (decisión explícita confirmada con el usuario, no una omisión).
-    //
-    // Query separada de la de "per_weight" arriba a propósito -- no se toca el WHERE ni el
-    // comportamiento ya probado de esa rama; esta es una rama nueva, en paralelo, con su propia
-    // defensa en profundidad (mismo criterio: no confiar solo en el filtro WHERE).
-    const activePercentageCosts = await ProcessingCost.findAll({
-        where: { isActive: true, calculationType: "percentage" },
-        include: [{ model: ProcessingCostTranslation, as: "translations" }]
-    })
-    const percentageOnlyCosts = activePercentageCosts.filter(processingCost => processingCost.calculationType === "percentage")
-
-    // Si algún día existen varias filas "percentage" activas a la vez, cada una se aplica al MISMO
-    // subtotal base y se SUMAN entre sí (no se componen/encadenan) -- ej. Imprevistos 2% +
-    // Utilidad 5% sobre el mismo subtotal de Q1000 = Q20 + Q50 = Q70, no Q1000*1.02*1.05-Q1000.
-    // Decisión de negocio confirmada explícitamente con el usuario para este caso.
     const percentageBase = sumMoney([rawMaterialCost, processingCostTotal, unitPackagingCost, intermediatePackagingCost, palletMaterialCost])
-    const percentageBaseDecimal = toDecimal(percentageBase)
-
-    const percentageCosts: PercentageCostLine[] = percentageOnlyCosts.map(processingCost => {
-        const value = toDecimal(processingCost.value)
-        const lineTotal = roundMoney(percentageBaseDecimal.times(value).dividedBy(100))
-        return {
-            processingCostId: processingCost.id,
-            displayName: pickTranslatedName(processingCost.displayName, processingCost.translations, language),
-            value: value.toNumber(),
-            baseAmount: percentageBase,
-            lineTotal
-        }
-    })
+    const percentageCosts = await buildPercentageCostLines(percentageBase, language)
     const percentageCostTotal = sumMoney(percentageCosts.map(line => line.lineTotal))
 
-    // Sin destino -> transporte en $0, sin tocar el motor de cálculo de nada más (ver comentario
-    // de arriba). displayName traducido a mano (no viene de un catálogo, es un texto fijo para
-    // este caso especial) en vez de dejarlo vacío, para que si el admin ve esta línea en su
-    // cotizador interno sin elegir destino, se entienda qué significa el $0.
-    const transportCost = destination ? roundMoney(toDecimal(destination.baseCost)) : 0
-    const transport: TransportLine = destination
-        ? { destinationId: destination.id, displayName: destination.displayName, baseCost: transportCost }
-        : { destinationId: null, displayName: language === "en" ? "No destination" : "Sin destino", baseCost: 0 }
-
-    const additionalCostPerUnit = toDecimal(variant.parentProduct?.additionalCostPerUnit ?? 0)
-    const adjustmentCost = roundMoney(additionalCostPerUnit.times(totalUnits))
-    const adjustment: AdjustmentLine | null = additionalCostPerUnit.greaterThan(0)
-        ? { unitCost: additionalCostPerUnit.toNumber(), totalUnits, lineTotal: adjustmentCost }
-        : null
+    const { transportCost, transport } = buildTransportLine(destination, language)
+    const { adjustmentCost, adjustment } = buildAdjustmentLine(variant, totalUnits)
 
     const totalCost = sumMoney([
         rawMaterialCost,
@@ -545,43 +504,13 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         adjustmentCost
     ])
 
-    // "6 und × 976 ml · 385 cajas/palet" (2026-09-13) -- MISMO formato que el selector de SKU del
-    // cliente (quoteCalculatorForm.component.tsx::variantLabel, frontend), para que el resultado/
-    // PDF/lista de admin lean idéntico a lo que el cliente vio al elegir. No repite el nombre del
-    // producto acá: quotedOrderSummary/quotePdfDocument/adminQuote.page.tsx ya anteponen
-    // productDisplayName por su cuenta (" {{productDisplayName}} · {{variantLabel}}") -- si el
-    // nombre también viniera dentro de variantLabel, se duplicaría en pantalla.
-    // boxesPerPallet/bagsPerBox ya están garantizados no-nulos/positivos en este punto -- la
-    // guarda "pallet_not_configured" de arriba ya cortó la ejecución si faltaran. Lo único que
-    // puede faltar de verdad es sizePresentation (presentationId es opcional en ProductVariant),
-    // que se omite en vez de mostrarse como "undefined"/"null".
-    //
-    // Los textos fijos ("und"/"units", "cajas/palet"/"boxes/pallet") van hardcodeados en
-    // español/inglés acá -- mismo patrón ya usado en este archivo para "Sin destino"/"No
-    // destination" (calculateQuote recibe `language` como string plano, no `req.t`/i18next). Si
-    // alguno cambia, hay que actualizar a mano también
-    // frontend/.../shared/i18n/locales/{es,en}/translation.json ->
-    // site.quoteRequest.form.variantLabel.* -- mismo criterio de "catálogo espejado a mano" que
-    // unitCatalog.ts.
-    const unitsPerBoxLabel = language === "en" ? `${variant.bagsPerBox} units` : `${variant.bagsPerBox} und`
-    const sizePart = variant.sizePresentation?.displayLabel
-        ? `${unitsPerBoxLabel} × ${variant.sizePresentation.displayLabel}`
-        : unitsPerBoxLabel
-    const boxesPerPalletLabel = language === "en"
-        ? `${variant.boxesPerPallet} boxes/pallet`
-        : `${variant.boxesPerPallet} cajas/palet`
-    const variantLabelParts = [sizePart, boxesPerPalletLabel]
+    const variantLabel = buildVariantLabel(variant, language)
 
     return {
         productVariantId: variant.id,
         destinationId: destination?.id ?? null,
         productDisplayName: pickTranslatedName(variant.parentProduct?.displayName ?? "", variant.parentProduct?.translations, language),
-        // Ya no puede quedar en null (los dos ingredientes de variantLabelParts están
-        // garantizados) -- el tipo del campo se deja igual (string | null) porque cotizaciones
-        // GUARDADAS antes de este cambio siguen teniendo su valor congelado tal cual se calculó
-        // en su momento (puede ser el formato viejo, o incluso null si son muy antiguas) -- este
-        // cambio solo afecta cotizaciones NUEVAS, nunca reescribe una fila ya persistida.
-        variantLabel: variantLabelParts.join(" · "),
+        variantLabel,
         requestedPallets,
         totalUnits,
         boxesPerPallet: variant.boxesPerPallet,
@@ -735,11 +664,6 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 
 async function saveQuote(customerId: number, input: SaveQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date; leadId: number }> {
     const calculation = await calculateQuote(input, language)
-
-    // Todo cliente que cotiza registra/reusa un Lead (prospecto) -- ver
-    // leadService.findOrCreateLeadForQuote para la regla de creación-o-reuso (por email). Nunca
-    // se confía en que el frontend ya haya resuelto esto: input.leadContact viaja crudo (validado
-    // por saveQuoteSchema, ver quote.schema.ts) y se resuelve acá, del lado del servidor.
     const lead = await leadService.findOrCreateLeadForQuote(input.leadContact)
 
     const quote = await Quote.create({
@@ -776,9 +700,6 @@ async function listAllQuotes(): Promise<Quote[]> {
     return Quote.findAll({
         include: [
             { model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] },
-            // Prospecto vinculado (2026-09-13, ver Quote.leadId) -- required:false porque
-            // cotizaciones guardadas ANTES de este cambio no tienen leadId, y no deben
-            // desaparecer del listado por eso.
             { model: Lead, as: "quotedLead", required: false, attributes: ["id", "fullName", "companyName", "email"] }
         ],
         order: [["createdAt", "DESC"]]

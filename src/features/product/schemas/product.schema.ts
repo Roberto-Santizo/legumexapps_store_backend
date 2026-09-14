@@ -9,9 +9,6 @@ const productTranslationInputSchema = z.object({
 })
 
 export const createProductSchema = z.object({
-    // Código manual del producto, editable, único (case-insensitive -- ver
-    // product.service.ts::assertCodigoIsUnique). trim() en vez de solo min(1): un valor de puros
-    // espacios no debe colarse como "válido" antes de la comparación de unicidad.
     codigo: z.string().trim().min(1).max(60),
     subCategoryId: z.number().int().positive(),
     productTypeId: z.number().int().positive(),
@@ -24,8 +21,6 @@ export const createProductSchema = z.object({
 })
 
 
-// codigo se recupera como requerido -- no puede quedar vacío ni siquiera al editar (mismo
-// patrón que el resto de campos críticos del repo, ver memoria del proyecto).
 export const updateProductSchema = createProductSchema.partial().extend({
     codigo: createProductSchema.shape.codigo,
 })

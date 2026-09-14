@@ -24,10 +24,6 @@ import {
     REQUIRED_PRODUCT_VARIANT_IMPORT_FIELDS,
 } from "../constants/productVariantImport.constant"
 
-// Forma de una fila YA resuelta (códigos/nombres de texto cambiados por sus ids reales) pero
-// TODAVÍA sin las validaciones cruzadas de todo el grupo (ver finalizeSkuGroup) -- equivalente,
-// a nivel de fila, a lo que create/updateProductVariantSchema exige a nivel de entidad, más los
-// 2 campos que solo existen en esta plantilla (packagingId/quantity, van a una tabla hija).
 const productVariantImportRowSchema = z.object({
     productId: z.number().int().positive(),
     skuCode: z.string().trim().min(1).max(60),
@@ -177,10 +173,7 @@ function processProductVariantImportRow(
     return { ...validated!, rowNumber, packagingRole: packaging!.packagingRole, packagingDisplayName: packaging!.displayName }
 }
 
-// Todas las validaciones que solo tienen sentido mirando el GRUPO completo de filas de un mismo
-// SKU (no una fila aislada): consistencia de los campos que se repiten en cada fila, cuántos
-// materiales de cada rol trae, y si el propio código SKU ya existe. Devuelve null (con sus
-// RowIssue ya cargados) si el grupo no puede importarse tal cual está.
+
 function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set<string>, rowIssues: RowIssue[]): SkuImportCandidate | null {
     const firstRow = rows[0]
     const skuCode = firstRow.skuCode
@@ -191,11 +184,6 @@ function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set
         hasIssue = true
     }
 
-    // Los campos "de encabezado" (Código Producto/Presentación/Cajas por palet/Bolsas por caja) se
-    // repiten en cada fila de material del mismo SKU, igual que en los 3 Excel de origen del
-    // negocio -- si alguna fila trae un valor distinto a las demás para el MISMO SKU, es una
-    // contradicción de tipeo, no un dato válido: se rechaza el archivo entero en vez de adivinar
-    // cuál fila tiene razón.
     const isInconsistent = rows.some(row =>
         row.productId !== firstRow.productId ||
         row.presentationId !== firstRow.presentationId ||
@@ -207,10 +195,6 @@ function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set
         hasIssue = true
     }
 
-    // El mismo material no puede aparecer 2 veces para el mismo SKU en el rol unit/pallet -- ambas
-    // tablas hijas tienen un índice único (productVariantId, packagingId) (ver
-    // ProductVariantUnitMaterial.model.ts / ProductVariantPalletMaterial.model.ts); detectarlo acá
-    // da un error claro en vez de dejar que la transacción reviente más abajo.
     const seenPackagingIds = new Set<number>()
     for (const row of rows) {
         if (row.packagingRole === "intermediate") continue
@@ -281,10 +265,7 @@ async function loadPackagingsByNormalizedCode(): Promise<Map<string, Packaging>>
     return new Map(packagings.map(packaging => [normalizeImportText(packaging.code), packaging]))
 }
 
-// A diferencia de loadExistingPackagingCodes/loadExistingIngredientCodes (que sí filtran por
-// código porque ES el único identificador de esas filas), acá se cargan TODOS los skuCode
-// existentes (activos o no, mismo criterio) para detectar colisiones contra la BD antes de
-// intentar escribir nada.
+
 async function loadExistingSkuCodes(): Promise<Set<string>> {
     const existingVariants = await ProductVariant.findAll({ attributes: ["skuCode"] })
     return new Set(
@@ -306,15 +287,7 @@ function validateProductVariantImportHeaders(sheet: ExcelJS.Worksheet): Map<Prod
     return columnIndexByField
 }
 
-// Todo o nada POR ARCHIVO (2026-09-13, a pedido explícito del usuario -- distinto del resto de
-// importadores de este repo, que hacen un único `bulkCreate` plano de una tabla al final). Acá se
-// escribe en 3 tablas por SKU (ProductVariant + sus materiales unit/pallet, más
-// intermediatePackagingId/unitsPerIntermediatePackage cuando aplica), así que "nada se escribe a
-// menos que TODO el archivo sea válido" se logra en dos fases: (1) validar TODO en memoria, sin
-// tocar la BD para escribir nada -- solo lecturas; (2) recién si no hay ningún RowIssue, abrir UNA
-// transacción que crea todos los SKUs -- si algo inesperado revienta a mitad de la fase 2 (ej. una
-// violación de constraint que la fase 1 no anticipó), la transacción entera hace rollback y no
-// queda ninguna variante a medio crear.
+
 async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant[]> {
     const workbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
@@ -424,20 +397,12 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     ]
     sheet.getRow(1).font = { bold: true }
 
-    // Ejemplo 1 -- SKU real, palletizable, ya con precio completo en los 3 Excel de origen del
-    // negocio (PAB1310105, "Better Goods Pineapple Juice 6x12oz", Walmart USA). "JUGO-PINA-WM" es
-    // un Código Producto ilustrativo -- ese código lo define el admin al curar los Productos base
-    // (paso 3 de la carga), no viene de los Excel de origen. Simplificado a 3 de sus 5 materiales
-    // reales (el SKU real también lleva etiqueta y manga impresa) para que la plantilla quepa
-    // clara -- agregar tantas filas como materiales tenga cada SKU real.
+
     sheet.addRow({ productCodigo: "JUGO-PINA-WM", skuCode: "PAB1310105", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB010", quantity: 1 })
     sheet.addRow({ productCodigo: "JUGO-PINA-WM", skuCode: "PAB1310105", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB020", quantity: 1 })
     sheet.addRow({ productCodigo: "JUGO-PINA-WM", skuCode: "PAB1310105", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB158", quantity: 385 })
 
-    // Ejemplo 2 -- SKU de demostración (no es un dato real del negocio) que ilustra el rol
-    // "empaque intermedio", usando los mismos códigos de ejemplo de la plantilla de Empaques
-    // (BOL-001/BOL-002/CAJ-001, ver buildPackagingImportTemplate) para que ambas plantillas se
-    // lean juntas como un solo ejemplo coherente.
+
     sheet.addRow({ productCodigo: "DEMO-PROD", skuCode: "DEMO-001", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-001", quantity: 1 })
     sheet.addRow({ productCodigo: "DEMO-PROD", skuCode: "DEMO-001", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-002", quantity: 50 })
     sheet.addRow({ productCodigo: "DEMO-PROD", skuCode: "DEMO-001", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "CAJ-001", quantity: 40 })

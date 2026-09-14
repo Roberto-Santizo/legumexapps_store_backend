@@ -1,10 +1,7 @@
 import "reflect-metadata"
 import { Op } from "sequelize"
 
-// Mock manual del modelo -- mismo patrón que packaging.service.test.ts/ingredient.service.test.ts:
-// createProductVariant/updateProductVariant usan findOne/create/update,
-// findVariantConfigBySkuCode usa findOne con includes (el include en sí no importa para el mock,
-// solo la forma del objeto que devuelve).
+
 jest.mock("../models/ProductVariant.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn(), create: jest.fn() }

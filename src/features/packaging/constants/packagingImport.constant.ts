@@ -1,5 +1,5 @@
 
-export type PackagingImportField = "code" | "displayName" | "packagingRole" | "packagingMaterial" | "unitCost"
+export type PackagingImportField = "code" | "displayName" | "packagingRole" | "unitCost"
 
 interface ImportColumnDef {
     header: string
@@ -12,7 +12,6 @@ export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumn
     code: { header: "Código", aliases: ["codigo", "código", "code"] },
     displayName: { header: "Nombre", aliases: ["nombre"] },
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
-    packagingMaterial: { header: "Material", aliases: ["material"] },
     unitCost: { header: "Costo por unidad (Q)", aliases: ["costo por unidad (q)", "costo por unidad", "costo"] },
 }
 

@@ -1,8 +1,9 @@
 import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Packaging from "../models/Packaging.model"
+import { productVariantService } from "../../product/services/productVariant.service"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
-import { CreatePackagingInput, UpdatePackagingInput, createPackagingSchema } from "../schemas/packaging.schema"
+import { CreatePackagingInput, PackagingSkuUsageItem, UpdatePackagingInput, createPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
 import {
     ImportCellValue,
@@ -77,6 +78,70 @@ async function assertPackagingHasRole(packagingId: number, expectedRole: string)
     return packaging
 }
 
+// Filtro "Empaques de este SKU" (2026-09-13, solo lectura): reusa
+// productVariantService.findVariantConfigBySkuCode (misma búsqueda case-insensitive y el mismo
+// 404 "errors.product_variant_sku_not_found" que ya usa el autofill de variantes) en vez de
+// duplicar el query de ProductVariant + sus joins -- acá solo se aplana el resultado a una lista
+// de materiales con rol + cantidad, enriquecida con code/unitCost (findVariantConfigBySkuCode no
+// los trae porque su consumidor, el autofill del form de variante, no los necesita).
+function toUnitCostNumber(packaging: Packaging | undefined): number | null {
+    // Packaging.unitCost es DECIMAL en Postgres -- igual que en quoteService (ver toDecimal en
+    // money.util.ts), Sequelize puede devolverlo como string, y esta respuesta es solo de
+    // lectura/display, así que basta un Number() explícito en vez de pasar el string crudo (el
+    // schema de respuesta lo tipa z.number(), no z.coerce.number()).
+    if (!packaging || packaging.unitCost === null || packaging.unitCost === undefined) return null
+    return Number(packaging.unitCost)
+}
+
+async function listPackagingUsageBySkuCode(skuCode: string): Promise<PackagingSkuUsageItem[]> {
+    const variantConfig = await productVariantService.findVariantConfigBySkuCode(skuCode)
+
+    const packagingIds = new Set<number>([
+        ...variantConfig.unitMaterials.map(material => material.packagingId),
+        ...variantConfig.palletMaterials.map(material => material.packagingId),
+        ...(variantConfig.intermediatePackagingId ? [variantConfig.intermediatePackagingId] : []),
+    ])
+    const packagings = await Packaging.findAll({ where: { id: { [Op.in]: Array.from(packagingIds) } } })
+    const packagingById = new Map(packagings.map(packaging => [packaging.id, packaging]))
+
+    const items: PackagingSkuUsageItem[] = [
+        ...variantConfig.unitMaterials.map(material => ({
+            packagingId: material.packagingId,
+            code: packagingById.get(material.packagingId)?.code ?? "",
+            displayName: material.displayName,
+            packagingRole: "unit" as const,
+            unitCost: toUnitCostNumber(packagingById.get(material.packagingId)),
+            quantity: material.quantity,
+        })),
+        ...variantConfig.palletMaterials.map(material => ({
+            packagingId: material.packagingId,
+            code: packagingById.get(material.packagingId)?.code ?? "",
+            displayName: material.displayName,
+            packagingRole: "pallet" as const,
+            unitCost: toUnitCostNumber(packagingById.get(material.packagingId)),
+            quantity: material.quantity,
+        })),
+    ]
+
+    // El empaque intermedio no viene como fila en unitMaterials/palletMaterials -- es un campo
+    // suelto en la variante (intermediatePackagingId + unitsPerIntermediatePackage), ver
+    // ProductVariant.model.ts. Solo se agrega si ambos están presentes (misma consistencia que
+    // assertIntermediatePackagingConsistency en productVariant.service.ts).
+    if (variantConfig.intermediatePackagingId && variantConfig.unitsPerIntermediatePackage != null) {
+        const intermediatePackaging = packagingById.get(variantConfig.intermediatePackagingId)
+        items.push({
+            packagingId: variantConfig.intermediatePackagingId,
+            code: intermediatePackaging?.code ?? "",
+            displayName: intermediatePackaging?.displayName ?? "",
+            packagingRole: "intermediate",
+            unitCost: toUnitCostNumber(intermediatePackaging),
+            quantity: variantConfig.unitsPerIntermediatePackage,
+        })
+    }
+
+    return items
+}
+
 type PackagingRowValidation = {
     rowNumber: number
     rowIssues: RowIssue[]
@@ -102,7 +167,6 @@ function buildPackagingImportCandidate(fields: {
     rawCode: ImportCellValue
     rawDisplayName: ImportCellValue
     resolvedRole: string | undefined
-    rawMaterial: ImportCellValue
     rawUnitCost: ImportCellValue
 }) {
     return {
@@ -112,7 +176,6 @@ function buildPackagingImportCandidate(fields: {
         code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         packagingRole: fields.resolvedRole,
-        packagingMaterial: typeof fields.rawMaterial === "string" ? fields.rawMaterial.trim() || undefined : undefined,
         unitCost: fields.rawUnitCost === null || fields.rawUnitCost === "" ? undefined : Number(fields.rawUnitCost),
     }
 }
@@ -200,13 +263,12 @@ function processPackagingImportRow(
     const rawCode = readImportCell(row, columnIndexByField.get("code"))
     const rawDisplayName = readImportCell(row, columnIndexByField.get("displayName"))
     const rawRole = readImportCell(row, columnIndexByField.get("packagingRole"))
-    const rawMaterial = readImportCell(row, columnIndexByField.get("packagingMaterial"))
     const rawUnitCost = readImportCell(row, columnIndexByField.get("unitCost"))
 
     const ctx: PackagingRowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
 
     const resolvedRole = resolvePackagingRoleField(rawRole, ctx)
-    const candidate = buildPackagingImportCandidate({ rawCode, rawDisplayName, resolvedRole, rawMaterial, rawUnitCost })
+    const candidate = buildPackagingImportCandidate({ rawCode, rawDisplayName, resolvedRole, rawUnitCost })
 
     const { validated, issues: zodIssues } = collectPackagingZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
     ctx.rowIssues.push(...zodIssues)
@@ -293,7 +355,6 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         { header: PACKAGING_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: PACKAGING_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.packagingRole.header, key: "packagingRole", width: 34 },
-        { header: PACKAGING_IMPORT_COLUMNS.packagingMaterial.header, key: "packagingMaterial", width: 24 },
         { header: PACKAGING_IMPORT_COLUMNS.unitCost.header, key: "unitCost", width: 20 },
     ]
     sheet.getRow(1).font = { bold: true }
@@ -301,21 +362,18 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         code: "BOL-001",
         displayName: "Bolsa plástica 2kg",
         packagingRole: PACKAGING_ROLE_LABELS.unit,
-        packagingMaterial: "Polietileno",
         unitCost: 1.25
     })
     sheet.addRow({
         code: "BOL-002",
         displayName: "Bolsa grande 50 unidades",
         packagingRole: PACKAGING_ROLE_LABELS.intermediate,
-        packagingMaterial: "Polipropileno",
         unitCost: 3.5
     })
     sheet.addRow({
         code: "CAJ-001",
         displayName: "Caja corrugada master",
         packagingRole: PACKAGING_ROLE_LABELS.pallet,
-        packagingMaterial: "Cartón corrugado",
         unitCost: 2
     })
 
@@ -336,6 +394,7 @@ export const packagingService = {
     updatePackaging,
     deletePackaging,
     assertPackagingHasRole,
+    listPackagingUsageBySkuCode,
     bulkImportPackagings,
     buildPackagingImportTemplate,
 }

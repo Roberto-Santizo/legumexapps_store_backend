@@ -48,6 +48,17 @@ async function update(req: Request, res: Response, next: NextFunction): Promise<
     }
 }
 
+// Filtro "Empaques de este SKU" (solo lectura) -- ver packaging.service.ts::listPackagingUsageBySkuCode.
+async function showBySku(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const { skuCode } = req.params as { skuCode: string }
+        const items = await packagingService.listPackagingUsageBySkuCode(skuCode)
+        res.json({ data: items })
+    } catch (error) {
+        next(error)
+    }
+}
+
 async function destroy(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const packagingId = Number(req.params.id)
@@ -99,6 +110,7 @@ export const packagingController = {
     store,
     update,
     destroy,
+    showBySku,
     bulkImport,
     downloadTemplate,
 }

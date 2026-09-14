@@ -12,14 +12,24 @@ jest.mock("../models/Packaging.model", () => ({
     default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }
 }))
 
+// listPackagingUsageBySkuCode reusa productVariantService.findVariantConfigBySkuCode en vez de
+// duplicar el query de ProductVariant -- se mockea entero acá, la lógica propia de esa función
+// (búsqueda case-insensitive, joins, 404) ya tiene su propia cobertura en
+// productVariant.service.test.ts.
+jest.mock("../../product/services/productVariant.service", () => ({
+    productVariantService: { findVariantConfigBySkuCode: jest.fn() }
+}))
+
 import Packaging from "../models/Packaging.model"
 import { packagingService } from "./packaging.service"
+import { productVariantService } from "../../product/services/productVariant.service"
 import { BulkImportError } from "../../../shared/errors/AppError"
 
 const mockBulkCreate = Packaging.bulkCreate as unknown as jest.Mock
 const mockPackagingFindOne = Packaging.findOne as unknown as jest.Mock
 const mockPackagingFindAll = Packaging.findAll as unknown as jest.Mock
 const mockPackagingCreate = Packaging.create as unknown as jest.Mock
+const mockFindVariantConfigBySkuCode = productVariantService.findVariantConfigBySkuCode as jest.Mock
 
 type SheetRow = Record<string, string | number | undefined>
 
@@ -39,7 +49,7 @@ async function buildWorkbookBuffer(headers: string[], rows: SheetRow[]): Promise
 
 // "Código" primero a propósito, igual que la plantilla real -- pero el parser mapea por nombre
 // de encabezado, no por posición, así que el orden acá no es lo que se está probando.
-const HEADERS = ["Código", "Nombre", "Rol del material", "Material", "Costo por unidad (Q)"]
+const HEADERS = ["Código", "Nombre", "Rol del material", "Costo por unidad (Q)"]
 
 describe("packagingService.bulkImportPackagings", () => {
     beforeEach(() => {
@@ -51,18 +61,18 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("importa todas las filas válidas de un archivo bien formado (los 3 roles)", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa plástica 2kg", "Rol del material": "Empaque individual", "Material": "Polietileno", "Costo por unidad (Q)": 1.25 },
-            { "Código": "BOL-002", "Nombre": "Bolsa grande 50u", "Rol del material": "Empaque intermedio (bolsa grande)", "Material": "Polipropileno", "Costo por unidad (Q)": 3.5 },
-            { "Código": "CAJ-001", "Nombre": "Caja corrugada master", "Rol del material": "Material de paletización", "Material": "Cartón", "Costo por unidad (Q)": 2 },
+            { "Código": "BOL-001", "Nombre": "Bolsa plástica 2kg", "Rol del material": "Empaque individual", "Costo por unidad (Q)": 1.25 },
+            { "Código": "BOL-002", "Nombre": "Bolsa grande 50u", "Rol del material": "Empaque intermedio (bolsa grande)", "Costo por unidad (Q)": 3.5 },
+            { "Código": "CAJ-001", "Nombre": "Caja corrugada master", "Rol del material": "Material de paletización", "Costo por unidad (Q)": 2 },
         ])
 
         const result = await packagingService.bulkImportPackagings(buffer)
 
         expect(result).toHaveLength(3)
         expect(mockBulkCreate).toHaveBeenCalledWith([
-            { code: "BOL-001", displayName: "Bolsa plástica 2kg", packagingRole: "unit", packagingMaterial: "Polietileno", unitCost: 1.25 },
-            { code: "BOL-002", displayName: "Bolsa grande 50u", packagingRole: "intermediate", packagingMaterial: "Polipropileno", unitCost: 3.5 },
-            { code: "CAJ-001", displayName: "Caja corrugada master", packagingRole: "pallet", packagingMaterial: "Cartón", unitCost: 2 },
+            { code: "BOL-001", displayName: "Bolsa plástica 2kg", packagingRole: "unit", unitCost: 1.25 },
+            { code: "BOL-002", displayName: "Bolsa grande 50u", packagingRole: "intermediate", unitCost: 3.5 },
+            { code: "CAJ-001", displayName: "Caja corrugada master", packagingRole: "pallet", unitCost: 2 },
         ])
     })
 
@@ -85,7 +95,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
         expect(result).toHaveLength(1)
         expect(mockBulkCreate).toHaveBeenCalledWith([
-            { code: "BOL-999", displayName: "Bolsa test", packagingRole: "unit", packagingMaterial: undefined, unitCost: 5 },
+            { code: "BOL-999", displayName: "Bolsa test", packagingRole: "unit", unitCost: 5 },
         ])
     })
 
@@ -323,5 +333,75 @@ describe("packagingService.updatePackaging", () => {
         await packagingService.updatePackaging(1, { code: "BOL-001", packagingRole: "unit", unitCost: 2 })
 
         expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ code: "BOL-001" }))
+    })
+})
+
+describe("packagingService.listPackagingUsageBySkuCode", () => {
+    beforeEach(() => {
+        mockFindVariantConfigBySkuCode.mockReset()
+        mockPackagingFindAll.mockReset()
+    })
+
+    it("aplana unitMaterials/palletMaterials/empaque intermedio a una sola lista con rol + cantidad, enriquecida con code/unitCost", async () => {
+        mockFindVariantConfigBySkuCode.mockResolvedValue({
+            skuCode: "SKU-1",
+            productId: 1,
+            productDisplayName: "Producto 1",
+            presentationId: 1,
+            presentationLabel: "Bolsa 2kg",
+            boxesPerPallet: 10,
+            bagsPerBox: 5,
+            intermediatePackagingId: 3,
+            unitsPerIntermediatePackage: 50,
+            unitMaterials: [{ packagingId: 1, displayName: "Bolsa plástica", quantity: 1 }],
+            palletMaterials: [{ packagingId: 2, displayName: "Caja corrugada", quantity: 4 }],
+        })
+        mockPackagingFindAll.mockResolvedValue([
+            { id: 1, code: "BOL-001", displayName: "Bolsa plástica", unitCost: "1.2500" },
+            { id: 2, code: "CAJ-001", displayName: "Caja corrugada", unitCost: "2.0000" },
+            { id: 3, code: "BOL-002", displayName: "Bolsa grande 50u", unitCost: "3.5000" },
+        ])
+
+        const result = await packagingService.listPackagingUsageBySkuCode("sku-1")
+
+        expect(mockFindVariantConfigBySkuCode).toHaveBeenCalledWith("sku-1")
+        expect(result).toEqual([
+            { packagingId: 1, code: "BOL-001", displayName: "Bolsa plástica", packagingRole: "unit", unitCost: 1.25, quantity: 1 },
+            { packagingId: 2, code: "CAJ-001", displayName: "Caja corrugada", packagingRole: "pallet", unitCost: 2, quantity: 4 },
+            { packagingId: 3, code: "BOL-002", displayName: "Bolsa grande 50u", packagingRole: "intermediate", unitCost: 3.5, quantity: 50 },
+        ])
+    })
+
+    it("no agrega fila de empaque intermedio si la variante no tiene uno configurado", async () => {
+        mockFindVariantConfigBySkuCode.mockResolvedValue({
+            skuCode: "SKU-2",
+            productId: 1,
+            productDisplayName: "Producto 1",
+            presentationId: null,
+            presentationLabel: null,
+            boxesPerPallet: 10,
+            bagsPerBox: 5,
+            intermediatePackagingId: null,
+            unitsPerIntermediatePackage: null,
+            unitMaterials: [],
+            palletMaterials: [],
+        })
+        mockPackagingFindAll.mockResolvedValue([])
+
+        const result = await packagingService.listPackagingUsageBySkuCode("SKU-2")
+
+        expect(result).toEqual([])
+    })
+
+    it("propaga el 404 de findVariantConfigBySkuCode cuando el SKU no existe", async () => {
+        mockFindVariantConfigBySkuCode.mockRejectedValue(
+            Object.assign(new Error("not found"), { statusCode: 404, key: "errors.product_variant_sku_not_found" })
+        )
+
+        await expect(packagingService.listPackagingUsageBySkuCode("NOPE")).rejects.toMatchObject({
+            statusCode: 404,
+            key: "errors.product_variant_sku_not_found",
+        })
+        expect(mockPackagingFindAll).not.toHaveBeenCalled()
     })
 })

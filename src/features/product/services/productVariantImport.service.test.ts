@@ -18,6 +18,7 @@ jest.mock("../../packaging/models/Packaging.model", () => ({ __esModule: true, d
 jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
 jest.mock("../models/ProductVariantUnitMaterial.model", () => ({ __esModule: true, default: { bulkCreate: jest.fn() } }))
 jest.mock("../models/ProductVariantPalletMaterial.model", () => ({ __esModule: true, default: { bulkCreate: jest.fn() } }))
+jest.mock("../models/ProductVariantIntermediateMaterial.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
 
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
@@ -26,6 +27,7 @@ import Packaging from "../../packaging/models/Packaging.model"
 import ProductVariant from "../models/ProductVariant.model"
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
+import ProductVariantIntermediateMaterial from "../models/ProductVariantIntermediateMaterial.model"
 import { productVariantImportService } from "./productVariantImport.service"
 import { BulkImportError } from "../../../shared/errors/AppError"
 
@@ -37,6 +39,7 @@ const mockVariantFindAll = ProductVariant.findAll as unknown as jest.Mock
 const mockVariantCreate = ProductVariant.create as unknown as jest.Mock
 const mockUnitMaterialBulkCreate = ProductVariantUnitMaterial.bulkCreate as unknown as jest.Mock
 const mockPalletMaterialBulkCreate = ProductVariantPalletMaterial.bulkCreate as unknown as jest.Mock
+const mockIntermediateMaterialCreate = ProductVariantIntermediateMaterial.create as unknown as jest.Mock
 
 type SheetRow = Record<string, string | number | undefined>
 
@@ -51,7 +54,7 @@ async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS
     return arrayBuffer as unknown as Buffer
 }
 
-const HEADERS = ["Código Producto", "Código SKU", "Presentación", "Cajas por palet", "Bolsas por caja", "Código Material", "Cantidad"]
+const HEADERS = ["Código Producto", "Presentación", "Cajas por palet", "Bolsas por caja", "Código Material", "Cantidad"]
 
 const PRODUCT = { id: 1, codigo: "JUGO-PINA-WM", displayName: "Better Goods Pineapple Juice" }
 const PRESENTATION = { id: 2, displayLabel: "Botella 12 oz (0.75 lb)" }
@@ -63,7 +66,6 @@ const BOLSA_MASTER = { id: 13, code: "BOL-002", displayName: "Bolsa grande", pac
 function baseRow(overrides: Partial<SheetRow> = {}): SheetRow {
     return {
         "Código Producto": PRODUCT.codigo,
-        "Código SKU": "PAB1310105",
         "Presentación": PRESENTATION.displayLabel,
         "Cajas por palet": 385,
         "Bolsas por caja": 6,
@@ -79,10 +81,11 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
         mockProductFindAll.mockReset().mockResolvedValue([PRODUCT])
         mockPresentationFindAll.mockReset().mockResolvedValue([PRESENTATION])
         mockPackagingFindAll.mockReset().mockResolvedValue([TAPA, ENVASE, CAJA, BOLSA_MASTER])
-        mockVariantFindAll.mockReset().mockResolvedValue([]) // sin skuCode existentes en la BD
+        mockVariantFindAll.mockReset().mockResolvedValue([]) // sin (Producto, Presentación) existentes en la BD
         mockVariantCreate.mockReset().mockImplementation((data: object) => Promise.resolve({ id: 100, ...data }))
         mockUnitMaterialBulkCreate.mockReset().mockResolvedValue([])
         mockPalletMaterialBulkCreate.mockReset().mockResolvedValue([])
+        mockIntermediateMaterialCreate.mockReset().mockResolvedValue({})
     })
 
     it("importa un SKU completo (empaque individual + material de palet) dentro de UNA transacción", async () => {
@@ -100,14 +103,13 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
             expect.objectContaining({
                 productId: PRODUCT.id,
                 presentationId: PRESENTATION.id,
-                skuCode: "PAB1310105",
                 boxesPerPallet: 385,
                 bagsPerBox: 6,
-                intermediatePackagingId: null,
                 unitsPerIntermediatePackage: null,
             }),
             { transaction: { __fakeTransaction: true } }
         )
+        expect(mockIntermediateMaterialCreate).not.toHaveBeenCalled()
         expect(mockUnitMaterialBulkCreate).toHaveBeenCalledWith(
             [
                 { productVariantId: 100, packagingId: TAPA.id, quantityPerUnit: 1 },
@@ -121,7 +123,7 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
         )
     })
 
-    it("dispatcha una fila de rol \"intermediate\" a intermediatePackagingId/unitsPerIntermediatePackage, no a una tabla de materiales", async () => {
+    it("dispatcha una fila de rol \"intermediate\" a una fila ProductVariantIntermediateMaterial + unitsPerIntermediatePackage en la variante, no a las tablas unit/pallet", async () => {
         const buffer = await buildWorkbookBuffer([
             baseRow({ "Código Material": TAPA.code, "Cantidad": 1 }),
             baseRow({ "Código Material": BOLSA_MASTER.code, "Cantidad": 50 }),
@@ -131,8 +133,12 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
         await productVariantImportService.bulkImportProductVariants(buffer)
 
         expect(mockVariantCreate).toHaveBeenCalledWith(
-            expect.objectContaining({ intermediatePackagingId: BOLSA_MASTER.id, unitsPerIntermediatePackage: 50 }),
+            expect.objectContaining({ unitsPerIntermediatePackage: 50 }),
             expect.anything()
+        )
+        expect(mockIntermediateMaterialCreate).toHaveBeenCalledWith(
+            { productVariantId: 100, packagingId: BOLSA_MASTER.id },
+            { transaction: { __fakeTransaction: true } }
         )
         // La bolsa grande no debe colarse como si fuera un material unit/pallet.
         expect(mockUnitMaterialBulkCreate).toHaveBeenCalledWith(
@@ -187,7 +193,10 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
         ])
 
         await expect(productVariantImportService.bulkImportProductVariants(buffer)).rejects.toMatchObject({
-            rowIssues: [expect.objectContaining({ key: "errors.bulk_import_multiple_intermediate_rows", params: { skuCode: "PAB1310105" } })]
+            rowIssues: [expect.objectContaining({
+                key: "errors.bulk_import_multiple_intermediate_rows",
+                params: { productCodigo: PRODUCT.codigo, presentationLabel: PRESENTATION.displayLabel }
+            })]
         })
         expect(mockTransaction).not.toHaveBeenCalled()
     })
@@ -239,17 +248,27 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
         expect(mockTransaction).not.toHaveBeenCalled()
     })
 
-    it("rechaza un skuCode que ya existe en la BD (activo o no) -- este importador solo crea, no actualiza", async () => {
-        mockVariantFindAll.mockResolvedValue([{ skuCode: "PAB1310105" }])
-        const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Material": TAPA.code, "Cantidad": 1 }),
-            baseRow({ "Código Material": CAJA.code, "Cantidad": 385 }),
-        ])
+    describe("un SKU por (Producto, Presentación) -- identidad completa del SKU desde 2026-09-17", () => {
+        it("rechaza un SKU nuevo si el (Producto, Presentación) ya lo usa una variante EXISTENTE en la BD", async () => {
+            mockVariantFindAll.mockResolvedValue([
+                { productId: PRODUCT.id, presentationId: PRESENTATION.id },
+            ])
+            const buffer = await buildWorkbookBuffer([
+                baseRow({ "Código Material": TAPA.code, "Cantidad": 1 }),
+                baseRow({ "Código Material": CAJA.code, "Cantidad": 385 }),
+            ])
 
-        await expect(productVariantImportService.bulkImportProductVariants(buffer)).rejects.toMatchObject({
-            rowIssues: [expect.objectContaining({ key: "errors.product_variant_skucode_already_exists" })]
+            await expect(productVariantImportService.bulkImportProductVariants(buffer)).rejects.toMatchObject({
+                rowIssues: expect.arrayContaining([
+                    expect.objectContaining({
+                        key: "errors.bulk_import_sku_presentation_already_used",
+                        params: { productCodigo: PRODUCT.codigo, presentationLabel: PRESENTATION.displayLabel }
+                    })
+                ])
+            })
+            expect(mockTransaction).not.toHaveBeenCalled()
+            expect(mockVariantCreate).not.toHaveBeenCalled()
         })
-        expect(mockTransaction).not.toHaveBeenCalled()
     })
 
     it("rechaza una fila sin Cantidad (columna requerida, nunca se infiere)", async () => {
@@ -273,12 +292,15 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
     })
 
     it("todo o nada POR ARCHIVO: un solo SKU inválido entre varios rechaza el archivo completo, ninguno se crea", async () => {
+        const OTRA_PRESENTACION = { id: 3, displayLabel: "Otra Presentación" }
+        mockPresentationFindAll.mockResolvedValue([PRESENTATION, OTRA_PRESENTACION])
+
         const buffer = await buildWorkbookBuffer([
-            // SKU 1: válido
-            baseRow({ "Código SKU": "PAB1310105", "Código Material": TAPA.code, "Cantidad": 1 }),
-            baseRow({ "Código SKU": "PAB1310105", "Código Material": CAJA.code, "Cantidad": 385 }),
-            // SKU 2: inválido (material desconocido)
-            baseRow({ "Código SKU": "PAB9999999", "Código Material": "NO-EXISTE", "Cantidad": 1 }),
+            // SKU 1 (Producto + Presentación por defecto): válido
+            baseRow({ "Código Material": TAPA.code, "Cantidad": 1 }),
+            baseRow({ "Código Material": CAJA.code, "Cantidad": 385 }),
+            // SKU 2 (misma Producto, OTRA Presentación): inválido (material desconocido)
+            baseRow({ "Presentación": OTRA_PRESENTACION.displayLabel, "Código Material": "NO-EXISTE", "Cantidad": 1 }),
         ])
 
         await expect(productVariantImportService.bulkImportProductVariants(buffer)).rejects.toBeInstanceOf(BulkImportError)
@@ -300,8 +322,8 @@ describe("productVariantImportService.bulkImportProductVariants", () => {
 
     it("rechaza el archivo si le falta una columna requerida", async () => {
         const buffer = await buildWorkbookBuffer(
-            [{ "Código Producto": PRODUCT.codigo, "Código SKU": "PAB1310105" }],
-            ["Código Producto", "Código SKU"]
+            [{ "Código Producto": PRODUCT.codigo }],
+            ["Código Producto"]
         )
 
         await expect(productVariantImportService.bulkImportProductVariants(buffer)).rejects.toMatchObject({ key: "errors.bulk_import_missing_columns" })

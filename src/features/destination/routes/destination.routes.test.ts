@@ -31,8 +31,8 @@ describe("destinationRouter (HTTP) — RBAC cableado en la ruta real", () => {
     })
 
     it("GET / con token de cliente (tipo incorrecto) -> 401, no 403", async () => {
-        const customerToken = jwt.sign({ sub: 1, type: "customer" }, "test-secret")
-        const res = await request(app).get("/api/destinations").set("Authorization", `Bearer ${customerToken}`)
+        const salespersonToken = jwt.sign({ sub: 1, type: "customer" }, "test-secret")
+        const res = await request(app).get("/api/destinations").set("Authorization", `Bearer ${salespersonToken}`)
         expect(res.status).toBe(401)
     })
 

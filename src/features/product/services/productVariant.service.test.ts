@@ -15,9 +15,25 @@ const mockVariantCreate = ProductVariant.create as unknown as jest.Mock
 
 const BASE_CREATE_INPUT = {
     productId: 1,
-    skuCode: "PAB1310105",
+    presentationId: 3,
     boxesPerPallet: 385,
     bagsPerBox: 6,
+}
+
+// ProductVariant.findOne se llama con dos shapes de `where` distintas dentro de un solo
+// create/update (chequeo de (productId, presentationId) único, y getProductVariantById) -- se
+// distingue por la clave presente en `where`. "presentationId" e "isActive" nunca coexisten en la
+// misma llamada, así que alcanza con mirar cuál de las dos está presente (mismo patrón que
+// mockProcessingCostFindAll en quote.service.test.ts).
+function stubVariantFindOne(responses: {
+    presentation?: unknown
+    existing?: unknown
+}): void {
+    mockVariantFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
+        if ("presentationId" in where) return Promise.resolve(responses.presentation ?? null)
+        if ("isActive" in where) return Promise.resolve(responses.existing ?? null)
+        return Promise.resolve(null)
+    })
 }
 
 describe("productVariantService.createProductVariant", () => {
@@ -26,37 +42,37 @@ describe("productVariantService.createProductVariant", () => {
         mockVariantCreate.mockReset()
     })
 
-    it("rechaza crear una variante si el skuCode ya existe, sin llegar a ProductVariant.create", async () => {
-        mockVariantFindOne.mockResolvedValueOnce({ id: 9, skuCode: "PAB1310105" })
-
-        await expect(productVariantService.createProductVariant(BASE_CREATE_INPUT)).rejects.toMatchObject({
-            statusCode: 409,
-            key: "errors.product_variant_skucode_already_exists",
-            params: { skuCode: "PAB1310105" },
-        })
-        expect(mockVariantCreate).not.toHaveBeenCalled()
-    })
-
-    it("la unicidad es case-insensitive (Op.iLike) -- \"pab1310105\" colisiona con \"PAB1310105\" ya existente", async () => {
-        mockVariantFindOne.mockResolvedValueOnce({ id: 9, skuCode: "PAB1310105" })
-
-        await expect(
-            productVariantService.createProductVariant({ ...BASE_CREATE_INPUT, skuCode: "pab1310105" })
-        ).rejects.toMatchObject({ key: "errors.product_variant_skucode_already_exists" })
-
-        expect(mockVariantFindOne).toHaveBeenCalledWith(
-            expect.objectContaining({ where: expect.objectContaining({ skuCode: { [Op.iLike]: "pab1310105" } }) })
-        )
-    })
-
-    it("crea la variante cuando el skuCode todavía no existe", async () => {
+    it("crea la variante cuando la Presentación está libre en ese producto", async () => {
         mockVariantFindOne.mockResolvedValue(null)
         mockVariantCreate.mockResolvedValue({ id: 1, ...BASE_CREATE_INPUT })
 
         const result = await productVariantService.createProductVariant(BASE_CREATE_INPUT)
 
-        expect(mockVariantCreate).toHaveBeenCalledWith(expect.objectContaining({ skuCode: "PAB1310105" }))
-        expect(result.skuCode).toBe("PAB1310105")
+        expect(mockVariantCreate).toHaveBeenCalledWith(expect.objectContaining({ productId: 1, presentationId: 3 }))
+        expect(result.presentationId).toBe(3)
+    })
+
+    describe("un SKU por (producto, Presentación) -- 2026-09-16, enforced a nivel de aplicación (identidad completa del SKU desde 2026-09-17)", () => {
+        it("rechaza crear un SKU si el producto ya tiene OTRO SKU para la misma Presentación", async () => {
+            stubVariantFindOne({ presentation: { id: 9, productId: 1, presentationId: 3 } })
+
+            await expect(productVariantService.createProductVariant(BASE_CREATE_INPUT)).rejects.toMatchObject({
+                statusCode: 409,
+                key: "errors.product_variant_presentation_already_used",
+            })
+            expect(mockVariantCreate).not.toHaveBeenCalled()
+        })
+
+        it("la búsqueda de duplicado está acotada al producto (productId + presentationId, no global)", async () => {
+            mockVariantFindOne.mockResolvedValue(null)
+            mockVariantCreate.mockResolvedValue({ id: 1, ...BASE_CREATE_INPUT })
+
+            await productVariantService.createProductVariant(BASE_CREATE_INPUT)
+
+            expect(mockVariantFindOne).toHaveBeenCalledWith(
+                expect.objectContaining({ where: { productId: 1, presentationId: 3 } })
+            )
+        })
     })
 })
 
@@ -65,105 +81,61 @@ describe("productVariantService.updateProductVariant", () => {
         mockVariantFindOne.mockReset()
     })
 
-    it("rechaza actualizar el skuCode a uno que ya usa OTRA variante, excluyendo el propio id de la búsqueda", async () => {
-        const mockUpdate = jest.fn()
-        mockVariantFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
-            if ("id" in where && !("skuCode" in where)) return Promise.resolve({ id: 1, skuCode: "OLD-001", update: mockUpdate }) // getProductVariantById
-            if ("skuCode" in where) return Promise.resolve({ id: 2, skuCode: "NEW-001" }) // otra variante ya tiene ese skuCode
-            return Promise.resolve(null)
-        })
-
-        await expect(
-            productVariantService.updateProductVariant(1, { ...BASE_CREATE_INPUT, skuCode: "NEW-001" })
-        ).rejects.toMatchObject({ statusCode: 409, key: "errors.product_variant_skucode_already_exists" })
-
-        expect(mockVariantFindOne).toHaveBeenCalledWith(
-            expect.objectContaining({ where: expect.objectContaining({ skuCode: { [Op.iLike]: "NEW-001" }, id: { [Op.ne]: 1 } }) })
-        )
-        expect(mockUpdate).not.toHaveBeenCalled()
-    })
-
-    it("permite guardar sin cambiar de skuCode (la unicidad no se compara consigo misma)", async () => {
+    it("permite guardar sin cambiar de presentationId (la unicidad no se compara consigo misma)", async () => {
         const mockUpdate = jest.fn().mockResolvedValue(undefined)
-        mockVariantFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
-            if ("id" in where && !("skuCode" in where)) return Promise.resolve({ id: 1, skuCode: "PAB1310105", update: mockUpdate })
-            if ("skuCode" in where) return Promise.resolve(null) // nadie más usa "PAB1310105"
-            return Promise.resolve(null)
+        stubVariantFindOne({
+            existing: { id: 1, productId: 1, presentationId: 3, update: mockUpdate },
         })
 
         await productVariantService.updateProductVariant(1, BASE_CREATE_INPUT)
 
-        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ skuCode: "PAB1310105" }))
-    })
-})
-
-describe("productVariantService.findVariantConfigBySkuCode (autofill)", () => {
-    beforeEach(() => {
-        mockVariantFindOne.mockReset()
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ presentationId: 3 }))
     })
 
-    it("devuelve la configuración completa (presentación, palet, materiales) de un SKU encontrado", async () => {
-        mockVariantFindOne.mockResolvedValue({
-            skuCode: "PAB1310105",
-            productId: 7,
-            presentationId: 3,
-            boxesPerPallet: 385,
-            bagsPerBox: 6,
-            intermediatePackagingId: null,
-            unitsPerIntermediatePackage: null,
-            parentProduct: { displayName: "Better Goods Pineapple Juice" },
-            sizePresentation: { displayLabel: "Botella 12 oz (0.75 lb)" },
-            unitMaterials: [
-                { packagingId: 10, quantityPerUnit: 1, usedUnitMaterial: { displayName: "Tapa con rosca Plastica BERICAP" } },
-                { packagingId: 11, quantityPerUnit: 1, usedUnitMaterial: { displayName: "Envase PET Cilindrico 354 ml 44 G" } },
-            ],
-            palletMaterials: [
-                { packagingId: 12, quantityValue: 385, usedPalletMaterial: { displayName: "Caja Genérica Jugos Walmart 6x354ml" } },
-            ],
+    describe("Presentación inmutable una vez creado el SKU (Opción B, 2026-09-16)", () => {
+        it("rechaza cambiar la Presentación de un SKU ya guardado", async () => {
+            const mockUpdate = jest.fn()
+            stubVariantFindOne({
+                existing: { id: 1, productId: 1, presentationId: 3, update: mockUpdate },
+            })
+
+            await expect(
+                productVariantService.updateProductVariant(1, { ...BASE_CREATE_INPUT, presentationId: 9 })
+            ).rejects.toMatchObject({ statusCode: 422, key: "errors.product_variant_presentation_immutable" })
+            expect(mockUpdate).not.toHaveBeenCalled()
         })
 
-        const result = await productVariantService.findVariantConfigBySkuCode("PAB1310105")
+        it("no rechaza si el update ni siquiera toca presentationId (permanece igual al guardado)", async () => {
+            const mockUpdate = jest.fn().mockResolvedValue(undefined)
+            stubVariantFindOne({
+                existing: { id: 1, productId: 1, presentationId: 3, update: mockUpdate },
+            })
 
-        expect(result).toEqual({
-            skuCode: "PAB1310105",
-            productId: 7,
-            productDisplayName: "Better Goods Pineapple Juice",
-            presentationId: 3,
-            presentationLabel: "Botella 12 oz (0.75 lb)",
-            boxesPerPallet: 385,
-            bagsPerBox: 6,
-            intermediatePackagingId: null,
-            unitsPerIntermediatePackage: null,
-            unitMaterials: [
-                { packagingId: 10, displayName: "Tapa con rosca Plastica BERICAP", quantity: 1 },
-                { packagingId: 11, displayName: "Envase PET Cilindrico 354 ml 44 G", quantity: 1 },
-            ],
-            palletMaterials: [
-                { packagingId: 12, displayName: "Caja Genérica Jugos Walmart 6x354ml", quantity: 385 },
-            ],
+            await productVariantService.updateProductVariant(1, { boxesPerPallet: 385, bagsPerBox: 6, presentationId: 3 })
+
+            expect(mockUpdate).toHaveBeenCalledTimes(1)
         })
     })
 
-    it("la búsqueda es case-insensitive (Op.iLike)", async () => {
-        mockVariantFindOne.mockResolvedValue({
-            skuCode: "PAB1310105", productId: 1, presentationId: null, boxesPerPallet: null, bagsPerBox: null,
-            intermediatePackagingId: null, unitsPerIntermediatePackage: null, parentProduct: {}, unitMaterials: [], palletMaterials: [],
-        })
+    describe("un SKU por (producto, Presentación) también aplica si se reasigna la variante a otro Producto", () => {
+        it("al mover la variante a OTRO producto, rechaza si ese producto ya tiene un SKU para la misma Presentación", async () => {
+            const mockUpdate = jest.fn()
+            stubVariantFindOne({
+                presentation: { id: 9, productId: 2, presentationId: 3 }, // el producto destino ya tiene un SKU en esa Presentación
+                existing: { id: 1, productId: 1, presentationId: 3, update: mockUpdate },
+            })
 
-        await productVariantService.findVariantConfigBySkuCode("pab1310105")
+            await expect(
+                productVariantService.updateProductVariant(1, { ...BASE_CREATE_INPUT, productId: 2 })
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                key: "errors.product_variant_presentation_already_used",
+            })
 
-        expect(mockVariantFindOne).toHaveBeenCalledWith(
-            expect.objectContaining({ where: expect.objectContaining({ skuCode: { [Op.iLike]: "pab1310105" } }) })
-        )
-    })
-
-    it("es 404-safe: rechaza con un error claro (no revienta) cuando el SKU no existe, sin devolver ningún dato", async () => {
-        mockVariantFindOne.mockResolvedValue(null)
-
-        await expect(productVariantService.findVariantConfigBySkuCode("NO-EXISTE")).rejects.toMatchObject({
-            statusCode: 404,
-            key: "errors.product_variant_sku_not_found",
-            params: { skuCode: "NO-EXISTE" },
+            expect(mockVariantFindOne).toHaveBeenCalledWith(
+                expect.objectContaining({ where: expect.objectContaining({ productId: 2, presentationId: 3, id: { [Op.ne]: 1 } }) })
+            )
+            expect(mockUpdate).not.toHaveBeenCalled()
         })
     })
 })

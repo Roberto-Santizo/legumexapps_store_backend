@@ -1,9 +1,8 @@
 import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Packaging from "../models/Packaging.model"
-import { productVariantService } from "../../product/services/productVariant.service"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
-import { CreatePackagingInput, PackagingSkuUsageItem, UpdatePackagingInput, createPackagingSchema } from "../schemas/packaging.schema"
+import { CreatePackagingInput, UpdatePackagingInput, createPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
 import {
     ImportCellValue,
@@ -76,70 +75,6 @@ async function assertPackagingHasRole(packagingId: number, expectedRole: string)
         })
     }
     return packaging
-}
-
-// Filtro "Empaques de este SKU" (2026-09-13, solo lectura): reusa
-// productVariantService.findVariantConfigBySkuCode (misma búsqueda case-insensitive y el mismo
-// 404 "errors.product_variant_sku_not_found" que ya usa el autofill de variantes) en vez de
-// duplicar el query de ProductVariant + sus joins -- acá solo se aplana el resultado a una lista
-// de materiales con rol + cantidad, enriquecida con code/unitCost (findVariantConfigBySkuCode no
-// los trae porque su consumidor, el autofill del form de variante, no los necesita).
-function toUnitCostNumber(packaging: Packaging | undefined): number | null {
-    // Packaging.unitCost es DECIMAL en Postgres -- igual que en quoteService (ver toDecimal en
-    // money.util.ts), Sequelize puede devolverlo como string, y esta respuesta es solo de
-    // lectura/display, así que basta un Number() explícito en vez de pasar el string crudo (el
-    // schema de respuesta lo tipa z.number(), no z.coerce.number()).
-    if (packaging?.unitCost == null) return null
-    return Number(packaging.unitCost)
-}
-
-async function listPackagingUsageBySkuCode(skuCode: string): Promise<PackagingSkuUsageItem[]> {
-    const variantConfig = await productVariantService.findVariantConfigBySkuCode(skuCode)
-
-    const packagingIds = new Set<number>([
-        ...variantConfig.unitMaterials.map(material => material.packagingId),
-        ...variantConfig.palletMaterials.map(material => material.packagingId),
-        ...(variantConfig.intermediatePackagingId ? [variantConfig.intermediatePackagingId] : []),
-    ])
-    const packagings = await Packaging.findAll({ where: { id: { [Op.in]: Array.from(packagingIds) } } })
-    const packagingById = new Map(packagings.map(packaging => [packaging.id, packaging]))
-
-    const items: PackagingSkuUsageItem[] = [
-        ...variantConfig.unitMaterials.map(material => ({
-            packagingId: material.packagingId,
-            code: packagingById.get(material.packagingId)?.code ?? "",
-            displayName: material.displayName,
-            packagingRole: "unit" as const,
-            unitCost: toUnitCostNumber(packagingById.get(material.packagingId)),
-            quantity: material.quantity,
-        })),
-        ...variantConfig.palletMaterials.map(material => ({
-            packagingId: material.packagingId,
-            code: packagingById.get(material.packagingId)?.code ?? "",
-            displayName: material.displayName,
-            packagingRole: "pallet" as const,
-            unitCost: toUnitCostNumber(packagingById.get(material.packagingId)),
-            quantity: material.quantity,
-        })),
-    ]
-
-    // El empaque intermedio no viene como fila en unitMaterials/palletMaterials -- es un campo
-    // suelto en la variante (intermediatePackagingId + unitsPerIntermediatePackage), ver
-    // ProductVariant.model.ts. Solo se agrega si ambos están presentes (misma consistencia que
-    // assertIntermediatePackagingConsistency en productVariant.service.ts).
-    if (variantConfig.intermediatePackagingId && variantConfig.unitsPerIntermediatePackage != null) {
-        const intermediatePackaging = packagingById.get(variantConfig.intermediatePackagingId)
-        items.push({
-            packagingId: variantConfig.intermediatePackagingId,
-            code: intermediatePackaging?.code ?? "",
-            displayName: intermediatePackaging?.displayName ?? "",
-            packagingRole: "intermediate",
-            unitCost: toUnitCostNumber(intermediatePackaging),
-            quantity: variantConfig.unitsPerIntermediatePackage,
-        })
-    }
-
-    return items
 }
 
 type PackagingRowValidation = {
@@ -394,7 +329,6 @@ export const packagingService = {
     updatePackaging,
     deletePackaging,
     assertPackagingHasRole,
-    listPackagingUsageBySkuCode,
     bulkImportPackagings,
     buildPackagingImportTemplate,
 }

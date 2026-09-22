@@ -22,7 +22,7 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
     const token = header.slice("Bearer ".length)
 
     try {
-        const payload = jwt.verify(token, env.jwtSecret) as unknown as AccessTokenPayload
+        const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }) as unknown as AccessTokenPayload
         if (payload.type !== "staff") {
             next(new AppError(401, "errors.unauthenticated"))
             return

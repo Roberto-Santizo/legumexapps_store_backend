@@ -1,7 +1,7 @@
 import { Op } from "sequelize"
 import Decimal from "decimal.js"
 import Quote from "../../quote/models/Quote.model"
-import Customer from "../../customer/models/Customer.model"
+import Salesperson from "../../salesperson/models/Salesperson.model"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
@@ -23,7 +23,7 @@ interface DashboardOverview {
     totalRevenue: number
     totalPallets: number
     totalUnits: number
-    uniqueCustomers: number
+    uniqueSalespeople: number
     averageQuoteValue: number
 }
 
@@ -42,8 +42,8 @@ interface DashboardTopProduct {
     totalRevenue: number
 }
 
-interface DashboardTopCustomer {
-    customerId: number
+interface DashboardTopSalesperson {
+    salespersonId: number
     name: string
     companyName: string | null
     email: string
@@ -66,7 +66,7 @@ interface DashboardSummary {
     trendGranularity: "day" | "week"
     topProducts: DashboardTopProduct[]
     topProductsByRevenue: DashboardTopProduct[]
-    topCustomers: DashboardTopCustomer[]
+    topSalespeople: DashboardTopSalesperson[]
     topIngredients: DashboardTopIngredient[]
 }
 
@@ -95,14 +95,14 @@ function buildOverview(quotes: Quote[]): DashboardOverview {
     const totalRevenue = sumMoney(quotes.map(quote => Number(quote.totalCost)))
     const totalPallets = quotes.reduce((sum, quote) => sum + Number(quote.requestedPallets), 0)
     const totalUnits = quotes.reduce((sum, quote) => sum + Number(quote.totalUnits), 0)
-    const uniqueCustomers = new Set(quotes.map(quote => quote.customerId)).size
+    const uniqueSalespeople = new Set(quotes.map(quote => quote.salespersonId)).size
 
     return {
         totalQuotes,
         totalRevenue,
         totalPallets,
         totalUnits,
-        uniqueCustomers,
+        uniqueSalespeople,
         averageQuoteValue: totalQuotes > 0 ? roundMoney(toDecimal(totalRevenue).dividedBy(totalQuotes)) : 0,
     }
 }
@@ -175,20 +175,20 @@ function buildTopProductsByRevenue(quotes: Quote[]): DashboardTopProduct[] {
         .slice(0, TOP_LIST_LIMIT)
 }
 
-type CustomerAccumulator = Omit<DashboardTopCustomer, "totalRevenue"> & { totalRevenue: Decimal }
+type SalespersonAccumulator = Omit<DashboardTopSalesperson, "totalRevenue"> & { totalRevenue: Decimal }
 
-function buildTopCustomers(quotes: Quote[]): DashboardTopCustomer[] {
-    const byCustomer = new Map<number, CustomerAccumulator>()
+function buildTopSalespeople(quotes: Quote[]): DashboardTopSalesperson[] {
+    const bySalesperson = new Map<number, SalespersonAccumulator>()
 
     for (const quote of quotes) {
-        const customer = quote.quotingCustomer
-        if (!customer) continue
+        const salesperson = quote.quotingSalesperson
+        if (!salesperson) continue
 
-        const entry = byCustomer.get(customer.id) ?? {
-            customerId: customer.id,
-            name: customer.name,
-            companyName: customer.companyName ?? null,
-            email: customer.email,
+        const entry = bySalesperson.get(salesperson.id) ?? {
+            salespersonId: salesperson.id,
+            name: salesperson.name,
+            companyName: salesperson.companyName ?? null,
+            email: salesperson.email,
             quoteCount: 0,
             totalPallets: 0,
             totalRevenue: new Decimal(0),
@@ -196,10 +196,10 @@ function buildTopCustomers(quotes: Quote[]): DashboardTopCustomer[] {
         entry.quoteCount += 1
         entry.totalPallets += Number(quote.requestedPallets)
         entry.totalRevenue = entry.totalRevenue.plus(quote.totalCost)
-        byCustomer.set(customer.id, entry)
+        bySalesperson.set(salesperson.id, entry)
     }
 
-    return Array.from(byCustomer.values())
+    return Array.from(bySalesperson.values())
         .map(entry => ({ ...entry, totalRevenue: roundMoney(entry.totalRevenue) }))
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
         .slice(0, TOP_LIST_LIMIT)
@@ -241,7 +241,7 @@ async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSu
     const quotes = await Quote.findAll({
         where: Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {},
         include: [
-            { model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] },
+            { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] },
             {
                 model: ProductVariant,
                 as: "quotedVariant",
@@ -261,7 +261,7 @@ async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSu
         trendGranularity: trend.granularity,
         topProducts: buildTopProducts(quotes),
         topProductsByRevenue: buildTopProductsByRevenue(quotes),
-        topCustomers: buildTopCustomers(quotes),
+        topSalespeople: buildTopSalespeople(quotes),
         topIngredients: buildTopIngredients(quotes),
     }
 }

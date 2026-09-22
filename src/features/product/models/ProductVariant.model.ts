@@ -2,20 +2,12 @@ import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany } from "sequeli
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Product from "./Product.model";
 import Presentation from "../../presentation/models/Presentation.model";
-import Packaging from "../../packaging/models/Packaging.model";
 import ProductVariantPalletMaterial from "./ProductVariantPalletMaterial.model";
 import ProductVariantUnitMaterial from "./ProductVariantUnitMaterial.model";
+import ProductVariantIntermediateMaterial from "./ProductVariantIntermediateMaterial.model";
 
 @Table({
     tableName: "productVariants",
-    indexes: [
-        {
-
-            name: "productVariants_skuCode_unique",
-            unique: true,
-            fields: ["skuCode"]
-        }
-    ]
 })
 class ProductVariant extends BaseCatalogModel {
     @ForeignKey(() => Product)
@@ -25,24 +17,18 @@ class ProductVariant extends BaseCatalogModel {
     })
     declare productId: number
 
+    // Requerido (2026-09-16): cada SKU (variante) debe estar atado a exactamente una Presentación
+    // -- ya no hay variantes "sin presentación". Además es inmutable una vez creada (ver
+    // productVariant.service.ts::assertPresentationNotChanged): cambiar de presentación exige
+    // crear un SKU nuevo, no reasignar este. Junto con Product.codigo, (productId, presentationId)
+    // ES la identidad del SKU (2026-09-17, ver assertPresentationNotAlreadyUsed) -- ya no hay un
+    // skuCode propio de la variante.
     @ForeignKey(() => Presentation)
     @Column({
         type: DataType.INTEGER,
-        allowNull: true
+        allowNull: false
     })
     declare presentationId: number
-
-    @ForeignKey(() => Packaging)
-    @Column({
-        type: DataType.INTEGER,
-        allowNull: true
-    })
-    declare intermediatePackagingId: number
-    @Column({
-        type: DataType.STRING(60),
-        allowNull: true
-    })
-    declare skuCode: string
 
     @Column({
         type: DataType.INTEGER,
@@ -70,14 +56,16 @@ class ProductVariant extends BaseCatalogModel {
     @BelongsTo(() => Presentation, "presentationId")
     declare sizePresentation: Presentation
 
-    @BelongsTo(() => Packaging, "intermediatePackagingId")
-    declare usedIntermediatePackaging: Packaging
-
     @HasMany(() => ProductVariantPalletMaterial, "productVariantId")
     declare palletMaterials: ProductVariantPalletMaterial[]
 
     @HasMany(() => ProductVariantUnitMaterial, "productVariantId")
     declare unitMaterials: ProductVariantUnitMaterial[]
+
+    // Default + opcional (2026-09-21) -- reemplaza el FK único intermediatePackagingId (eliminado
+    // del modelo; unitsPerIntermediatePackage se queda arriba, compartido entre alternativas).
+    @HasMany(() => ProductVariantIntermediateMaterial, "productVariantId")
+    declare intermediateMaterials: ProductVariantIntermediateMaterial[]
 }
 
 export default ProductVariant;

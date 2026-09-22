@@ -7,8 +7,8 @@ import { SendQuotePdfEmailInput } from "../schemas/quote.schema"
 
 async function save(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-        if (!req.customer) throw new AppError(401, "errors.unauthenticated")
-        const quote = await quoteService.saveQuote(req.customer.id, req.body, resolveContentLanguage(req.language))
+        if (!req.salesperson) throw new AppError(401, "errors.unauthenticated")
+        const quote = await quoteService.saveQuote(req.salesperson.id, req.body, resolveContentLanguage(req.language))
         res.status(201).json({
             message: req.t("success.created", { resource: req.t("resources.Quote") }),
             data: quote
@@ -45,7 +45,11 @@ async function indexAll(_req: Request, res: Response, next: NextFunction): Promi
     }
 }
 
-async function previewForAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
+// Compartido por /admin/quotes/preview (staff, quotes:calculate) y /quotes/preview (salesperson,
+// 2026-09-21 -- ver CLAUDE.md #6 "real-time recalculation") -- no hay lógica específica de
+// ninguna de las dos rutas acá, ambas SOLO calculan (calculateQuote), NUNCA guardan (saveQuote):
+// es la misma garantía estructural para las dos, no una convención por convención.
+async function preview(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const calculation = await quoteService.calculateQuote(req.body, resolveContentLanguage(req.language))
         res.json({ data: calculation })
@@ -89,6 +93,6 @@ export const quoteController = {
     destinations,
     save,
     indexAll,
-    previewForAdmin,
+    preview,
     sendPdfEmail,
 }

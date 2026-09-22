@@ -57,17 +57,6 @@ async function destroy(req: Request, res: Response, next: NextFunction): Promise
     }
 }
 
-// Autofill del SKU (2026-09-13) -- solo lectura, ver productVariantService.findVariantConfigBySkuCode.
-async function lookupBySkuCode(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-        const skuCode = String(req.params.skuCode)
-        const config = await productVariantService.findVariantConfigBySkuCode(skuCode)
-        res.json({ data: config })
-    } catch (error) {
-        next(error)
-    }
-}
-
 const EXCEL_MIME_TYPES = new Set([
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
     "application/vnd.ms-excel", // .xls
@@ -108,7 +97,6 @@ export const productVariantController = {
     store,
     update,
     destroy,
-    lookupBySkuCode,
     bulkImport,
     downloadTemplate,
 }

@@ -1,15 +1,10 @@
 import "reflect-metadata"
-import { Op } from "sequelize"
 
 // Mock manual del modelo -- mismo patrón que quote.service.test.ts/packaging.service.test.ts:
 // solo se mockean los métodos de Sequelize que la función realmente llama.
 jest.mock("../models/Lead.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn(), create: jest.fn() }
-}))
-jest.mock("../../quote/models/Quote.model", () => ({
-    __esModule: true,
-    default: {}
 }))
 
 import Lead from "../models/Lead.model"
@@ -18,76 +13,51 @@ import { leadService } from "./lead.service"
 const mockLeadFindOne = Lead.findOne as unknown as jest.Mock
 const mockLeadCreate = Lead.create as unknown as jest.Mock
 
-const CONTACT = { fullName: "Juan Pérez", companyName: "Comercial Pérez", email: "juan@example.com", notes: "Interesado en jugos" }
-
-describe("leadService.findOrCreateLeadForQuote (crear-o-reusar, 2026-09-13)", () => {
+// Los Leads nacen únicamente del formulario público de la landing (2026-09-21: el cotizador ya no
+// captura ni vincula prospectos, ver CLAUDE.md #4) -- estas pruebas cubren esa vía y el panel admin.
+describe("leadService (formulario público + panel admin)", () => {
     beforeEach(() => {
         mockLeadFindOne.mockReset()
         mockLeadCreate.mockReset()
     })
 
-    it("reusa un Lead existente si ya hay uno con ese email -- no llama a Lead.create", async () => {
-        const existingLead = { id: 7, fullName: "Nombre viejo", email: "juan@example.com", status: "contacted", notes: "nota del admin" }
-        mockLeadFindOne.mockResolvedValue(existingLead)
+    it("createLead persiste exactamente los datos del formulario público", async () => {
+        const input = {
+            fullName: "Juan Pérez",
+            companyName: "Comercial Pérez",
+            phone: "5555-1234",
+            email: "juan@example.com",
+            productLineInterest: "Jugos",
+            notes: "Interesado en jugos",
+        }
+        mockLeadCreate.mockResolvedValue({ id: 1, ...input })
 
-        const result = await leadService.findOrCreateLeadForQuote(CONTACT)
+        const result = await leadService.createLead(input)
 
-        expect(result).toBe(existingLead)
-        expect(mockLeadCreate).not.toHaveBeenCalled()
+        expect(mockLeadCreate).toHaveBeenCalledWith(input)
+        expect(result).toEqual({ id: 1, ...input })
     })
 
-    it("la búsqueda de email es case-insensitive (Op.iLike)", async () => {
+    it("getLeadById busca solo por id (ya no incluye cotizaciones vinculadas)", async () => {
         mockLeadFindOne.mockResolvedValue({ id: 7 })
 
-        await leadService.findOrCreateLeadForQuote({ ...CONTACT, email: "JUAN@EXAMPLE.COM" })
+        await leadService.getLeadById(7)
 
-        expect(mockLeadFindOne).toHaveBeenCalledWith(
-            expect.objectContaining({ where: { email: { [Op.iLike]: "JUAN@EXAMPLE.COM" } } })
-        )
+        expect(mockLeadFindOne).toHaveBeenCalledWith({ where: { id: 7 } })
     })
 
-    it("al reusar, NO sobreescribe fullName/companyName/notes/status que el admin ya haya editado (no llama a update)", async () => {
-        const existingLead = {
-            id: 7,
-            fullName: "Nombre distinto al del form",
-            companyName: "Empresa distinta",
-            status: "contacted",
-            notes: "notas ya escritas por el admin",
-            update: jest.fn(),
-        }
-        mockLeadFindOne.mockResolvedValue(existingLead)
-
-        const result = await leadService.findOrCreateLeadForQuote(CONTACT)
-
-        expect(result).toBe(existingLead)
-        expect(existingLead.update).not.toHaveBeenCalled()
-    })
-
-    it("crea un Lead nuevo cuando no existe ninguno con ese email", async () => {
+    it("getLeadById lanza NotFoundError si el prospecto no existe", async () => {
         mockLeadFindOne.mockResolvedValue(null)
-        mockLeadCreate.mockResolvedValue({ id: 500, ...CONTACT })
 
-        const result = await leadService.findOrCreateLeadForQuote(CONTACT)
-
-        expect(result).toEqual({ id: 500, ...CONTACT })
-        expect(mockLeadCreate).toHaveBeenCalledWith({
-            fullName: CONTACT.fullName,
-            companyName: CONTACT.companyName,
-            email: CONTACT.email,
-            notes: CONTACT.notes,
-            phone: null,
-            productLineInterest: null,
-        })
+        await expect(leadService.getLeadById(999)).rejects.toMatchObject({ statusCode: 404 })
     })
 
-    it("crea con notes: null cuando el cotizador no manda notas (campo opcional)", async () => {
-        mockLeadFindOne.mockResolvedValue(null)
-        mockLeadCreate.mockResolvedValue({ id: 501 })
+    it("updateLead actualiza status/notes del prospecto existente", async () => {
+        const update = jest.fn().mockResolvedValue({ id: 7, status: "contacted" })
+        mockLeadFindOne.mockResolvedValue({ id: 7, update })
 
-        await leadService.findOrCreateLeadForQuote({ fullName: "Ana Ruiz", companyName: "Ruiz SA", email: "ana@example.com", notes: undefined })
+        await leadService.updateLead(7, { status: "contacted", notes: "llamado" })
 
-        expect(mockLeadCreate).toHaveBeenCalledWith(
-            expect.objectContaining({ notes: null, phone: null, productLineInterest: null })
-        )
+        expect(update).toHaveBeenCalledWith({ status: "contacted", notes: "llamado" })
     })
 })

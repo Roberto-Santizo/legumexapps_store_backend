@@ -19,7 +19,7 @@ adminQuoteRouter.get("/", authorize("quotes:view"), quoteController.indexAll)
 
 adminQuoteRouter.get("/products", authorize("quotes:calculate"), quoteController.products)
 adminQuoteRouter.get("/destinations", authorize("quotes:calculate"), quoteController.destinations)
-adminQuoteRouter.post("/preview", authorize("quotes:calculate"), validate(calculateQuoteSchema), quoteController.previewForAdmin)
+adminQuoteRouter.post("/preview", authorize("quotes:calculate"), validate(calculateQuoteSchema), quoteController.preview)
 adminQuoteRouter.post(
     "/send-email",
     authorize("quotes:calculate"),

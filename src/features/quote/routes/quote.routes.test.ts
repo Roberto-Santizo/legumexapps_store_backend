@@ -28,14 +28,14 @@ import { AppError } from "../../../shared/errors/AppError"
 
 const app = buildTestApp("/api/quotes", quoteRouter)
 
-const customerToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
+// type se queda literal "customer" a propósito (rename 2026-09-16) -- ver authenticateSalesperson.ts
+const salespersonToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const staffToken = jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions: ["*"] }, "test-secret")
 
 const validQuoteBody = {
     productVariantId: 10,
     destinationId: 900,
     requestedPallets: 1,
-    leadContact: { fullName: "Juan Pérez", companyName: "Comercial Pérez", email: "juan@example.com" },
 }
 
 describe("quoteRouter (HTTP)", () => {
@@ -55,7 +55,7 @@ describe("quoteRouter (HTTP)", () => {
         it("200 con la lista que devuelve el service, para un token de cliente válido", async () => {
             (quoteService.listQuotableProducts as jest.Mock).mockResolvedValue([{ id: 1, displayName: "Piña" }])
 
-            const res = await request(app).get("/api/quotes/products").set("Authorization", `Bearer ${customerToken}`)
+            const res = await request(app).get("/api/quotes/products").set("Authorization", `Bearer ${salespersonToken}`)
 
             expect(res.status).toBe(200)
             expect(res.body).toEqual({ data: [{ id: 1, displayName: "Piña" }] })
@@ -66,7 +66,7 @@ describe("quoteRouter (HTTP)", () => {
         it("400 con detalle de campos si el body no pasa el schema (nunca llega a tocar el service)", async () => {
             const res = await request(app)
                 .post("/api/quotes")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .send({ requestedPallets: 0 }) // falta productVariantId (destinationId ya es opcional), y 0 < mínimo de 1 palet
 
             expect(res.status).toBe(400)
@@ -74,26 +74,27 @@ describe("quoteRouter (HTTP)", () => {
             expect(quoteService.saveQuote).not.toHaveBeenCalled()
         })
 
-        it("400 si falta leadContact -- toda cotización de cliente debe quedar registrada contra un prospecto (2026-09-13)", async () => {
-            const { leadContact: _leadContact, ...bodyWithoutLeadContact } = validQuoteBody
+        it("201 sin ningún dato de prospecto -- guardar ya no exige leadContact (2026-09-21, desacople Quote <-> Lead)", async () => {
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 6, totalCost: 100 })
 
             const res = await request(app)
                 .post("/api/quotes")
-                .set("Authorization", `Bearer ${customerToken}`)
-                .send(bodyWithoutLeadContact)
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ productVariantId: 10, requestedPallets: 1 })
 
-            expect(res.status).toBe(400)
-            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+            expect(res.status).toBe(201)
+            expect(quoteService.saveQuote).toHaveBeenCalledWith(42, { productVariantId: 10, requestedPallets: 1 }, "es")
         })
 
-        it("400 si leadContact viene sin email -- el email es obligatorio", async () => {
-            const res = await request(app)
-                .post("/api/quotes")
-                .set("Authorization", `Bearer ${customerToken}`)
-                .send({ ...validQuoteBody, leadContact: { fullName: "Juan Pérez", companyName: "Comercial Pérez" } })
+        it("un leadContact/leadId que llegue en el body se descarta -- nunca se reenvía al service", async () => {
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 7, totalCost: 100 })
 
-            expect(res.status).toBe(400)
-            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+            await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...validQuoteBody, leadId: 5, leadContact: { fullName: "Juan", companyName: "X", email: "juan@example.com" } })
+
+            expect(quoteService.saveQuote).toHaveBeenCalledWith(42, validQuoteBody, "es")
         })
 
         it("201 al guardar, usando el id del cliente autenticado (no uno que mande el body)", async () => {
@@ -101,12 +102,12 @@ describe("quoteRouter (HTTP)", () => {
 
             const res = await request(app)
                 .post("/api/quotes")
-                .set("Authorization", `Bearer ${customerToken}`)
-                .send({ ...validQuoteBody, customerId: 999 }) // intento de suplantar a otro cliente
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...validQuoteBody, salespersonId: 999 }) // intento de suplantar a otro representante
 
             expect(res.status).toBe(201)
             expect(res.body.data).toEqual({ id: 5, totalCost: 284 })
-            // 42 viene del JWT (customerToken), no del 999 que mandó el body -- customerId ni
+            // 42 viene del JWT (salespersonToken), no del 999 que mandó el body -- salespersonId ni
             // siquiera es un campo del schema, así que zod ya lo habría descartado igual. El
             // tercer argumento es el idioma resuelto de Accept-Language (ver
             // shared/utils/translation.util.ts) -- este request no lo manda, cae al fallback "es".
@@ -118,7 +119,7 @@ describe("quoteRouter (HTTP)", () => {
 
             const res = await request(app)
                 .post("/api/quotes")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .send(validQuoteBody)
 
             expect(res.status).toBe(422)
@@ -131,7 +132,7 @@ describe("quoteRouter (HTTP)", () => {
 
             const res = await request(app)
                 .post("/api/quotes")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .send(validQuoteBody)
 
             expect(res.status).toBe(500)
@@ -140,11 +141,46 @@ describe("quoteRouter (HTTP)", () => {
         })
     })
 
+    describe("POST /preview -- recalculo en vivo (2026-09-21, ver CLAUDE.md #6): calcula pero NUNCA guarda", () => {
+        it("200 con el cálculo del service, y jamás llama a saveQuote -- mismo contrato que /admin/quotes/preview", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 })
+
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ productVariantId: 10, requestedPallets: 1 })
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ data: { totalCost: 284 } })
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("es solo un cálculo -- nada se persiste, y tampoco acepta ni necesita datos de prospecto", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 100 })
+
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ productVariantId: 10, requestedPallets: 1 })
+
+            expect(res.status).toBe(200)
+        })
+
+        it("rechaza sin token de cliente, igual que el resto de rutas de quoteRouter", async () => {
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .send({ productVariantId: 10, requestedPallets: 1 })
+
+            expect(res.status).toBe(401)
+            expect(quoteService.calculateQuote).not.toHaveBeenCalled()
+        })
+    })
+
     describe("POST /send-email (adjuntar y enviar el PDF ya generado por el front)", () => {
         it("422 si no viene ningún archivo adjunto", async () => {
             const res = await request(app)
                 .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .field("to", "cliente@empresa.com")
                 .field("subject", "Cotización")
                 .field("body", "Hola, adjunto la cotización.")
@@ -156,7 +192,7 @@ describe("quoteRouter (HTTP)", () => {
         it("422 si el archivo adjunto no es un PDF", async () => {
             const res = await request(app)
                 .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .field("to", "cliente@empresa.com")
                 .field("subject", "Cotización")
                 .field("body", "Hola")
@@ -169,7 +205,7 @@ describe("quoteRouter (HTTP)", () => {
         it("400 si el email del destinatario no es válido -- nunca llega a intentar el envío", async () => {
             const res = await request(app)
                 .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .field("to", "no-es-un-email")
                 .field("subject", "Cotización")
                 .field("body", "Hola")
@@ -185,7 +221,7 @@ describe("quoteRouter (HTTP)", () => {
 
             const res = await request(app)
                 .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .field("to", "cliente@empresa.com")
                 .field("subject", "Cotización para Cliente Uno")
                 .field("body", "Hola, adjunto la cotización.")

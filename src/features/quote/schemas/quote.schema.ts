@@ -1,5 +1,4 @@
 import z from "zod"
-import { quoteLeadContactSchema } from "../../lead/schemas/lead.schema"
 
 const ingredientMixLineSchema = z.object({
     ingredientId: z.number().int().positive(),
@@ -16,20 +15,18 @@ export const calculateQuoteSchema = z.object({
     destinationId: z.number().int().positive().optional(),
     requestedPallets: z.number().int().min(1),
     ingredientMix: z.array(ingredientMixLineSchema).optional(),
-})
-
-// Solo para POST /quotes (guardar, cliente) -- NO para POST /admin/quotes/preview, que sigue
-// validando contra calculateQuoteSchema tal cual (el admin no captura datos de prospecto, ver
-// adminQuoteCalculatorPage.tsx). leadContact es REQUERIDO acá (a diferencia de
-// calculateQuoteSchema, que el admin también usa): cada cotización nueva del cliente debe quedar
-// registrada contra un Lead (ver quoteService.saveQuote / leadService.findOrCreateLeadForQuote).
-export const saveQuoteSchema = calculateQuoteSchema.extend({
-    leadContact: quoteLeadContactSchema,
+    // Default + opcional (2026-09-21, ver CLAUDE.md #4): el ID de la FILA del join
+    // (ProductVariantUnitMaterial/IntermediateMaterial/PalletMaterial), no el packagingId --
+    // quoteService valida que pertenezca a este SKU y sea isSwappable=true antes de costearlo
+    // (mismo principio que ingredientMix: el backend nunca confía en la elección del cliente sin
+    // validarla contra las opciones reales del SKU). Si se omite, se usa el default de ese nivel.
+    selectedUnitMaterialId: z.number().int().positive().optional(),
+    selectedIntermediateMaterialId: z.number().int().positive().optional(),
+    selectedPalletMaterialId: z.number().int().positive().optional(),
 })
 
 export type IngredientMixLineInput = z.infer<typeof ingredientMixLineSchema>
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
-export type SaveQuoteInput = z.infer<typeof saveQuoteSchema>
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),
     subject: z.string().min(1).max(200),

@@ -1,19 +1,23 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, Model } from "sequelize-typescript";
-import Customer from "../../customer/models/Customer.model";
+import Salesperson from "../../salesperson/models/Salesperson.model";
 import ProductVariant from "../../product/models/ProductVariant.model";
 import Destination from "../../destination/models/Destination.model";
-import Lead from "../../lead/models/Lead.model";
 
 @Table({
     tableName: "quotes"
 })
 class Quote extends Model {
-    @ForeignKey(() => Customer)
+    // Columna física sigue llamándose "customerId" (rename 2026-09-16: esta FK apuntaba a la
+    // feature que se llamaba "customer") -- field explícito para que sequelize-typescript NO
+    // infiera "salespersonId" como nombre de columna a partir de la propiedad renombrada. No es
+    // una migración de datos, solo el nombre en código.
+    @ForeignKey(() => Salesperson)
     @Column({
         type: DataType.INTEGER,
-        allowNull: false
+        allowNull: false,
+        field: "customerId"
     })
-    declare customerId: number
+    declare salespersonId: number
 
     @ForeignKey(() => ProductVariant)
     @Column({
@@ -33,20 +37,6 @@ class Quote extends Model {
         allowNull: true
     })
     declare destinationId: number | null
-
-    // Prospecto (Lead) al que se registra esta cotización (2026-09-13) -- columna NUEVA, nullable
-    // (sequelize.sync la agrega sola, sin SQL manual). Nullable a propósito: es opcional por
-    // diseño para no reventar si algún día se guarda una Quote sin pasar por
-    // quoteService.saveQuote (ej. un import futuro), y para que cotizaciones YA guardadas antes
-    // de este cambio simplemente queden con leadId: null en vez de romper. Se resuelve siempre
-    // (create-or-reuse por email, ver leadService.findOrCreateLeadForQuote) desde
-    // quoteController.save -- la única vía real de creación de Quote hoy.
-    @ForeignKey(() => Lead)
-    @Column({
-        type: DataType.INTEGER,
-        allowNull: true
-    })
-    declare leadId: number | null
 
     @Column({
         type: DataType.STRING(150),
@@ -142,17 +132,14 @@ class Quote extends Model {
     })
     declare breakdown: object
 
-    @BelongsTo(() => Customer, "customerId")
-    declare quotingCustomer: Customer
+    @BelongsTo(() => Salesperson, "salespersonId")
+    declare quotingSalesperson: Salesperson
 
     @BelongsTo(() => ProductVariant, "productVariantId")
     declare quotedVariant: ProductVariant
 
     @BelongsTo(() => Destination, "destinationId")
     declare quotedDestination: Destination
-
-    @BelongsTo(() => Lead, "leadId")
-    declare quotedLead: Lead
 }
 
 export default Quote;

@@ -34,6 +34,22 @@ class ProductVariantPalletMaterial extends BaseCatalogModel {
     })
     declare quantityValue: number
 
+    // Default + opcional (2026-09-21) -- mismo criterio que ProductVariantUnitMaterial, ver el
+    // comentario ahí.
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    })
+    declare isSwappable: boolean
+
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    })
+    declare isDefault: boolean
+
     @BelongsTo(() => ProductVariant, "productVariantId")
     declare parentProductVariant: ProductVariant
 

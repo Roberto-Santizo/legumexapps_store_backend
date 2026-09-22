@@ -36,6 +36,25 @@ class ProductVariantUnitMaterial extends BaseCatalogModel {
     })
     declare quantityPerUnit: number
 
+    // Default + opcional (2026-09-21, ver CLAUDE.md #4): isSwappable=false (default) es el
+    // comportamiento de siempre, fila de receta incondicional -- siempre se costea. isSwappable=true
+    // marca la fila como parte del menú de alternativas que el cliente puede elegir en el
+    // cotizador para este nivel; entre las filas isSwappable=true de una misma variante, exactamente
+    // una debe ser isDefault (ver productVariantUnitMaterial.service.ts).
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    })
+    declare isSwappable: boolean
+
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    })
+    declare isDefault: boolean
+
     @BelongsTo(() => ProductVariant, "productVariantId")
     declare parentProductVariant: ProductVariant
 

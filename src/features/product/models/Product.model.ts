@@ -1,7 +1,7 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import SubCategory from "../../category/models/SubCategory.model";
-import ProductType from "../../product-type/models/ProductType.model";
+import Client from "../../client/models/Client.model";
 import ProductVariant from "./ProductVariant.model";
 import ProductIngredient from "./ProductIngredient.model";
 import ProductTranslation from "./ProductTranslation.model";
@@ -34,12 +34,14 @@ class Product extends BaseCatalogModel {
     })
     declare subCategoryId: number
 
-    @ForeignKey(() => ProductType)
+    // Requerido (2026-09-16): cada Producto pertenece a exactamente un Cliente (el catálogo real
+    // de clientes, ver features/client/ -- no confundir con salesperson/, la cuenta que cotiza).
+    @ForeignKey(() => Client)
     @Column({
         type: DataType.INTEGER,
         allowNull: false
     })
-    declare productTypeId: number
+    declare clientId: number
 
     @Column({
         type: DataType.STRING(120),
@@ -85,8 +87,8 @@ class Product extends BaseCatalogModel {
     @BelongsTo(() => SubCategory, "subCategoryId")
     declare parentSubCategory: SubCategory
 
-    @BelongsTo(() => ProductType, "productTypeId")
-    declare parentProductType: ProductType
+    @BelongsTo(() => Client, "clientId")
+    declare client: Client
 
     @HasMany(() => ProductVariant, "productId")
     declare productVariants: ProductVariant[]

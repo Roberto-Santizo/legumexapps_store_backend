@@ -13,17 +13,15 @@ import Packaging from "../../packaging/models/Packaging.model"
 import Presentation from "../../presentation/models/Presentation.model"
 import ProductVariantPalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
 import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
-import ProductType from "../../product-type/models/ProductType.model"
+import ProductVariantIntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
 import Destination from "../../destination/models/Destination.model"
-import Customer from "../../customer/models/Customer.model"
+import Salesperson from "../../salesperson/models/Salesperson.model"
 import Quote from "../models/Quote.model"
-import Lead from "../../lead/models/Lead.model"
-import { leadService } from "../../lead/services/lead.service"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../../processingCost/models/ProcessingCostTranslation.model"
 import { getUnitCatalogEntry } from "../../unit/constants/unitCatalog"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput, IngredientMixLineInput, SaveQuoteInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput, IngredientMixLineInput } from "../schemas/quote.schema"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
 import Decimal from "decimal.js"
@@ -129,43 +127,94 @@ interface QuoteCalculation {
 
 const MIX_PERCENTAGE_TOLERANCE = new Decimal(0.5)
 
-function buildFixedRecipeRawMaterials(
+// Matemática compartida entre receta fija (% fijado por el admin) y mix personalizable (% elegido
+// por el cliente dentro de un rango) -- % -> gramos (sobre el peso neto de la presentación) ->
+// cantidad en la unidad de costeo del ingrediente -> costo. Quién define el % y cuándo queda
+// congelado es la única diferencia real entre ambos caminos (ver buildFixedPercentageRawMaterials
+// vs. buildCustomizableRawMaterials más abajo), así que esta función vive una sola vez.
+function buildPercentageRawMaterialLine(
+    ingredientId: number,
+    ingredient: Ingredient,
+    percentage: Decimal,
+    netWeight: Decimal,
+    totalUnits: number,
+    totalUnitsDecimal: Decimal,
+    language: ContentLanguage
+): RawMaterialLine {
+    const unitCost = toDecimal(ingredient?.costPerUnit ?? 0)
+    if (!ingredient?.costUnit) {
+        throw new AppError(422, "errors.ingredient_missing_cost_unit", { ingredientId })
+    }
+
+    if (ingredient.costUnit.unitType !== "weight") {
+        throw new AppError(422, "errors.ingredient_cost_unit_type_mismatch", {
+            ingredientId,
+            unitType: ingredient.costUnit.unitType
+        })
+    }
+
+    const costUnitBaseFactor = toDecimal(ingredient.costUnit.baseFactor)
+    const gramsPerUnit = percentage.dividedBy(100).times(netWeight)
+    const quantityPerUnitDecimal = gramsPerUnit.dividedBy(costUnitBaseFactor)
+    const lineTotal = roundMoney(unitCost.times(quantityPerUnitDecimal).times(totalUnitsDecimal))
+
+    return {
+        ingredientId,
+        displayName: pickTranslatedName(ingredient?.displayName ?? "", ingredient?.translations, language),
+        unitCost: unitCost.toNumber(),
+        quantityPerUnit: quantityPerUnitDecimal.toDecimalPlaces(6).toNumber(),
+        totalUnits,
+        lineTotal
+    }
+}
+
+// Receta fija (!Product.isCustomizable): el % de cada ingrediente lo fija el admin al crear el
+// producto (ProductIngredient.percentage) y el cliente nunca lo puede alterar -- calculateQuote
+// jamás lee input.ingredientMix acá (ver buildRawMaterialLines). Si el producto no tiene NINGÚN
+// ingrediente activo configurado todavía, se devuelve $0 sin exigir ni peso neto ni que sume 100
+// -- mismo comportamiento "no configurado" que ya tenía el motor viejo con quantityValue vacío,
+// para no romper variantes que todavía no tienen su receta cargada.
+function buildFixedPercentageRawMaterials(
     productIngredients: ProductIngredient[],
+    netWeightGrams: number,
     totalUnits: number,
     language: ContentLanguage
 ): RawMaterialLine[] {
+    if (productIngredients.length === 0) return []
+
+    if (!netWeightGrams || netWeightGrams <= 0) {
+        throw new AppError(422, "errors.presentation_missing_net_weight")
+    }
+
+    const netWeight = toDecimal(netWeightGrams)
     const totalUnitsDecimal = toDecimal(totalUnits)
 
-    return productIngredients.map(productIngredient => {
-        const ingredient = productIngredient.usedIngredient
-        const unitCost = toDecimal(ingredient?.costPerUnit ?? 0)
-        const rawQuantity = toDecimal(productIngredient.quantityValue ?? 0)
-        const quantityUnit = productIngredient.quantityUnit
-        const costUnit = ingredient?.costUnit
+    let percentageTotal = new Decimal(0)
+    const rawMaterials: RawMaterialLine[] = productIngredients.map(productIngredient => {
+        const percentage = toDecimal(productIngredient.percentage ?? 0)
+        percentageTotal = percentageTotal.plus(percentage)
 
-        let quantityPerUnit = rawQuantity
-        if (quantityUnit && costUnit) {
-            if (quantityUnit.unitType !== costUnit.unitType) {
-                throw new AppError(422, "errors.product_ingredient_quantity_unit_type_mismatch", {
-                    ingredientId: productIngredient.ingredientId,
-                    quantityUnitType: quantityUnit.unitType,
-                    costUnitType: costUnit.unitType
-                })
-            }
-            quantityPerUnit = rawQuantity.times(toDecimal(quantityUnit.baseFactor)).dividedBy(toDecimal(costUnit.baseFactor))
-        }
-
-        const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnitsDecimal))
-
-        return {
-            ingredientId: productIngredient.ingredientId,
-            displayName: pickTranslatedName(ingredient?.displayName ?? "", ingredient?.translations, language),
-            unitCost: unitCost.toNumber(),
-            quantityPerUnit: quantityPerUnit.toDecimalPlaces(6).toNumber(),
+        return buildPercentageRawMaterialLine(
+            productIngredient.ingredientId,
+            productIngredient.usedIngredient,
+            percentage,
+            netWeight,
             totalUnits,
-            lineTotal
-        }
+            totalUnitsDecimal,
+            language
+        )
     })
+
+    // Autoritativo (a diferencia del techo "blando" de productIngredient.service.ts, que solo
+    // evita GUARDAR una receta que ya se pase de 100 mientras se arma fila por fila): acá SÍ debe
+    // sumar 100 exacto (± tolerancia) porque se está cotizando de verdad. Clave de error distinta
+    // a la del mix personalizable a propósito -- el significado para quien lo lee es otro ("este
+    // producto está mal configurado", no "tu mezcla no cuadra").
+    if (percentageTotal.minus(100).abs().greaterThan(MIX_PERCENTAGE_TOLERANCE)) {
+        throw new AppError(422, "errors.fixed_recipe_percentage_must_total_100", { percentageTotal: percentageTotal.toDecimalPlaces(2).toNumber() })
+    }
+
+    return rawMaterials
 }
 
 
@@ -213,32 +262,15 @@ function buildCustomizableRawMaterials(
         const percentage = toDecimal(mixLine.percentage)
         percentageTotal = percentageTotal.plus(percentage)
 
-        const ingredient = poolEntry.usedIngredient
-        const unitCost = toDecimal(ingredient?.costPerUnit ?? 0)
-        if (!ingredient?.costUnit) {
-            throw new AppError(422, "errors.ingredient_missing_cost_unit", { ingredientId: mixLine.ingredientId })
-        }
- 
-        if (ingredient.costUnit.unitType !== "weight") {
-            throw new AppError(422, "errors.ingredient_cost_unit_type_mismatch", {
-                ingredientId: mixLine.ingredientId,
-                unitType: ingredient.costUnit.unitType
-            })
-        }
-
-        const costUnitBaseFactor = toDecimal(ingredient.costUnit.baseFactor)
-        const gramsPerUnit = percentage.dividedBy(100).times(netWeight)
-        const quantityPerUnitDecimal = gramsPerUnit.dividedBy(costUnitBaseFactor)
-        const lineTotal = roundMoney(unitCost.times(quantityPerUnitDecimal).times(totalUnitsDecimal))
-
-        return {
-            ingredientId: mixLine.ingredientId,
-            displayName: pickTranslatedName(ingredient?.displayName ?? "", ingredient?.translations, language),
-            unitCost: unitCost.toNumber(),
-            quantityPerUnit: quantityPerUnitDecimal.toDecimalPlaces(6).toNumber(),
+        return buildPercentageRawMaterialLine(
+            mixLine.ingredientId,
+            poolEntry.usedIngredient,
+            percentage,
+            netWeight,
             totalUnits,
-            lineTotal
-        }
+            totalUnitsDecimal,
+            language
+        )
     })
 
     if (percentageTotal.minus(100).abs().greaterThan(MIX_PERCENTAGE_TOLERANCE)) {
@@ -269,15 +301,13 @@ async function loadQuoteVariant(productVariantId: number): Promise<{ variant: Pr
                                     { model: Unit, as: "costUnit" },
                                     { model: IngredientTranslation, as: "translations" }
                                 ]
-                            },
-                            { model: Unit, as: "quantityUnit" }
+                            }
                         ]
                     },
                     { model: ProductTranslation, as: "translations" }
                 ]
             },
             { model: Presentation, as: "sizePresentation" },
-            { model: Packaging, as: "usedIntermediatePackaging" },
             {
                 model: ProductVariantPalletMaterial,
                 as: "palletMaterials",
@@ -291,6 +321,18 @@ async function loadQuoteVariant(productVariantId: number): Promise<{ variant: Pr
                 where: { isActive: true },
                 required: false,
                 include: [{ model: Packaging, as: "usedUnitMaterial" }]
+            },
+            {
+                // Default + opcional (2026-09-21): reemplaza el FK único
+                // usedIntermediatePackaging -- se cargan TODAS las filas activas (fijas +
+                // swappable), nunca solo isDefault:true, porque resolveIntermediateMaterialForQuote
+                // necesita el set completo para validar la elección del cliente (ver comentario
+                // ahí).
+                model: ProductVariantIntermediateMaterial,
+                as: "intermediateMaterials",
+                where: { isActive: true },
+                required: false,
+                include: [{ model: Packaging, as: "usedIntermediateMaterial" }]
             }
         ]
     })
@@ -325,28 +367,102 @@ function buildRawMaterialLines(
     totalUnits: number,
     language: ContentLanguage
 ): RawMaterialLine[] {
+    const netWeightGrams = Number(variant.sizePresentation?.netWeightGrams ?? 0)
+    // El cliente nunca puede alterar una receta fija: input.ingredientMix ni siquiera se lee acá
+    // en ese caso -- los % vienen únicamente de ProductIngredient.percentage (fijados por el
+    // admin), ver buildFixedPercentageRawMaterials.
     return variant.parentProduct?.isCustomizable
         ? buildCustomizableRawMaterials(
               variant.parentProduct.productIngredients ?? [],
               input.ingredientMix,
-              Number(variant.sizePresentation?.netWeightGrams ?? 0),
+              netWeightGrams,
               totalUnits,
               language
           )
-        : buildFixedRecipeRawMaterials(variant.parentProduct?.productIngredients ?? [], totalUnits, language)
+        : buildFixedPercentageRawMaterials(variant.parentProduct?.productIngredients ?? [], netWeightGrams, totalUnits, language)
 }
 
-function buildIntermediatePackagingLine(variant: ProductVariant, totalUnits: number): IntermediatePackagingLine | null {
-    if (!variant.usedIntermediatePackaging) return null
+interface SwappableMaterialRow {
+    // Opcional, no solo number -- sequelize-typescript tipa Model.id como opcional (una instancia
+    // sin guardar aún no tiene id), aunque en la práctica cualquier fila leída de la BD siempre lo
+    // trae.
+    id?: number
+    isSwappable: boolean
+    isDefault: boolean
+}
+
+// Default + opcional (2026-09-21, ver CLAUDE.md #4): comparte la misma lógica de resolución para
+// empaque individual y paletización (ambos niveles "receta" -- N filas incondicionales que SIEMPRE
+// se costean, más como mucho un slot swappable del que se costea solo UNA fila: la elegida por el
+// cliente, o si no eligió nada, la marcada isDefault). Nunca confía en el id que manda el cliente
+// sin validar que sea una fila swappable de ESTE SKU -- mismo principio que
+// buildCustomizableRawMaterials/poolByIngredientId con la mezcla de ingredientes.
+function resolveMaterialsForQuote<T extends SwappableMaterialRow>(
+    allRows: T[],
+    selectedId: number | undefined,
+    invalidSelectionKey: string,
+    defaultNotConfiguredKey: string
+): T[] {
+    const fixedRows = allRows.filter(row => !row.isSwappable)
+    const swappableRows = allRows.filter(row => row.isSwappable)
+    if (swappableRows.length === 0) return fixedRows // camino legado, sin filas swappable -- comportamiento sin cambios
+
+    if (selectedId !== undefined) {
+        const chosen = swappableRows.find(row => row.id === selectedId)
+        if (!chosen) throw new AppError(422, invalidSelectionKey, { selectedId })
+        return [...fixedRows, chosen]
+    }
+
+    const defaultRow = swappableRows.find(row => row.isDefault)
+    if (!defaultRow) throw new AppError(422, defaultNotConfiguredKey)
+    return [...fixedRows, defaultRow]
+}
+
+// Empaque intermedio (2026-09-21): a diferencia de unit/pallet, este nivel nunca fue una receta de
+// varios componentes -- es "la bolsa/saco grande", un único material a la vez (0 o 1). El join
+// table nuevo (ProductVariantIntermediateMaterial, reemplaza el FK usedIntermediatePackaging)
+// preserva esa forma: si hay filas swappable, se resuelve UNA sola (elegida o default); si no hay
+// ninguna swappable, se toma la única fila fija (0 o 1, igual que el FK viejo -- más de una revienta).
+function resolveIntermediateMaterialForQuote(
+    allRows: ProductVariantIntermediateMaterial[],
+    selectedId: number | undefined
+): ProductVariantIntermediateMaterial | null {
+    const swappableRows = allRows.filter(row => row.isSwappable)
+    const fixedRows = allRows.filter(row => !row.isSwappable)
+
+    // Defensa en profundidad del guard de escritura (productVariantIntermediateMaterial.service.ts::
+    // assertAtMostOneFixedRow): dos filas fijas se costearían en silencio como una sola (subcosteo).
+    // Se rechaza en vez de "tomar la primera".
+    if (fixedRows.length > 1) throw new AppError(422, "errors.multiple_fixed_intermediate_materials")
+
+    if (swappableRows.length === 0) return fixedRows[0] ?? null
+
+    if (selectedId !== undefined) {
+        const chosen = swappableRows.find(row => row.id === selectedId)
+        if (!chosen) throw new AppError(422, "errors.invalid_intermediate_material_selection", { selectedId })
+        return chosen
+    }
+
+    const defaultRow = swappableRows.find(row => row.isDefault)
+    if (!defaultRow) throw new AppError(422, "errors.intermediate_material_default_not_configured")
+    return defaultRow
+}
+
+function buildIntermediatePackagingLine(
+    variant: ProductVariant,
+    resolvedMaterial: ProductVariantIntermediateMaterial | null,
+    totalUnits: number
+): IntermediatePackagingLine | null {
+    if (!resolvedMaterial) return null
 
     if (!variant.unitsPerIntermediatePackage || variant.unitsPerIntermediatePackage <= 0) {
         throw new AppError(422, "errors.intermediate_packaging_missing_units")
     }
-    const unitCost = toDecimal(variant.usedIntermediatePackaging.unitCost ?? 0)
+    const unitCost = toDecimal(resolvedMaterial.usedIntermediateMaterial?.unitCost ?? 0)
     const packagesNeeded = Math.ceil(totalUnits / variant.unitsPerIntermediatePackage)
     return {
-        packagingId: variant.usedIntermediatePackaging.id,
-        displayName: variant.usedIntermediatePackaging.displayName,
+        packagingId: resolvedMaterial.packagingId,
+        displayName: resolvedMaterial.usedIntermediateMaterial?.displayName ?? "",
         unitCost: unitCost.toNumber(),
         unitsPerPackage: variant.unitsPerIntermediatePackage,
         totalUnits,
@@ -450,7 +566,13 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     const rawMaterials = buildRawMaterialLines(variant, input, totalUnits, language)
     const rawMaterialCost = sumMoney(rawMaterials.map(line => line.lineTotal))
 
-    const unitMaterials: UnitMaterialLine[] = (variant.unitMaterials ?? []).map(unitMaterial => {
+    const resolvedUnitMaterials = resolveMaterialsForQuote(
+        variant.unitMaterials ?? [],
+        input.selectedUnitMaterialId,
+        "errors.invalid_unit_material_selection",
+        "errors.unit_material_default_not_configured"
+    )
+    const unitMaterials: UnitMaterialLine[] = resolvedUnitMaterials.map(unitMaterial => {
         const unitCost = toDecimal(unitMaterial.usedUnitMaterial?.unitCost ?? 0)
         const quantityPerUnit = toDecimal(unitMaterial.quantityPerUnit ?? 1)
         const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnits))
@@ -465,13 +587,23 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     })
     const unitPackagingCost = sumMoney(unitMaterials.map(line => line.lineTotal))
 
-    const intermediatePackaging = buildIntermediatePackagingLine(variant, totalUnits)
+    const resolvedIntermediateMaterial = resolveIntermediateMaterialForQuote(
+        variant.intermediateMaterials ?? [],
+        input.selectedIntermediateMaterialId
+    )
+    const intermediatePackaging = buildIntermediatePackagingLine(variant, resolvedIntermediateMaterial, totalUnits)
     const intermediatePackagingCost = intermediatePackaging?.lineTotal ?? 0
 
     const processingCosts = await buildPerWeightProcessingCostLines(variant, totalUnits, language)
     const processingCostTotal = sumMoney(processingCosts.map(line => line.lineTotal))
 
-    const palletMaterials: PalletMaterialLine[] = (variant.palletMaterials ?? []).map(palletMaterial => {
+    const resolvedPalletMaterials = resolveMaterialsForQuote(
+        variant.palletMaterials ?? [],
+        input.selectedPalletMaterialId,
+        "errors.invalid_pallet_material_selection",
+        "errors.pallet_material_default_not_configured"
+    )
+    const palletMaterials: PalletMaterialLine[] = resolvedPalletMaterials.map(palletMaterial => {
         const unitCost = toDecimal(palletMaterial.usedPalletMaterial?.unitCost ?? 0)
         const quantityPerPallet = toDecimal(palletMaterial.quantityValue ?? 0)
         const lineTotal = roundMoney(unitCost.times(quantityPerPallet).times(requestedPallets))
@@ -537,13 +669,36 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     }
 }
 
+// Default + opcional (2026-09-21, ver CLAUDE.md #4): el menú de alternativas de un nivel para
+// que el cliente elija al cotizar -- solo filas isSwappable=true (las incondicionales nunca son
+// una "opción", siempre se costean solas). `id` es el id de la FILA del join
+// (ProductVariantUnitMaterial/IntermediateMaterial/PalletMaterial), el mismo que
+// calculateQuoteSchema.selectedXMaterialId espera -- no el packagingId.
+interface QuotableMaterialOption {
+    id: number
+    packagingId: number
+    displayName: string
+    unitCost: number
+    isDefault: boolean
+}
+
 interface QuotableVariant {
     id: number
-    skuCode: string | null
     boxesPerPallet: number
     bagsPerBox: number
     presentationLabel: string | null
+    // Peso neto por bolsa/unidad, en gramos (2026-09-22, paso "pallets" del wizard -- ver
+    // CLAUDE.md #6) -- solo lectura, mismo dato que ya usa buildRawMaterialLines internamente
+    // (variant.sizePresentation.netWeightGrams), expuesto acá para que el frontend calcule el
+    // peso total del pedido (boxesPerPallet × bagsPerBox × netWeightGrams × requestedPallets) sin
+    // tocar calculateQuote. null si la Presentation no tiene el dato (no debería pasar en la
+    // práctica -- netWeightGrams no es nullable a nivel de columna -- pero el include ya lo trae
+    // opcional por el mismo criterio defensivo que presentationLabel).
+    netWeightGrams: number | null
     packagingLabel: string | null
+    unitMaterialOptions: QuotableMaterialOption[]
+    intermediateMaterialOptions: QuotableMaterialOption[]
+    palletMaterialOptions: QuotableMaterialOption[]
 }
 
 interface QuotableIngredientOption {
@@ -554,17 +709,28 @@ interface QuotableIngredientOption {
     maxPercentage: number
 }
 
+// Receta fija (!isCustomizable): el % lo fija el admin y el cliente nunca lo puede alterar (ver
+// buildFixedPercentageRawMaterials en este mismo archivo) -- pero SÍ debe poder VER qué está
+// cotizando (ej. "100% Piña" / "50% Banano · 50% Fresa"). Distinto de QuotableIngredientOption
+// (el pool editable del mix personalizable) a propósito: son conceptos diferentes, no la misma
+// forma con un campo de más.
+interface QuotableFixedIngredient {
+    ingredientId: number
+    displayName: string
+    percentage: number
+}
+
 interface QuotableProduct {
     id: number
     displayName: string
     isOrganic: boolean
     isCustomizable: boolean
-    productTypeName: string | null
     imageUrl: string | null
     categoryId: number
     categoryName: string
     categoryImageUrl: string | null
     ingredientPool: QuotableIngredientOption[]
+    fixedRecipe: QuotableFixedIngredient[]
     variants: QuotableVariant[]
 }
 
@@ -577,7 +743,16 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 model: ProductVariant,
                 as: "productVariants",
                 required: true,
-                where: { isActive: true, boxesPerPallet: { [Op.not]: null }, bagsPerBox: { [Op.not]: null } },
+                // presentationId ya es NOT NULL a nivel de columna (2026-09-16, cada SKU es un
+                // producto + una Presentación) -- este filtro es defensa en profundidad, mismo
+                // criterio que boxesPerPallet/bagsPerBox, por si alguna fila vieja quedara sin
+                // migrar en un entorno que no pasó por el sync todavía.
+                where: {
+                    isActive: true,
+                    presentationId: { [Op.not]: null },
+                    boxesPerPallet: { [Op.not]: null },
+                    bagsPerBox: { [Op.not]: null }
+                },
                 include: [
                     { model: Presentation, as: "sizePresentation" },
                     {
@@ -586,10 +761,23 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                         where: { isActive: true },
                         required: false,
                         include: [{ model: Packaging, as: "usedUnitMaterial" }]
+                    },
+                    {
+                        model: ProductVariantIntermediateMaterial,
+                        as: "intermediateMaterials",
+                        where: { isActive: true },
+                        required: false,
+                        include: [{ model: Packaging, as: "usedIntermediateMaterial" }]
+                    },
+                    {
+                        model: ProductVariantPalletMaterial,
+                        as: "palletMaterials",
+                        where: { isActive: true },
+                        required: false,
+                        include: [{ model: Packaging, as: "usedPalletMaterial" }]
                     }
                 ]
             },
-            { model: ProductType, as: "parentProductType" },
             {
                 model: SubCategory,
                 as: "parentSubCategory",
@@ -623,7 +811,6 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             displayName: pickTranslatedName(plain.displayName, plain.translations, language),
             isOrganic: plain.isOrganic,
             isCustomizable: plain.isCustomizable,
-            productTypeName: plain.parentProductType?.displayName ?? null,
             imageUrl: plain.imageUrl ?? null,
             categoryId: category?.id ?? 0,
             categoryName: pickTranslatedName(category?.displayName ?? "", category?.translations, language),
@@ -641,17 +828,69 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                           : 100
                   }))
                 : [],
+            // El cliente no puede editar una receta fija, pero sí debe ver qué está cotizando --
+            // ver comentario de QuotableFixedIngredient arriba.
+            fixedRecipe: plain.isCustomizable
+                ? []
+                : (plain.productIngredients ?? []).map((productIngredient: ProductIngredient) => ({
+                      ingredientId: productIngredient.ingredientId,
+                      displayName: pickTranslatedName(productIngredient.usedIngredient?.displayName ?? "", productIngredient.usedIngredient?.translations, language),
+                      percentage: productIngredient.percentage !== null && productIngredient.percentage !== undefined
+                          ? Number(productIngredient.percentage)
+                          : 0
+                  })),
             variants: (plain.productVariants ?? []).map((variant: ProductVariant) => ({
                 id: variant.id,
-                skuCode: variant.skuCode ?? null,
                 boxesPerPallet: variant.boxesPerPallet as number,
                 bagsPerBox: variant.bagsPerBox as number,
                 presentationLabel: variant.sizePresentation?.displayLabel ?? null,
+                // Presentation.netWeightGrams es DECIMAL(10,2) -- igual que unitCost/percentage
+                // más abajo en este mismo DTO, Sequelize/pg lo devuelve como STRING en runtime
+                // pese a que el tipo TS del modelo dice `number` (gotcha conocido de pg con
+                // columnas DECIMAL, para no perder precisión). Number(...) sigue el mismo
+                // patrón ya usado para unitCost/minPercentage/maxPercentage/percentage en este
+                // archivo -- sin este cast, quotableVariantSchema.netWeightGrams (z.number()) en
+                // el frontend revienta con un ZodError "expected number, received string".
+                netWeightGrams: variant.sizePresentation?.netWeightGrams != null ? Number(variant.sizePresentation.netWeightGrams) : null,
+                // Muestra lo que efectivamente se costea POR DEFECTO (filas incondicionales +
+                // la swappable marcada isDefault, si hay alguna) -- ya NO concatena todas las
+                // alternativas, sería engañoso (2026-09-21, ver CLAUDE.md #4). Tolerante a un
+                // nivel mal configurado (ninguna swappable marcada como default): simplemente la
+                // omite acá, sin reventar -- esta lista es de solo lectura para el catálogo, el
+                // guard autoritativo vive en quoteService.calculateQuote.
                 packagingLabel:
                     (variant.unitMaterials ?? [])
+                        .filter(unitMaterial => !unitMaterial.isSwappable || unitMaterial.isDefault)
                         .map(unitMaterial => unitMaterial.usedUnitMaterial?.displayName)
                         .filter(Boolean)
-                        .join(" + ") || null
+                        .join(" + ") || null,
+                unitMaterialOptions: (variant.unitMaterials ?? [])
+                    .filter(unitMaterial => unitMaterial.isSwappable)
+                    .map(unitMaterial => ({
+                        id: unitMaterial.id,
+                        packagingId: unitMaterial.packagingId,
+                        displayName: unitMaterial.usedUnitMaterial?.displayName ?? "",
+                        unitCost: Number(unitMaterial.usedUnitMaterial?.unitCost ?? 0),
+                        isDefault: unitMaterial.isDefault
+                    })),
+                intermediateMaterialOptions: (variant.intermediateMaterials ?? [])
+                    .filter(material => material.isSwappable)
+                    .map(material => ({
+                        id: material.id,
+                        packagingId: material.packagingId,
+                        displayName: material.usedIntermediateMaterial?.displayName ?? "",
+                        unitCost: Number(material.usedIntermediateMaterial?.unitCost ?? 0),
+                        isDefault: material.isDefault
+                    })),
+                palletMaterialOptions: (variant.palletMaterials ?? [])
+                    .filter(material => material.isSwappable)
+                    .map(material => ({
+                        id: material.id,
+                        packagingId: material.packagingId,
+                        displayName: material.usedPalletMaterial?.displayName ?? "",
+                        unitCost: Number(material.usedPalletMaterial?.unitCost ?? 0),
+                        isDefault: material.isDefault
+                    }))
             }))
         }
     })
@@ -662,13 +901,14 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 }
 
 
-async function saveQuote(customerId: number, input: SaveQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date; leadId: number }> {
+// Una cotización guardada ya NO captura ni vincula un prospecto (2026-09-21): el flujo de cotizar
+// no pide datos de contacto; los Leads siguen existiendo pero solo nacen del formulario público de
+// la landing (ver lead/), sin relación con Quote.
+async function saveQuote(salespersonId: number, input: CalculateQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
     const calculation = await calculateQuote(input, language)
-    const lead = await leadService.findOrCreateLeadForQuote(input.leadContact)
 
     const quote = await Quote.create({
-        customerId,
-        leadId: lead.id,
+        salespersonId,
         productVariantId: calculation.productVariantId,
         destinationId: calculation.destinationId,
         productDisplayName: calculation.productDisplayName,
@@ -690,8 +930,7 @@ async function saveQuote(customerId: number, input: SaveQuoteInput, language: Co
     return {
         ...calculation,
         id: quote.id,
-        createdAt: quote.get("createdAt") as Date,
-        leadId: lead.id
+        createdAt: quote.get("createdAt") as Date
     }
 }
 
@@ -699,8 +938,7 @@ async function saveQuote(customerId: number, input: SaveQuoteInput, language: Co
 async function listAllQuotes(): Promise<Quote[]> {
     return Quote.findAll({
         include: [
-            { model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] },
-            { model: Lead, as: "quotedLead", required: false, attributes: ["id", "fullName", "companyName", "email"] }
+            { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] }
         ],
         order: [["createdAt", "DESC"]]
     })

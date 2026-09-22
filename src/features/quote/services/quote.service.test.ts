@@ -1,4 +1,5 @@
 import "reflect-metadata"
+import { Op } from "sequelize"
 
 // Mocks manuales de los modelos: quote.service.ts solo llama a ProductVariant.findOne,
 // Destination.findOne y Quote.create -- no hace falta una base de datos real ni los
@@ -9,6 +10,12 @@ jest.mock("../../product/models/ProductVariant.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn() }
 }))
+// Solo para listQuotableProducts -- el resto de las suites de este archivo (calculateQuote/
+// saveQuote) no lo tocan.
+jest.mock("../../product/models/Product.model", () => ({
+    __esModule: true,
+    default: { findAll: jest.fn() }
+}))
 jest.mock("../../destination/models/Destination.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn() }
@@ -16,13 +23,6 @@ jest.mock("../../destination/models/Destination.model", () => ({
 jest.mock("../models/Quote.model", () => ({
     __esModule: true,
     default: { create: jest.fn() }
-}))
-// saveQuote ahora también resuelve un Lead (crear-o-reusar por email, ver
-// leadService.findOrCreateLeadForQuote) -- se mockea el modelo, no el service, para ejercitar la
-// regla real de negocio (findOne primero, create solo si no existe) tal como corre en producción.
-jest.mock("../../lead/models/Lead.model", () => ({
-    __esModule: true,
-    default: { findOne: jest.fn(), create: jest.fn() }
 }))
 // Catálogo de costos adicionales -- por defecto SIN filas activas (ver beforeEach) para que
 // todos los tests existentes (escritos antes de esta feature) sigan calculando exactamente
@@ -33,13 +33,13 @@ jest.mock("../../processingCost/models/ProcessingCost.model", () => ({
 }))
 
 import ProductVariant from "../../product/models/ProductVariant.model"
+import Product from "../../product/models/Product.model"
 import Destination from "../../destination/models/Destination.model"
 import Quote from "../models/Quote.model"
-import Lead from "../../lead/models/Lead.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import { quoteService } from "./quote.service"
 import { NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput, SaveQuoteInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput } from "../schemas/quote.schema"
 // Se importa el catálogo REAL (no mockeado -- es un módulo de constantes puro, sin Sequelize) para
 // derivar el factor gramos->libras de la misma fuente que usa quote.service.ts, en vez de
 // hardcodear "453.592" una tercera vez en este archivo. Si algún día quote.service.ts dejara de
@@ -47,11 +47,10 @@ import { CalculateQuoteInput, SaveQuoteInput } from "../schemas/quote.schema"
 import { getUnitCatalogEntry } from "../../unit/constants/unitCatalog"
 
 const mockVariantFindOne = ProductVariant.findOne as unknown as jest.Mock
+const mockProductFindAll = Product.findAll as unknown as jest.Mock
 const mockDestinationFindOne = Destination.findOne as unknown as jest.Mock
 const mockQuoteCreate = Quote.create as unknown as jest.Mock
 const mockProcessingCostFindAll = ProcessingCost.findAll as unknown as jest.Mock
-const mockLeadFindOne = Lead.findOne as unknown as jest.Mock
-const mockLeadCreate = Lead.create as unknown as jest.Mock
 
 // Costo de destino usado en todos los casos salvo que un test lo pise explícitamente.
 const DESTINATION = { id: 900, displayName: "Puerto Cortés", baseCost: 50 }
@@ -60,20 +59,10 @@ function stubDestination(overrides: Partial<typeof DESTINATION> = {}): void {
     mockDestinationFindOne.mockResolvedValue({ ...DESTINATION, ...overrides })
 }
 
-// Datos de contacto usados en todos los tests de saveQuote salvo que uno los pise explícitamente
-// -- por defecto, ningún Lead existente con ese email (findOrCreateLeadForQuote crea uno nuevo).
-const LEAD_CONTACT = { fullName: "Juan Pérez", companyName: "Comercial Pérez", email: "juan@example.com", notes: undefined }
-
-function stubLead(overrides: { existing?: { id: number } } = {}): void {
-    mockLeadFindOne.mockResolvedValue(overrides.existing ?? null)
-    mockLeadCreate.mockResolvedValue({ id: overrides.existing?.id ?? 500, ...LEAD_CONTACT })
-}
-
 describe("quoteService.calculateQuote", () => {
     beforeEach(() => {
         stubDestination()
         mockProcessingCostFindAll.mockResolvedValue([]) // catálogo vacío por defecto, ver comentario del mock arriba
-        stubLead()
     })
 
     const baseInput: CalculateQuoteInput = {
@@ -147,6 +136,10 @@ describe("quoteService.calculateQuote", () => {
     })
 
     describe("transporte apagado (sin destinationId, 2026-09-10 -- el cliente ya no elige destino)", () => {
+        // percentage:100 (único ingrediente activo) + netWeightGrams(0.5)/baseFactor(1) reproduce
+        // exactamente el mismo quantityPerUnit(0.5) y rawMaterialCost(200) que el viejo
+        // quantityValue:0.5 -- ver el comentario extendido en el describe "receta fija" de abajo
+        // para la fórmula general usada en todo este archivo tras el pivote a % (2026-09-19).
         function stubMinimalVariant(): void {
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
@@ -156,10 +149,10 @@ describe("quoteService.calculateQuote", () => {
                     isCustomizable: false,
                     displayName: "Piña en Trozos",
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }
                     ]
                 },
-                sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 2000 },
+                sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
                 palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
             })
@@ -201,14 +194,25 @@ describe("quoteService.calculateQuote", () => {
             stubMinimalVariant()
             mockQuoteCreate.mockResolvedValueOnce({ id: 99, get: () => new Date("2026-09-10T00:00:00Z") })
 
-            const saved = await quoteService.saveQuote(42, { ...inputWithoutDestination, leadContact: LEAD_CONTACT })
+            const saved = await quoteService.saveQuote(42, { ...inputWithoutDestination })
 
             expect(saved.destinationId).toBeNull()
             expect(mockQuoteCreate.mock.calls[0][0]).toMatchObject({ destinationId: null, transportCost: 0 })
         })
     })
 
-    describe("receta fija (producto no personalizable)", () => {
+    describe("receta fija (producto no personalizable, pivote a % 2026-09-19)", () => {
+        // A partir de 2026-09-19 la receta fija usa la MISMA matemática %->gramos->costo que el
+        // mix personalizable (ver buildPercentageRawMaterialLine en quote.service.ts): el % lo
+        // fija el admin (ProductIngredient.percentage) en vez del cliente, y queda congelado.
+        // Convención usada en TODO este archivo para reproducir bit-a-bit los valores exactos que
+        // ya verificaban los tests viejos con quantityValue: con un solo ingrediente activo se usa
+        // percentage:100 (el único caso donde eso es correcto: 100% de la receta) y se elige
+        // costUnit.baseFactor=1 + sizePresentation.netWeightGrams = <viejo quantityValue> --  así
+        // quantityPerUnit = 100/100 * netWeightGrams(=quantityValue) / 1 = quantityValue exacto,
+        // sin tener que recalcular a mano cada costo esperado del archivo. Donde netWeightGrams ya
+        // es relevante para OTRA cosa en el mismo test (costos por peso), se deja su valor real y
+        // en cambio se ajusta baseFactor = netWeightGrams / quantityValue para el mismo efecto.
         function stubFixedRecipeVariant(): void {
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
@@ -218,10 +222,10 @@ describe("quoteService.calculateQuote", () => {
                     isCustomizable: false,
                     displayName: "Piña en Trozos",
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }
                     ]
                 },
-                sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 2000 },
+                sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
                 palletMaterials: [
                     { packagingId: 6, quantityValue: 10, usedPalletMaterial: { displayName: "Caja corrugada", unitCost: 1 } },
@@ -259,9 +263,10 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 1, usedIngredient: { displayName: "Trazas", costPerUnit: 0.1234 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Trazas", costPerUnit: 0.1234, costUnit: { unitType: "weight", baseFactor: 1 } } }
                     ]
                 },
+                sizePresentation: { netWeightGrams: 1 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
             })
@@ -358,9 +363,10 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 5, usedIngredient: { displayName: "Agua", costPerUnit: 0 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Agua", costPerUnit: 0, costUnit: { unitType: "weight", baseFactor: 1 } } }
                     ]
                 },
+                sizePresentation: { netWeightGrams: 5 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
             })
@@ -392,9 +398,12 @@ describe("quoteService.calculateQuote", () => {
 
         it("reconcilia exacto (sin arrastre de precisión) con 3 ingredientes de receta fija en costos que drift en floats nativos", async () => {
             // Mismo espíritu que el test de "tercios" del mix personalizable, pero para
-            // buildFixedRecipeRawMaterials -- es una función separada con la misma clase de
-            // riesgo de precisión, no puede asumirse cubierta solo porque la rama customizable
-            // ya se probó.
+            // buildFixedPercentageRawMaterials -- comparte la función de línea con el mix
+            // (buildPercentageRawMaterialLine), pero la suma-a-100 y el resto del flujo de receta
+            // fija son código propio, no puede asumirse cubierto solo porque la rama customizable
+            // ya se probó. netWeightGrams=100 + costUnit.baseFactor == percentage (numéricamente)
+            // para cada fila hace que quantityPerUnit dé exacto 1 para las tres, igual que el
+            // viejo quantityValue:1 -- los % (33.34/33.33/33.33) además ejercitan la suma-a-100.
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
                 boxesPerPallet: 1,
@@ -402,11 +411,12 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 1, usedIngredient: { displayName: "A", costPerUnit: 0.1 } },
-                        { ingredientId: 2, quantityValue: 1, usedIngredient: { displayName: "B", costPerUnit: 0.2 } },
-                        { ingredientId: 3, quantityValue: 1, usedIngredient: { displayName: "C", costPerUnit: 0.0001 } }
+                        { ingredientId: 1, percentage: 33.34, usedIngredient: { displayName: "A", costPerUnit: 0.1, costUnit: { unitType: "weight", baseFactor: 33.34 } } },
+                        { ingredientId: 2, percentage: 33.33, usedIngredient: { displayName: "B", costPerUnit: 0.2, costUnit: { unitType: "weight", baseFactor: 33.33 } } },
+                        { ingredientId: 3, percentage: 33.33, usedIngredient: { displayName: "C", costPerUnit: 0.0001, costUnit: { unitType: "weight", baseFactor: 33.33 } } }
                     ]
                 },
+                sizePresentation: { netWeightGrams: 100 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
             })
@@ -425,9 +435,10 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.3333, usedIngredient: { displayName: "A", costPerUnit: 7.77 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "A", costPerUnit: 7.77, costUnit: { unitType: "weight", baseFactor: 1 } } }
                     ]
                 },
+                sizePresentation: { netWeightGrams: 0.3333 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa", unitCost: 1.11 } }],
                 palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
             })
@@ -495,7 +506,18 @@ describe("quoteService.calculateQuote", () => {
     })
 
     describe("costos adicionales por peso (catálogo ProcessingCost, energía/mano de obra/etc.)", () => {
-        function stubVariantForProcessingCosts(netWeightGrams: number | null): void {
+        // netWeightGrams es el parámetro bajo prueba en este describe (se pasa null/0/negativo/
+        // string a propósito) -- SIGUE siendo necesario preservarlo tal cual para esas
+        // aserciones, así que en vez de la sustitución simple (netWeightGrams = quantityValue) se
+        // ajusta costUnit.baseFactor = netWeightGrams * 2 para que quantityPerUnit dé exacto 0.5
+        // (percentage:100 / 100 * netWeightGrams / baseFactor = netWeightGrams / (netWeightGrams*2)
+        // = 0.5) igual que el viejo quantityValue:0.5 -- rawMaterialCost sigue dando 200 en todos
+        // los casos con peso positivo. Para null/0/negativo, buildFixedPercentageRawMaterials
+        // rechaza por errors.presentation_missing_net_weight ANTES de tocar costUnit, así que el
+        // baseFactor de respaldo (1000) para esos casos nunca se usa de verdad.
+        function stubVariantForProcessingCosts(netWeightGrams: number | string | null): void {
+            const numericWeight = netWeightGrams ? Number(netWeightGrams) : 0
+            const baseFactor = numericWeight > 0 ? numericWeight * 2 : 1000
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
                 boxesPerPallet: 20,
@@ -504,7 +526,7 @@ describe("quoteService.calculateQuote", () => {
                     isCustomizable: false,
                     displayName: "Piña en Trozos",
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor } } }
                     ]
                 },
                 sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams },
@@ -587,13 +609,11 @@ describe("quoteService.calculateQuote", () => {
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
         })
 
-        it("no exige peso neto si el catálogo está vacío (no rompe productos de receta fija existentes sin este dato)", async () => {
+        it("ahora SÍ exige peso neto aunque el catálogo de costos adicionales esté vacío -- cambio de comportamiento intencional (pivote de receta fija a %, 2026-09-19): antes quantityValue era una cantidad absoluta independiente de la presentación, ahora el % siempre necesita el peso neto para convertirse a gramos, igual que el mix personalizable", async () => {
             stubVariantForProcessingCosts(null)
             mockProcessingCostFindAll.mockResolvedValue([])
 
-            const result = await quoteService.calculateQuote(baseInput)
-
-            expect(result.processingCostTotal).toBe(0)
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.presentation_missing_net_weight" })
         })
 
         it("rechaza si netWeightGrams es exactamente 0 (no solo null/undefined) mientras hay costos activos -- nunca se asume peso 0 en silencio", async () => {
@@ -619,7 +639,7 @@ describe("quoteService.calculateQuote", () => {
                     isCustomizable: false,
                     displayName: "Piña en Trozos",
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }
                     ]
                 },
                 // sin sizePresentation -- variant.sizePresentation?.netWeightGrams debe caer a undefined, no reventar
@@ -632,7 +652,7 @@ describe("quoteService.calculateQuote", () => {
         })
 
         it("acepta netWeightGrams como string (\"2000\") -- Sequelize devuelve columnas DECIMAL como string en un SELECT normal", async () => {
-            // @ts-expect-error -- simula deliberadamente la forma cruda que devuelve Sequelize (string) en vez del tipo declarado (number)
+            // Simula deliberadamente la forma cruda que devuelve Sequelize (string) en vez del tipo declarado (number)
             stubVariantForProcessingCosts("2000")
             mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
 
@@ -651,7 +671,7 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     displayName: "Piña en Trozos",
-                    productIngredients: [{ ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }]
+                    productIngredients: [{ ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 907.184 } } }]
                 },
                 sizePresentation: { displayLabel: "Bolsa", netWeightGrams: 453.592 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
@@ -679,7 +699,10 @@ describe("quoteService.calculateQuote", () => {
                     parentProduct: {
                         isCustomizable: false,
                         displayName: "Producto de prueba",
-                        productIngredients: [{ ingredientId: 1, quantityValue: 0.1, usedIngredient: { displayName: "X", costPerUnit: 1 } }]
+                        // percentage:100/baseFactor:1 arbitrarios (ninguno de estos sub-tests
+                        // asegura rawMaterialCost, solo processingCostTotal/totalWeightPounds) --
+                        // solo necesitan no reventar bajo el nuevo guard de costUnit de peso.
+                        productIngredients: [{ ingredientId: 1, percentage: 100, usedIngredient: { displayName: "X", costPerUnit: 1, costUnit: { unitType: "weight", baseFactor: 1 } } }]
                     },
                     sizePresentation: { displayLabel: "Presentación", netWeightGrams },
                     unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
@@ -742,7 +765,8 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     displayName: "Producto de prueba",
-                    productIngredients: [{ ingredientId: 1, quantityValue: 0.1, usedIngredient: { displayName: "X", costPerUnit: 1 } }]
+                    // percentage:100/baseFactor:1 arbitrarios -- este test no asegura rawMaterialCost.
+                    productIngredients: [{ ingredientId: 1, percentage: 100, usedIngredient: { displayName: "X", costPerUnit: 1, costUnit: { unitType: "weight", baseFactor: 1 } } }]
                 },
                 sizePresentation: { displayLabel: "Presentación", netWeightGrams: GRAMS_PER_POUND * 10 }, // 10 lb por unidad, 1 unidad
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
@@ -802,19 +826,22 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     displayName: "Producto completo",
-                    productIngredients: [{ ingredientId: 1, quantityValue: 1, usedIngredient: { displayName: "X", costPerUnit: 2 } }],
+                    // percentage:100 (único ingrediente) + costUnit.baseFactor == netWeightGrams
+                    // (ambos = 1 lb en gramos) -> quantityPerUnit = 1 lb, igual que el viejo
+                    // quantityValue:1 con un costUnit de libra.
+                    productIngredients: [{ ingredientId: 1, percentage: 100, usedIngredient: { displayName: "X", costPerUnit: 2, costUnit: { unitType: "weight", baseFactor: GRAMS_PER_POUND } } }],
                     additionalCostPerUnit: 0.5
                 },
                 sizePresentation: { displayLabel: "Bolsa", netWeightGrams: GRAMS_PER_POUND }, // 1 lb por unidad
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa", unitCost: 1 } }],
-                usedIntermediatePackaging: { id: 6, displayName: "Bolsa grande", unitCost: 3 },
+                intermediateMaterials: [{ id: 60, packagingId: 6, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 6, displayName: "Bolsa grande", unitCost: 3 } }],
                 palletMaterials: [{ packagingId: 7, quantityValue: 2, usedPalletMaterial: { displayName: "Caja", unitCost: 4 } }]
             })
             mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
 
             const result = await quoteService.calculateQuote(baseInput) // requestedPallets=1 -> totalUnits = 10
 
-            // rawMaterialCost = costPerUnit(2) * quantityValue(1) * totalUnits(10) = 20
+            // rawMaterialCost = costPerUnit(2) * quantityPerUnit(1 lb) * totalUnits(10) = 20
             expect(result.rawMaterialCost).toBe(20)
             // unitPackagingCost = unitCost(1) * totalUnits(10) = 10
             expect(result.unitPackagingCost).toBe(10)
@@ -848,7 +875,7 @@ describe("quoteService.calculateQuote", () => {
         }
 
         // Fixture limpio y "de a mano": 1 palet * 1 unidad/palet (por defecto) = 1 unidad.
-        // rawMaterialCost = costPerUnit(1) * quantityValue(100) * totalUnits(1) = 100
+        // rawMaterialCost = costPerUnit(1) * quantityPerUnit(100, ver fixture abajo) * totalUnits(1) = 100
         // unitPackagingCost = unitCost(20) * totalUnits(1) = 20
         // palletMaterialCost = unitCost(30) * quantityValue(1) * requestedPallets(1) = 30
         // percentageBase = 100 + 0(sin costos por peso) + 20 + 0(sin empaque intermedio) + 30 = 150
@@ -860,7 +887,10 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     displayName: "Producto de prueba",
-                    productIngredients: [{ ingredientId: 1, quantityValue: 100, usedIngredient: { displayName: "X", costPerUnit: 1 } }]
+                    // percentage:100 (único ingrediente) + costUnit.baseFactor(0.01) con
+                    // netWeightGrams(1) reproduce quantityPerUnit = 1/0.01 = 100, igual que el
+                    // viejo quantityValue:100.
+                    productIngredients: [{ ingredientId: 1, percentage: 100, usedIngredient: { displayName: "X", costPerUnit: 1, costUnit: { unitType: "weight", baseFactor: 0.01 } } }]
                 },
                 sizePresentation: { displayLabel: "Presentación", netWeightGrams: 1 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 20 } }],
@@ -956,14 +986,14 @@ describe("quoteService.calculateQuote", () => {
             stubProcessingCosts({ percentage: [{ id: 1, displayName: "Imprevistos", value: 2, calculationType: "percentage", translations: [] }] })
             mockQuoteCreate.mockResolvedValueOnce({ id: 1, get: () => new Date("2026-01-01T00:00:00Z") })
 
-            const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
+            const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
             expect(quote1.percentageCostTotal).toBe(3)
 
             // El admin ahora desactiva "Imprevistos" (catálogo cambia) y se cotiza un pedido NUEVO.
             stubProcessingCosts() // ninguna fila activa de ningún tipo
             mockQuoteCreate.mockResolvedValueOnce({ id: 2, get: () => new Date("2026-01-02T00:00:00Z") })
 
-            const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
+            const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
             expect(quote2.percentageCostTotal).toBe(0)
 
             // Lo que YA se persistió en la primera llamada sigue con el valor congelado (Q3).
@@ -974,8 +1004,8 @@ describe("quoteService.calculateQuote", () => {
         })
     })
 
-    describe("receta fija con unidad de receta distinta a la de costeo (2026-08-27, se compra por libra, se usa por gramo)", () => {
-        it("convierte quantityValue de quantityUnit a costUnit con baseFactor antes de multiplicar por costPerUnit", async () => {
+    describe("receta fija validada por % (pivote 2026-09-19): el admin fija el %, el cliente nunca lo puede alterar", () => {
+        it("rechaza si los % de una receta fija no suman 100 (± 0.5) -- producto mal configurado, error distinto al del mix", async () => {
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
                 boxesPerPallet: 1,
@@ -983,72 +1013,155 @@ describe("quoteService.calculateQuote", () => {
                 parentProduct: {
                     isCustomizable: false,
                     productIngredients: [
-                        {
-                            ingredientId: 1,
-                            quantityValue: 100,
-                            quantityUnit: { unitType: "weight", baseFactor: 1 }, // gramo
-                            usedIngredient: {
-                                displayName: "Sal",
-                                costPerUnit: 10, // por libra
-                                costUnit: { unitType: "weight", baseFactor: 453.592 }
-                            }
-                        }
+                        { ingredientId: 1, percentage: 40, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1000 } } },
+                        { ingredientId: 2, percentage: 50, usedIngredient: { displayName: "Fresa", costPerUnit: 15, costUnit: { unitType: "weight", baseFactor: 1000 } } }
                     ]
                 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
-            })
-
-            const result = await quoteService.calculateQuote(baseInput)
-
-            // 100g / 453.592 (g por libra) = 0.220462 lb -- rounding-safe, ver decimal.js.
-            // rawMaterialCost = costPerUnit(10) * 0.220462... * totalUnits(1), redondeado a 4 decimales.
-            expect(result.rawMaterialCost).toBe(2.2046)
-        })
-
-        it("mantiene el comportamiento histórico si la línea no tiene quantityUnit configurado (dato viejo, no rompe recetas ya cargadas)", async () => {
-            mockVariantFindOne.mockResolvedValue({
-                id: 10,
-                boxesPerPallet: 1,
-                bagsPerBox: 1,
-                parentProduct: {
-                    isCustomizable: false,
-                    productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
-                    ]
-                },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
-            })
-
-            const result = await quoteService.calculateQuote(baseInput)
-
-            expect(result.rawMaterialCost).toBe(10) // 20 * 0.5, sin conversión
-        })
-
-        it("rechaza si quantityUnit y costUnit no son del mismo tipo (ej. receta en litros, costeo por libra)", async () => {
-            mockVariantFindOne.mockResolvedValue({
-                id: 10,
-                boxesPerPallet: 1,
-                bagsPerBox: 1,
-                parentProduct: {
-                    isCustomizable: false,
-                    productIngredients: [
-                        {
-                            ingredientId: 1,
-                            quantityValue: 100,
-                            quantityUnit: { unitType: "volume", baseFactor: 1 },
-                            usedIngredient: { costPerUnit: 10, costUnit: { unitType: "weight", baseFactor: 453.592 } }
-                        }
-                    ]
-                },
+                sizePresentation: { netWeightGrams: 2000 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
             })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
-                key: "errors.product_ingredient_quantity_unit_type_mismatch"
+                key: "errors.fixed_recipe_percentage_must_total_100"
             })
+        })
+
+        it("acepta el borde exacto de la tolerancia (±0.5) igual que el mix personalizable", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 1,
+                bagsPerBox: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    productIngredients: [
+                        { ingredientId: 1, percentage: 40, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1000 } } },
+                        { ingredientId: 2, percentage: 59.5, usedIngredient: { displayName: "Fresa", costPerUnit: 15, costUnit: { unitType: "weight", baseFactor: 1000 } } } // suma 99.5
+                    ]
+                },
+                sizePresentation: { netWeightGrams: 2000 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.totalCost).toBeGreaterThan(0)
+        })
+
+        it("calcula correctamente un producto fijo de un solo ingrediente al 100% (ej. piña congelada 100% piña)", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 1,
+                bagsPerBox: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    productIngredients: [
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1000 } } }
+                    ]
+                },
+                sizePresentation: { netWeightGrams: 2000 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            // 100% * 2000g / 1000(g por kg) = 2kg; costPerUnit(20/kg) * 2kg * totalUnits(1) = 40
+            expect(result.rawMaterialCost).toBe(40)
+        })
+
+        it("calcula correctamente un mix fijo de dos ingredientes que sí suman 100% (ej. banano 50% + fresa 50%)", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 1,
+                bagsPerBox: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    productIngredients: [
+                        { ingredientId: 1, percentage: 50, usedIngredient: { displayName: "Banano", costPerUnit: 10, costUnit: { unitType: "weight", baseFactor: 1000 } } },
+                        { ingredientId: 2, percentage: 50, usedIngredient: { displayName: "Fresa", costPerUnit: 30, costUnit: { unitType: "weight", baseFactor: 1000 } } }
+                    ]
+                },
+                sizePresentation: { netWeightGrams: 2000 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            // Banano: 50%*2000g/1000=1kg * Q10 = 10. Fresa: 50%*2000g/1000=1kg * Q30 = 30. Total 40.
+            expect(result.rawMaterialCost).toBe(40)
+        })
+
+        it("rechaza si el costUnit de un ingrediente de receta fija no es de peso -- mismo guard que ya tenía el mix personalizable", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 1,
+                bagsPerBox: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    productIngredients: [
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "volume", baseFactor: 1000 } } }
+                    ]
+                },
+                sizePresentation: { netWeightGrams: 2000 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
+                key: "errors.ingredient_cost_unit_type_mismatch"
+            })
+        })
+
+        it("rechaza si a un ingrediente de receta fija le falta costUnit (mismo guard que el mix personalizable)", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 1,
+                bagsPerBox: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    productIngredients: [
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: null } }
+                    ]
+                },
+                sizePresentation: { netWeightGrams: 2000 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
+                key: "errors.ingredient_missing_cost_unit"
+            })
+        })
+
+        it("ignora un ingredientMix enviado por el cliente en un producto de receta fija -- el cliente nunca puede alterar una receta fija", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 1,
+                bagsPerBox: 1,
+                parentProduct: {
+                    isCustomizable: false,
+                    productIngredients: [
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1000 } } }
+                    ]
+                },
+                sizePresentation: { netWeightGrams: 2000 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            // Un ingredientMix "malicioso" que ni siquiera referencia un ingrediente real del
+            // producto -- si el motor alguna vez llegara a leerlo, esto reventaría con
+            // errors.ingredient_not_in_pool. Que NO reviente y dé el mismo costo que sin mix es
+            // la prueba de que el mix se ignora por completo en la rama fija.
+            const result = await quoteService.calculateQuote({
+                ...baseInput,
+                ingredientMix: [{ ingredientId: 999, percentage: 100 }]
+            })
+
+            expect(result.rawMaterialCost).toBe(40) // igual que el test "100% piña" de arriba
         })
     })
 
@@ -1063,12 +1176,12 @@ describe("quoteService.calculateQuote", () => {
                     isCustomizable: false,
                     displayName: "Snack en Porciones",
                     productIngredients: [
-                        { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                        { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 200 } } }
                     ]
                 },
                 sizePresentation: { displayLabel: "Bolsita 100g", netWeightGrams: 100 },
                 unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsita individual", unitCost: 1 } }],
-                usedIntermediatePackaging: { id: 8, displayName: "Bolsa grande", unitCost: 3 },
+                intermediateMaterials: [{ id: 80, packagingId: 8, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 8, displayName: "Bolsa grande", unitCost: 3 } }],
                 palletMaterials: [
                     { packagingId: 6, quantityValue: 10, usedPalletMaterial: { displayName: "Caja corrugada", unitCost: 1 } }
                 ]
@@ -1108,6 +1221,256 @@ describe("quoteService.calculateQuote", () => {
             stubVariantWithIntermediatePackaging(null)
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.intermediate_packaging_missing_units" })
+        })
+    })
+
+    describe("default + opcional por nivel (2026-09-21, ver CLAUDE.md #4) -- empaque individual", () => {
+        function stubVariantWithSwappableUnitMaterials(): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [
+                    { id: 500, packagingId: 5, quantityPerUnit: 1, isSwappable: false, isDefault: false, usedUnitMaterial: { id: 5, displayName: "Etiqueta", unitCost: 1 } },
+                    { id: 501, packagingId: 20, quantityPerUnit: 1, isSwappable: true, isDefault: true, usedUnitMaterial: { id: 20, displayName: "Bolsa estándar", unitCost: 2 } },
+                    { id: 502, packagingId: 21, quantityPerUnit: 1, isSwappable: true, isDefault: false, usedUnitMaterial: { id: 21, displayName: "Bolsa con logo", unitCost: 5 } }
+                ],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+        }
+
+        it("usa la fila swappable marcada como default cuando el cliente no elige ninguna -- la fila incondicional también se costea", async () => {
+            stubVariantWithSwappableUnitMaterials()
+
+            const result = await quoteService.calculateQuote(baseInput) // totalUnits = 10
+
+            // (fija: unitCost 1 + default swappable: unitCost 2) * totalUnits(10) = 30
+            expect(result.unitPackagingCost).toBe(30)
+            expect(result.breakdown.unitMaterials.map(line => line.packagingId).sort((a, b) => a - b)).toEqual([5, 20])
+        })
+
+        it("elegir una alternativa válida cambia lineTotal/totalCost", async () => {
+            stubVariantWithSwappableUnitMaterials()
+
+            const result = await quoteService.calculateQuote({ ...baseInput, selectedUnitMaterialId: 502 })
+
+            // (fija: unitCost 1 + alternativa elegida: unitCost 5) * totalUnits(10) = 60
+            expect(result.unitPackagingCost).toBe(60)
+            expect(result.breakdown.unitMaterials.map(line => line.packagingId).sort((a, b) => a - b)).toEqual([5, 21])
+        })
+
+        it("rechaza un selectedUnitMaterialId que no pertenece a las filas swappable de este SKU (422)", async () => {
+            stubVariantWithSwappableUnitMaterials()
+
+            await expect(
+                quoteService.calculateQuote({ ...baseInput, selectedUnitMaterialId: 999 })
+            ).rejects.toMatchObject({ statusCode: 422, key: "errors.invalid_unit_material_selection" })
+        })
+
+        it("rechaza el id de una fila NO swappable (incondicional) pasado como selección -- no es una opción real", async () => {
+            stubVariantWithSwappableUnitMaterials()
+
+            await expect(
+                quoteService.calculateQuote({ ...baseInput, selectedUnitMaterialId: 500 })
+            ).rejects.toMatchObject({ statusCode: 422, key: "errors.invalid_unit_material_selection" })
+        })
+
+        it("revienta si hay filas swappable pero ninguna marcada como default (defensa en profundidad, dato mal configurado)", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [
+                    { id: 501, packagingId: 20, quantityPerUnit: 1, isSwappable: true, isDefault: false, usedUnitMaterial: { id: 20, displayName: "Bolsa A", unitCost: 2 } },
+                    { id: 502, packagingId: 21, quantityPerUnit: 1, isSwappable: true, isDefault: false, usedUnitMaterial: { id: 21, displayName: "Bolsa B", unitCost: 5 } }
+                ],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            })
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
+                statusCode: 422,
+                key: "errors.unit_material_default_not_configured",
+            })
+        })
+
+        it("el snapshot congela la elección -- dos cálculos con selecciones distintas dan breakdowns independientes", async () => {
+            stubVariantWithSwappableUnitMaterials()
+            const defaultResult = await quoteService.calculateQuote(baseInput)
+
+            stubVariantWithSwappableUnitMaterials()
+            const altResult = await quoteService.calculateQuote({ ...baseInput, selectedUnitMaterialId: 502 })
+
+            expect(defaultResult.unitPackagingCost).toBe(30)
+            expect(altResult.unitPackagingCost).toBe(60)
+            expect(defaultResult.breakdown.unitMaterials).not.toEqual(altResult.breakdown.unitMaterials)
+        })
+    })
+
+    describe("default + opcional por nivel -- materiales de paletización", () => {
+        function stubVariantWithSwappablePalletMaterials(): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [
+                    { id: 600, packagingId: 6, quantityValue: 1, isSwappable: false, isDefault: false, usedPalletMaterial: { displayName: "Base de caja", unitCost: 1 } },
+                    { id: 601, packagingId: 22, quantityValue: 1, isSwappable: true, isDefault: true, usedPalletMaterial: { displayName: "Caja estándar", unitCost: 4 } },
+                    { id: 602, packagingId: 23, quantityValue: 1, isSwappable: true, isDefault: false, usedPalletMaterial: { displayName: "Caja reforzada", unitCost: 9 } }
+                ]
+            })
+        }
+
+        it("usa la fila swappable default cuando el cliente no elige ninguna", async () => {
+            stubVariantWithSwappablePalletMaterials()
+
+            const result = await quoteService.calculateQuote(baseInput) // requestedPallets = 1
+
+            // (fija: 1 + default: 4) * quantityValue(1) * requestedPallets(1) = 5
+            expect(result.palletMaterialCost).toBe(5)
+        })
+
+        it("elegir una alternativa válida cambia el costo de paletización", async () => {
+            stubVariantWithSwappablePalletMaterials()
+
+            const result = await quoteService.calculateQuote({ ...baseInput, selectedPalletMaterialId: 602 })
+
+            expect(result.palletMaterialCost).toBe(10) // 1 + 9
+        })
+
+        it("rechaza un selectedPalletMaterialId que no pertenece a este SKU (422)", async () => {
+            stubVariantWithSwappablePalletMaterials()
+
+            await expect(
+                quoteService.calculateQuote({ ...baseInput, selectedPalletMaterialId: 999 })
+            ).rejects.toMatchObject({ statusCode: 422, key: "errors.invalid_pallet_material_selection" })
+        })
+    })
+
+    describe("default + opcional por nivel -- empaque intermedio (join table nuevo, reemplaza el FK)", () => {
+        function stubVariantWithSwappableIntermediateMaterials(): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                unitsPerIntermediatePackage: 5,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }],
+                intermediateMaterials: [
+                    { id: 700, packagingId: 30, isSwappable: true, isDefault: true, usedIntermediateMaterial: { id: 30, displayName: "Bolsa grande estándar", unitCost: 3 } },
+                    { id: 701, packagingId: 31, isSwappable: true, isDefault: false, usedIntermediateMaterial: { id: 31, displayName: "Bolsa grande reforzada", unitCost: 7 } }
+                ]
+            })
+        }
+
+        it("usa la alternativa default cuando el cliente no elige ninguna -- totalUnits=10, packagesNeeded=ceil(10/5)=2", async () => {
+            stubVariantWithSwappableIntermediateMaterials()
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.breakdown.intermediatePackaging).toMatchObject({ packagingId: 30, unitCost: 3, packagesNeeded: 2 })
+            expect(result.intermediatePackagingCost).toBe(6) // 3 * 2
+        })
+
+        it("elegir una alternativa válida cambia el costo del empaque intermedio", async () => {
+            stubVariantWithSwappableIntermediateMaterials()
+
+            const result = await quoteService.calculateQuote({ ...baseInput, selectedIntermediateMaterialId: 701 })
+
+            expect(result.breakdown.intermediatePackaging).toMatchObject({ packagingId: 31, unitCost: 7, packagesNeeded: 2 })
+            expect(result.intermediatePackagingCost).toBe(14) // 7 * 2
+        })
+
+        it("rechaza un selectedIntermediateMaterialId que no pertenece a este SKU (422)", async () => {
+            stubVariantWithSwappableIntermediateMaterials()
+
+            await expect(
+                quoteService.calculateQuote({ ...baseInput, selectedIntermediateMaterialId: 999 })
+            ).rejects.toMatchObject({ statusCode: 422, key: "errors.invalid_intermediate_material_selection" })
+        })
+
+        it("revienta si hay alternativas swappable pero ninguna marcada como default", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                unitsPerIntermediatePackage: 5,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }],
+                intermediateMaterials: [
+                    { id: 700, packagingId: 30, isSwappable: true, isDefault: false, usedIntermediateMaterial: { id: 30, displayName: "Bolsa A", unitCost: 3 } },
+                    { id: 701, packagingId: 31, isSwappable: true, isDefault: false, usedIntermediateMaterial: { id: 31, displayName: "Bolsa B", unitCost: 7 } }
+                ]
+            })
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
+                statusCode: 422,
+                key: "errors.intermediate_material_default_not_configured",
+            })
+        })
+
+        it("revienta (422) si la variante tiene DOS filas fijas de empaque intermedio, en vez de costear en silencio solo la primera", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                unitsPerIntermediatePackage: 5,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }],
+                intermediateMaterials: [
+                    { id: 700, packagingId: 30, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 30, displayName: "Bolsa A", unitCost: 3 } },
+                    { id: 701, packagingId: 31, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 31, displayName: "Bolsa B", unitCost: 7 } }
+                ]
+            })
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
+                statusCode: 422,
+                key: "errors.multiple_fixed_intermediate_materials",
+            })
+        })
+
+        it("dos filas fijas también revientan aunque haya alternativas swappable -- el dato mal armado no se esconde detrás del menú", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                unitsPerIntermediatePackage: 5,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }],
+                intermediateMaterials: [
+                    { id: 700, packagingId: 30, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 30, displayName: "Bolsa A", unitCost: 3 } },
+                    { id: 701, packagingId: 31, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 31, displayName: "Bolsa B", unitCost: 7 } },
+                    { id: 702, packagingId: 32, isSwappable: true, isDefault: true, usedIntermediateMaterial: { id: 32, displayName: "Bolsa C", unitCost: 9 } }
+                ]
+            })
+
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.multiple_fixed_intermediate_materials" })
+        })
+
+        it("sin ninguna fila swappable, sigue funcionando como antes (0 o 1 fila fija, sin selección posible)", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 10,
+                bagsPerBox: 1,
+                unitsPerIntermediatePackage: 5,
+                parentProduct: { isCustomizable: false, productIngredients: [] },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }],
+                intermediateMaterials: [
+                    { id: 700, packagingId: 30, isSwappable: false, isDefault: false, usedIntermediateMaterial: { id: 30, displayName: "Bolsa grande", unitCost: 3 } }
+                ]
+            })
+
+            const result = await quoteService.calculateQuote(baseInput)
+
+            expect(result.intermediatePackagingCost).toBe(6) // 3 * ceil(10/5)
         })
     })
 
@@ -1570,7 +1933,6 @@ describe("quoteService.saveQuote", () => {
     beforeEach(() => {
         stubDestination()
         mockProcessingCostFindAll.mockResolvedValue([]) // ver comentario junto al mock del modelo, arriba del archivo
-        stubLead()
     })
 
     it("nunca confía en el desglose del cliente: siempre persiste lo que devuelve calculateQuote, no el input recibido", async () => {
@@ -1582,10 +1944,10 @@ describe("quoteService.saveQuote", () => {
                 isCustomizable: false,
                 displayName: "Piña en Trozos",
                 productIngredients: [
-                    { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                    { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }
                 ]
             },
-            sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 2000 },
+            sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
             unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
             palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
         })
@@ -1600,22 +1962,22 @@ describe("quoteService.saveQuote", () => {
             destinationId: 900,
             requestedPallets: 1,
             totalCost: 999999,
-            leadContact: LEAD_CONTACT,
-        } as SaveQuoteInput
+        } as CalculateQuoteInput
 
         const saved = await quoteService.saveQuote(42, tamperedInput)
 
         // rawMaterialCost(200) + unitPackagingCost(20) + palletMaterialCost(0, material de $0) + transportCost(50)
         expect(saved.totalCost).toBe(270) // recalculado server-side, no 999999
         expect(mockQuoteCreate).toHaveBeenCalledWith(
-            expect.objectContaining({ customerId: 42, totalCost: 270, processingCostTotal: 0 })
+            expect.objectContaining({ salespersonId: 42, totalCost: 270, processingCostTotal: 0 })
         )
     })
 
-    describe("vínculo con Lead (prospecto), 2026-09-13 -- crear-o-reusar por email", () => {
-        const baseSaveInput = { productVariantId: 10, destinationId: 900, requestedPallets: 1 }
-
-        function stubMinimalVariantForLead(): void {
+    // Desacople Quote <-> Lead (2026-09-21): guardar una cotización ya no crea, busca ni vincula un
+    // prospecto -- no hay leadContact en el input ni leadId en lo que se persiste. Los Leads solo
+    // nacen del formulario público de la landing (ver lead/).
+    describe("sin vínculo con Lead (prospecto)", () => {
+        function stubMinimalVariant(): void {
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
                 boxesPerPallet: 20,
@@ -1626,39 +1988,25 @@ describe("quoteService.saveQuote", () => {
             })
         }
 
-        it("crea un Lead nuevo y persiste su id en Quote.leadId cuando no existe ninguno con ese email", async () => {
-            stubMinimalVariantForLead()
-            stubLead() // sin lead existente -> findOrCreateLeadForQuote crea uno (id 500, ver LEAD_CONTACT)
-            mockQuoteCreate.mockResolvedValue({ id: 600, get: () => new Date("2026-09-13T00:00:00Z") })
+        it("guarda la cotización con solo variante + palets (sin datos de prospecto)", async () => {
+            stubMinimalVariant()
+            mockQuoteCreate.mockResolvedValue({ id: 600, get: () => new Date("2026-09-21T00:00:00Z") })
 
-            const saved = await quoteService.saveQuote(42, { ...baseSaveInput, leadContact: LEAD_CONTACT })
+            const saved = await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 1 })
 
-            expect(saved.leadId).toBe(500)
-            expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ leadId: 500 }))
+            expect(saved.id).toBe(600)
+            expect(mockQuoteCreate).toHaveBeenCalledTimes(1)
         })
 
-        it("REUSA un Lead ya existente con ese email en vez de crear uno duplicado", async () => {
-            stubMinimalVariantForLead()
-            stubLead({ existing: { id: 42424 } })
-            mockQuoteCreate.mockResolvedValue({ id: 601, get: () => new Date("2026-09-13T00:00:00Z") })
+        it("no persiste ni devuelve ningún leadId, aunque un payload crudo intente mandarlo", async () => {
+            stubMinimalVariant()
+            mockQuoteCreate.mockResolvedValue({ id: 601, get: () => new Date("2026-09-21T00:00:00Z") })
 
-            const saved = await quoteService.saveQuote(42, { ...baseSaveInput, leadContact: LEAD_CONTACT })
-
-            expect(saved.leadId).toBe(42424)
-            expect(mockLeadCreate).not.toHaveBeenCalled()
-            expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ leadId: 42424 }))
-        })
-
-        it("nunca confía en un leadId que el front intente mandar directo -- solo usa el que resuelve findOrCreateLeadForQuote", async () => {
-            stubMinimalVariantForLead()
-            stubLead({ existing: { id: 7 } })
-            mockQuoteCreate.mockResolvedValue({ id: 602, get: () => new Date("2026-09-13T00:00:00Z") })
-
-            const tamperedInput = { ...baseSaveInput, leadContact: LEAD_CONTACT, leadId: 999999 } as SaveQuoteInput
+            const tamperedInput = { productVariantId: 10, requestedPallets: 1, leadId: 999999, leadContact: { email: "x@y.com" } } as unknown as CalculateQuoteInput
             const saved = await quoteService.saveQuote(42, tamperedInput)
 
-            expect(saved.leadId).toBe(7) // no 999999
-            expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ leadId: 7 }))
+            expect(mockQuoteCreate.mock.calls[0][0]).not.toHaveProperty("leadId")
+            expect(saved).not.toHaveProperty("leadId")
         })
     })
 
@@ -1670,8 +2018,10 @@ describe("quoteService.saveQuote", () => {
             parentProduct: {
                 isCustomizable: false,
                 displayName: "Piña en Trozos",
+                // percentage:100/baseFactor:1 arbitrarios -- estos tests solo aseguran
+                // processingCostTotal, netWeightGrams (1 lb) es lo único load-bearing acá.
                 productIngredients: [
-                    { ingredientId: 1, quantityValue: 0.5, usedIngredient: { displayName: "Piña", costPerUnit: 20 } }
+                    { ingredientId: 1, percentage: 100, usedIngredient: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }
                 ]
             },
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
@@ -1699,8 +2049,7 @@ describe("quoteService.saveQuote", () => {
                     { processingCostId: 999, displayName: "Falso", value: 999, totalWeightPounds: 1, lineTotal: 999999 }
                 ]
             },
-            leadContact: LEAD_CONTACT,
-        } as SaveQuoteInput
+        } as CalculateQuoteInput
 
         const saved = await quoteService.saveQuote(42, tamperedInput)
 
@@ -1717,7 +2066,7 @@ describe("quoteService.saveQuote", () => {
         mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 3, calculationType: "per_weight", translations: [] }])
         mockQuoteCreate.mockResolvedValueOnce({ id: 1, get: () => new Date("2026-01-01T00:00:00Z") })
 
-        const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
+        const quote1 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
         expect(quote1.processingCostTotal).toBe(3) // 1 libra * Q3/lb
 
         // El admin ahora desactiva el costo (simula "el catálogo cambió después") y se cotiza
@@ -1725,7 +2074,7 @@ describe("quoteService.saveQuote", () => {
         mockProcessingCostFindAll.mockResolvedValue([])
         mockQuoteCreate.mockResolvedValueOnce({ id: 2, get: () => new Date("2026-01-02T00:00:00Z") })
 
-        const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1, leadContact: LEAD_CONTACT })
+        const quote2 = await quoteService.saveQuote(42, { productVariantId: 10, destinationId: 900, requestedPallets: 1 })
         expect(quote2.processingCostTotal).toBe(0)
 
     
@@ -1735,5 +2084,160 @@ describe("quoteService.saveQuote", () => {
         // tampoco se muta después por la segunda llamada.
         expect(quote1.processingCostTotal).toBe(3)
         expect(quote1.breakdown.processingCosts).toEqual([expect.objectContaining({ processingCostId: 1, lineTotal: 3 })])
+    })
+})
+
+describe("quoteService.listQuotableProducts", () => {
+    beforeEach(() => {
+        mockProductFindAll.mockReset().mockResolvedValue([])
+    })
+
+    // Regresión (2026-09-16): presentationId ya es NOT NULL a nivel de columna en ProductVariant
+    // (cada SKU es, por definición, un producto + una Presentación), pero este filtro es defensa
+    // en profundidad además de la columna -- mismo criterio que boxesPerPallet/bagsPerBox, que ya
+    // se filtraban acá desde antes. No hay una BD real en esta suite (ver el resto del archivo),
+    // así que lo que se puede probar a este nivel es que la query arma el `where` correcto, no
+    // que Postgres de verdad excluye la fila -- eso ya lo cubre la columna NOT NULL misma.
+    it("filtra las variantes incluidas por presentationId NOT NULL, junto con boxesPerPallet/bagsPerBox", async () => {
+        await quoteService.listQuotableProducts()
+
+        expect(mockProductFindAll).toHaveBeenCalledTimes(1)
+        const call = mockProductFindAll.mock.calls[0][0] as { include: { as?: string; where?: Record<string, unknown> }[] }
+        const variantInclude = call.include.find(inc => inc.as === "productVariants")
+
+        expect(variantInclude?.where).toMatchObject({
+            presentationId: { [Op.not]: null },
+            boxesPerPallet: { [Op.not]: null },
+            bagsPerBox: { [Op.not]: null },
+        })
+    })
+
+    it("devuelve una lista vacía cuando no hay productos activos con variantes quotable (caso base)", async () => {
+        const result = await quoteService.listQuotableProducts()
+
+        expect(result).toEqual([])
+    })
+
+    describe("fixedRecipe / ingredientPool -- el cliente debe VER una receta fija, pero solo puede EDITAR un mix personalizable", () => {
+        function stubPlainProduct(overrides: Record<string, unknown>): void {
+            const plain = {
+                id: 1,
+                displayName: "Producto",
+                isOrganic: false,
+                imageUrl: null,
+                parentSubCategory: null,
+                productVariants: [],
+                productIngredients: [],
+                translations: [],
+                ...overrides
+            }
+            mockProductFindAll.mockResolvedValue([{ ...plain, toJSON: () => plain }])
+        }
+
+        it("expone fixedRecipe (nombre + %) para un producto de receta fija, e ingredientPool vacío", async () => {
+            stubPlainProduct({
+                isCustomizable: false,
+                productIngredients: [
+                    { ingredientId: 1, percentage: 50, usedIngredient: { displayName: "Banano", translations: [] } },
+                    { ingredientId: 2, percentage: 50, usedIngredient: { displayName: "Fresa", translations: [] } }
+                ]
+            })
+
+            const [result] = await quoteService.listQuotableProducts()
+
+            expect(result.fixedRecipe).toEqual([
+                { ingredientId: 1, displayName: "Banano", percentage: 50 },
+                { ingredientId: 2, displayName: "Fresa", percentage: 50 }
+            ])
+            expect(result.ingredientPool).toEqual([])
+        })
+
+        it("expone ingredientPool (rango editable) para un producto personalizable, y fixedRecipe vacío", async () => {
+            stubPlainProduct({
+                isCustomizable: true,
+                productIngredients: [
+                    { ingredientId: 1, minPercentage: 20, maxPercentage: 80, usedIngredient: { displayName: "Piña", isOrganic: false, translations: [] } }
+                ]
+            })
+
+            const [result] = await quoteService.listQuotableProducts()
+
+            expect(result.ingredientPool).toEqual([
+                { ingredientId: 1, displayName: "Piña", isOrganic: false, minPercentage: 20, maxPercentage: 80 }
+            ])
+            expect(result.fixedRecipe).toEqual([])
+        })
+    })
+
+    describe("default + opcional por nivel (2026-09-21) -- menú de alternativas y packagingLabel", () => {
+        function stubProductWithVariant(variantOverrides: Record<string, unknown>): void {
+            const plain = {
+                id: 1,
+                displayName: "Producto",
+                isOrganic: false,
+                isCustomizable: false,
+                imageUrl: null,
+                parentSubCategory: null,
+                productIngredients: [],
+                translations: [],
+                productVariants: [
+                    {
+                        id: 10,
+                        boxesPerPallet: 20,
+                        bagsPerBox: 1,
+                        sizePresentation: { displayLabel: "Bolsa" },
+                        unitMaterials: [],
+                        intermediateMaterials: [],
+                        palletMaterials: [],
+                        ...variantOverrides
+                    }
+                ]
+            }
+            mockProductFindAll.mockResolvedValue([{ ...plain, toJSON: () => plain }])
+        }
+
+        it("solo expone las filas isSwappable=true como opciones -- las incondicionales nunca son una 'opción'", async () => {
+            stubProductWithVariant({
+                unitMaterials: [
+                    { id: 500, packagingId: 5, isSwappable: false, isDefault: false, usedUnitMaterial: { displayName: "Etiqueta", unitCost: 1 } },
+                    { id: 501, packagingId: 20, isSwappable: true, isDefault: true, usedUnitMaterial: { displayName: "Bolsa estándar", unitCost: 2 } },
+                    { id: 502, packagingId: 21, isSwappable: true, isDefault: false, usedUnitMaterial: { displayName: "Bolsa con logo", unitCost: 5 } }
+                ]
+            })
+
+            const [result] = await quoteService.listQuotableProducts()
+
+            expect(result.variants[0].unitMaterialOptions).toEqual([
+                { id: 501, packagingId: 20, displayName: "Bolsa estándar", unitCost: 2, isDefault: true },
+                { id: 502, packagingId: 21, displayName: "Bolsa con logo", unitCost: 5, isDefault: false }
+            ])
+        })
+
+        it("packagingLabel muestra lo que se costea por defecto (incondicionales + la swappable default), no todas las alternativas", async () => {
+            stubProductWithVariant({
+                unitMaterials: [
+                    { id: 500, packagingId: 5, isSwappable: false, isDefault: false, usedUnitMaterial: { displayName: "Etiqueta", unitCost: 1 } },
+                    { id: 501, packagingId: 20, isSwappable: true, isDefault: true, usedUnitMaterial: { displayName: "Bolsa estándar", unitCost: 2 } },
+                    { id: 502, packagingId: 21, isSwappable: true, isDefault: false, usedUnitMaterial: { displayName: "Bolsa con logo", unitCost: 5 } }
+                ]
+            })
+
+            const [result] = await quoteService.listQuotableProducts()
+
+            expect(result.variants[0].packagingLabel).toBe("Etiqueta + Bolsa estándar")
+        })
+
+        it("un nivel sin ninguna fila swappable expone un menú de opciones vacío (legado, sin cambio de comportamiento)", async () => {
+            stubProductWithVariant({
+                unitMaterials: [{ id: 500, packagingId: 5, isSwappable: false, isDefault: false, usedUnitMaterial: { displayName: "Empaque único", unitCost: 1 } }]
+            })
+
+            const [result] = await quoteService.listQuotableProducts()
+
+            expect(result.variants[0].unitMaterialOptions).toEqual([])
+            expect(result.variants[0].intermediateMaterialOptions).toEqual([])
+            expect(result.variants[0].palletMaterialOptions).toEqual([])
+            expect(result.variants[0].packagingLabel).toBe("Empaque único")
+        })
     })
 })

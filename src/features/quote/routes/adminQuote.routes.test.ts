@@ -28,7 +28,7 @@ function staffToken(permissions: string[]): string {
     return jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions }, "test-secret")
 }
 
-const customerToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
+const salespersonToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const validQuoteBody = { productVariantId: 10, destinationId: 900, requestedPallets: 1 }
 
 describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
@@ -41,7 +41,7 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
         it("rechaza un token de cliente (type customer) con 401 -- este router es solo para staff", async () => {
             const res = await request(app)
                 .post("/api/admin/quotes/preview")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .send(validQuoteBody)
             expect(res.status).toBe(401)
         })

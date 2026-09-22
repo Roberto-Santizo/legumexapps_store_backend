@@ -16,27 +16,27 @@ import { dashboardService } from "./dashboard.service"
 const mockQuoteFindAll = Quote.findAll as unknown as jest.Mock
 
 interface StubQuoteInput {
-    customerId: number
+    salespersonId: number
     totalCost: number
     requestedPallets: number
     totalUnits: number
     productDisplayName: string
     createdAt: string
     quotedVariant?: { id: number; parentProduct: { id: number } | null } | null
-    quotingCustomer?: { id: number; name: string; companyName: string | null; email: string } | null
+    quotingSalesperson?: { id: number; name: string; companyName: string | null; email: string } | null
     breakdown?: { rawMaterials: { ingredientId: number; displayName: string; lineTotal: number }[] }
 }
 
 function stubQuote(overrides: Partial<StubQuoteInput> = {}) {
     const data: StubQuoteInput = {
-        customerId: 1,
+        salespersonId: 1,
         totalCost: 100,
         requestedPallets: 1,
         totalUnits: 10,
         productDisplayName: "Piña IQF",
         createdAt: "2026-01-10T00:00:00.000Z",
         quotedVariant: { id: 50, parentProduct: { id: 5 } },
-        quotingCustomer: { id: 1, name: "Cliente Uno", companyName: null, email: "uno@cliente.com" },
+        quotingSalesperson: { id: 1, name: "Representante Uno", companyName: null, email: "uno@legumex.com" },
         breakdown: { rawMaterials: [] },
         ...overrides
     }
@@ -63,19 +63,19 @@ describe("dashboardService.getSummary", () => {
             totalRevenue: 0,
             totalPallets: 0,
             totalUnits: 0,
-            uniqueCustomers: 0,
+            uniqueSalespeople: 0,
             averageQuoteValue: 0
         })
         expect(summary.trend).toEqual([])
         expect(summary.topProducts).toEqual([])
-        expect(summary.topCustomers).toEqual([])
+        expect(summary.topSalespeople).toEqual([])
         expect(summary.topIngredients).toEqual([])
     })
 
     it("suma overview a partir de todas las cotizaciones traídas", async () => {
         mockQuoteFindAll.mockResolvedValue([
-            stubQuote({ customerId: 1, totalCost: 100, requestedPallets: 1, totalUnits: 10 }),
-            stubQuote({ customerId: 2, totalCost: 300, requestedPallets: 3, totalUnits: 30 })
+            stubQuote({ salespersonId: 1, totalCost: 100, requestedPallets: 1, totalUnits: 10 }),
+            stubQuote({ salespersonId: 2, totalCost: 300, requestedPallets: 3, totalUnits: 30 })
         ])
 
         const summary = await dashboardService.getSummary()
@@ -85,7 +85,7 @@ describe("dashboardService.getSummary", () => {
             totalRevenue: 400,
             totalPallets: 4,
             totalUnits: 40,
-            uniqueCustomers: 2,
+            uniqueSalespeople: 2,
             averageQuoteValue: 200
         })
     })
@@ -151,22 +151,22 @@ describe("dashboardService.getSummary", () => {
         mockQuoteFindAll.mockResolvedValue([
             stubQuote({
                 totalCost: 50,
-                quotingCustomer: { id: 1, name: "Cliente Frecuente", companyName: null, email: "a@a.com" }
+                quotingSalesperson: { id: 1, name: "Cliente Frecuente", companyName: null, email: "a@a.com" }
             }),
             stubQuote({
                 totalCost: 50,
-                quotingCustomer: { id: 1, name: "Cliente Frecuente", companyName: null, email: "a@a.com" }
+                quotingSalesperson: { id: 1, name: "Cliente Frecuente", companyName: null, email: "a@a.com" }
             }),
             stubQuote({
                 totalCost: 500,
-                quotingCustomer: { id: 2, name: "Cliente Grande", companyName: "ACME", email: "b@b.com" }
+                quotingSalesperson: { id: 2, name: "Cliente Grande", companyName: "ACME", email: "b@b.com" }
             })
         ])
 
         const summary = await dashboardService.getSummary()
 
-        expect(summary.topCustomers[0]).toMatchObject({ customerId: 2, name: "Cliente Grande", totalRevenue: 500, quoteCount: 1 })
-        expect(summary.topCustomers[1]).toMatchObject({ customerId: 1, name: "Cliente Frecuente", totalRevenue: 100, quoteCount: 2 })
+        expect(summary.topSalespeople[0]).toMatchObject({ salespersonId: 2, name: "Cliente Grande", totalRevenue: 500, quoteCount: 1 })
+        expect(summary.topSalespeople[1]).toMatchObject({ salespersonId: 1, name: "Cliente Frecuente", totalRevenue: 100, quoteCount: 2 })
     })
 
     it("agrega ingredientes desde el snapshot congelado (breakdown.rawMaterials), sumando costo por ingrediente", async () => {
@@ -196,29 +196,29 @@ describe("dashboardService.getSummary", () => {
         // Reproduce con datos reales de dashboard el mismo caso que money.util.test.ts prueba de
         // forma aislada. dashboard.service.ts NO pasa por money.util.ts (a diferencia de
         // quote.service.ts) -- suma con `Number(...) + ` nativo en varios lugares
-        // (buildOverview, buildTrend, groupProductsByRealId, buildTopCustomers,
+        // (buildOverview, buildTrend, groupProductsByRealId, buildTopSalespeople,
         // buildTopIngredients). Con montos de dinero reales esto puede filtrar un float sin
         // redondear (ej. 0.30010000000000003) directo en el JSON de /admin/dashboard/summary,
         // en vez del monto exacto.
         mockQuoteFindAll.mockResolvedValue([
             stubQuote({
-                customerId: 1,
+                salespersonId: 1,
                 totalCost: 0.1,
-                quotingCustomer: { id: 1, name: "Cliente A", companyName: null, email: "a@a.com" },
+                quotingSalesperson: { id: 1, name: "Cliente A", companyName: null, email: "a@a.com" },
                 quotedVariant: { id: 50, parentProduct: { id: 5 } },
                 breakdown: { rawMaterials: [{ ingredientId: 1, displayName: "Piña", lineTotal: 0.1 }] }
             }),
             stubQuote({
-                customerId: 1,
+                salespersonId: 1,
                 totalCost: 0.2,
-                quotingCustomer: { id: 1, name: "Cliente A", companyName: null, email: "a@a.com" },
+                quotingSalesperson: { id: 1, name: "Cliente A", companyName: null, email: "a@a.com" },
                 quotedVariant: { id: 50, parentProduct: { id: 5 } },
                 breakdown: { rawMaterials: [{ ingredientId: 1, displayName: "Piña", lineTotal: 0.2 }] }
             }),
             stubQuote({
-                customerId: 1,
+                salespersonId: 1,
                 totalCost: 0.0001,
-                quotingCustomer: { id: 1, name: "Cliente A", companyName: null, email: "a@a.com" },
+                quotingSalesperson: { id: 1, name: "Cliente A", companyName: null, email: "a@a.com" },
                 quotedVariant: { id: 50, parentProduct: { id: 5 } },
                 breakdown: { rawMaterials: [{ ingredientId: 1, displayName: "Piña", lineTotal: 0.0001 }] }
             })
@@ -229,7 +229,7 @@ describe("dashboardService.getSummary", () => {
         expect(summary.overview.totalRevenue).toBe(0.3001)
         expect(summary.topProducts[0].totalRevenue).toBe(0.3001)
         expect(summary.topProductsByRevenue[0].totalRevenue).toBe(0.3001)
-        expect(summary.topCustomers[0].totalRevenue).toBe(0.3001)
+        expect(summary.topSalespeople[0].totalRevenue).toBe(0.3001)
         expect(summary.topIngredients[0].totalCost).toBe(0.3001)
     })
 

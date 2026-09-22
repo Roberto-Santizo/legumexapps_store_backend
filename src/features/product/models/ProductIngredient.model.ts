@@ -2,7 +2,6 @@ import { Table, Column, DataType, ForeignKey, BelongsTo } from "sequelize-typesc
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Product from "./Product.model";
 import Ingredient from "../../ingredient/models/Ingredient.model";
-import Unit from "../../unit/models/Unit.model";
 
 @Table({
     tableName: "productIngredients",
@@ -28,18 +27,17 @@ class ProductIngredient extends BaseCatalogModel {
     })
     declare ingredientId: number
 
+    // Solo aplica cuando el producto padre es de receta fija (!Product.isCustomizable): el
+    // admin fija este % al crear el producto y el cliente nunca puede alterarlo (ver
+    // quoteService.buildFixedPercentageRawMaterials). Reemplaza el viejo quantityValue (cantidad
+    // absoluta, independiente de la presentación) -- ahora la receta fija usa la MISMA base
+    // matemática (% del peso neto) que el mix personalizable, solo que quien fija el % es el
+    // admin, no el cliente.
     @Column({
-        type: DataType.DECIMAL(10, 2),
+        type: DataType.DECIMAL(5, 2),
         allowNull: true
     })
-    declare quantityValue: number
-
-    @ForeignKey(() => Unit)
-    @Column({
-        type: DataType.INTEGER,
-        allowNull: true
-    })
-    declare quantityUnitId: number
+    declare percentage: number
 
     @Column({
         type: DataType.DECIMAL(5, 2),
@@ -65,9 +63,6 @@ class ProductIngredient extends BaseCatalogModel {
 
     @BelongsTo(() => Ingredient, "ingredientId")
     declare usedIngredient: Ingredient
-
-    @BelongsTo(() => Unit, "quantityUnitId")
-    declare quantityUnit: Unit
 }
 
 export default ProductIngredient;

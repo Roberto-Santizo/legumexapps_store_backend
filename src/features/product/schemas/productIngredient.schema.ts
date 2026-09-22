@@ -3,8 +3,11 @@ import z from "zod"
 const productIngredientShape = {
     productId: z.number().int().positive(),
     ingredientId: z.number().int().positive(),
-    quantityValue: z.number().optional(),
-    quantityUnitId: z.number().int().positive().optional(),
+    // Solo aplica cuando el producto padre es de receta fija (!isCustomizable) -- ver
+    // assertPercentageIfFixedRecipe en productIngredient.service.ts, que exige este valor de
+    // forma async (acá queda opcional a nivel de schema por el mismo motivo que antes exigía
+    // quantityValue: el schema no sabe si el producto es customizable o no).
+    percentage: z.number().positive().max(100).optional(),
     minPercentage: z.number().min(0).max(100).optional(),
     maxPercentage: z.number().min(0).max(100).optional(),
     displayOrder: z.number().int().optional(),

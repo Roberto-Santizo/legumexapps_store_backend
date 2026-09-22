@@ -13,7 +13,6 @@ const RESOURCE_KEYS = [
     "categories",
     "subCategories",
     "products",
-    "productTypes",
     "units",
     "presentations",
     "packagings",
@@ -23,7 +22,8 @@ const RESOURCE_KEYS = [
     "users",
     "roles",
     "permissions",
-    "customers",
+    "salespeople",
+    "clients",
 ]
 
 const ACTION_SUFFIXES = ["view", "create", "edit", "delete"] as const

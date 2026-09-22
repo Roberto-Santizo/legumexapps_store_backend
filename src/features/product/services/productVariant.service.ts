@@ -1,12 +1,7 @@
 import { Op, WhereOptions } from "sequelize"
 import ProductVariant from "../models/ProductVariant.model"
-import Product from "../models/Product.model"
-import Presentation from "../../presentation/models/Presentation.model"
-import Packaging from "../../packaging/models/Packaging.model"
-import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
-import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
-import { CreateProductVariantInput, ProductVariantSkuLookup, UpdateProductVariantInput } from "../schemas/productVariant.schema"
+import { CreateProductVariantInput, UpdateProductVariantInput } from "../schemas/productVariant.schema"
 
 async function listProductVariants(): Promise<ProductVariant[]> {
     return ProductVariant.findAll({ where: { isActive: true }, order: [["id", "DESC"]] })
@@ -18,43 +13,51 @@ async function getProductVariantById(id: number): Promise<ProductVariant> {
     return productVariant
 }
 
-async function assertSkuCodeIsUnique(skuCode: string, excludeId?: number): Promise<void> {
+// Cada Producto solo puede tener un SKU por Presentación (2026-09-16) -- desde la eliminación
+// de skuCode (2026-09-17), esta ES la única regla de unicidad de una variante: (productId,
+// presentationId) es su identidad completa, junto con Product.codigo como "cabeza" del SKU. Se
+// enforce a nivel de aplicación, no con un índice de BD, a propósito: así no puede quedar
+// bloqueado por filas preexistentes, mismo criterio que el resto de "assert*" de este archivo.
+async function assertPresentationNotAlreadyUsed(productId: number, presentationId: number, excludeId?: number): Promise<void> {
     const where: WhereOptions = excludeId
-        ? { skuCode: { [Op.iLike]: skuCode }, id: { [Op.ne]: excludeId } }
-        : { skuCode: { [Op.iLike]: skuCode } }
+        ? { productId, presentationId, id: { [Op.ne]: excludeId } }
+        : { productId, presentationId }
     const existing = await ProductVariant.findOne({ where })
-    if (existing) throw new AppError(409, "errors.product_variant_skucode_already_exists", { skuCode })
+    if (existing) {
+        throw new AppError(409, "errors.product_variant_presentation_already_used")
+    }
 }
 
-function assertIntermediatePackagingConsistency(
-    intermediatePackagingId: number | null | undefined,
-    unitsPerIntermediatePackage: number | null | undefined
-): void {
-    const hasPackaging = intermediatePackagingId !== null && intermediatePackagingId !== undefined
-    const hasUnits = unitsPerIntermediatePackage !== null && unitsPerIntermediatePackage !== undefined
-    if (hasPackaging !== hasUnits) {
-        throw new AppError(422, "errors.intermediate_packaging_requires_units")
+// Opción B (2026-09-16, decisión de negocio): la Presentación de un SKU queda fija una vez
+// creada. Si se quiere cotizar el mismo producto en otra presentación, se crea un SKU nuevo --
+// nunca se reasigna uno existente. No afecta cotizaciones ya guardadas (Quote congela su propio
+// snapshot, ver quoteService.calculateQuote), solo bloquea la edición hacia adelante.
+function assertPresentationNotChanged(existingPresentationId: number, incomingPresentationId: number): void {
+    if (incomingPresentationId !== existingPresentationId) {
+        throw new AppError(422, "errors.product_variant_presentation_immutable")
     }
 }
 
 async function createProductVariant(input: CreateProductVariantInput): Promise<ProductVariant> {
-    await assertSkuCodeIsUnique(input.skuCode)
-    assertIntermediatePackagingConsistency(input.intermediatePackagingId, input.unitsPerIntermediatePackage)
+    await assertPresentationNotAlreadyUsed(input.productId, input.presentationId)
     return ProductVariant.create(input)
 }
 
 async function updateProductVariant(id: number, input: UpdateProductVariantInput): Promise<ProductVariant> {
     const productVariant = await getProductVariantById(id)
 
-    if (input.skuCode) await assertSkuCodeIsUnique(input.skuCode, id)
+    // presentationId es requerido en updateProductVariantSchema, así que en la práctica siempre
+    // llega -- el `if` es defensivo, por si algún caller llama al service directo sin pasar por
+    // el schema HTTP.
+    if (input.presentationId) assertPresentationNotChanged(productVariant.presentationId, input.presentationId)
 
-    const effectiveIntermediatePackagingId = input.intermediatePackagingId !== undefined
-        ? input.intermediatePackagingId
-        : productVariant.intermediatePackagingId
-    const effectiveUnitsPerIntermediatePackage = input.unitsPerIntermediatePackage !== undefined
-        ? input.unitsPerIntermediatePackage
-        : productVariant.unitsPerIntermediatePackage
-    assertIntermediatePackagingConsistency(effectiveIntermediatePackagingId, effectiveUnitsPerIntermediatePackage)
+    // productId SÍ puede cambiar en un update (no se recupera como requerido en el schema, y el
+    // form del admin lo omite, pero la API no lo prohíbe) -- si eso pasa, el chequeo de
+    // duplicado corre contra el Producto NUEVO. presentationId es siempre el ya guardado (recién
+    // se confirmó arriba que no cambió), excluyendo esta misma fila de la búsqueda.
+    const effectiveProductId = input.productId !== undefined ? input.productId : productVariant.productId
+    await assertPresentationNotAlreadyUsed(effectiveProductId, productVariant.presentationId, id)
+
     return productVariant.update(input)
 }
 
@@ -63,58 +66,10 @@ async function deleteProductVariant(id: number): Promise<void> {
     await productVariant.update({ isActive: false })
 }
 
-async function findVariantConfigBySkuCode(skuCode: string): Promise<ProductVariantSkuLookup> {
-    const variant = await ProductVariant.findOne({
-        where: { skuCode: { [Op.iLike]: skuCode }, isActive: true },
-        include: [
-            { model: Product, as: "parentProduct" },
-            { model: Presentation, as: "sizePresentation" },
-            {
-                model: ProductVariantUnitMaterial,
-                as: "unitMaterials",
-                where: { isActive: true },
-                required: false,
-                include: [{ model: Packaging, as: "usedUnitMaterial" }]
-            },
-            {
-                model: ProductVariantPalletMaterial,
-                as: "palletMaterials",
-                where: { isActive: true },
-                required: false,
-                include: [{ model: Packaging, as: "usedPalletMaterial" }]
-            }
-        ]
-    })
-    if (!variant) throw new AppError(404, "errors.product_variant_sku_not_found", { skuCode })
-
-    return {
-        skuCode: variant.skuCode,
-        productId: variant.productId,
-        productDisplayName: variant.parentProduct?.displayName ?? "",
-        presentationId: variant.presentationId ?? null,
-        presentationLabel: variant.sizePresentation?.displayLabel ?? null,
-        boxesPerPallet: variant.boxesPerPallet ?? null,
-        bagsPerBox: variant.bagsPerBox ?? null,
-        intermediatePackagingId: variant.intermediatePackagingId ?? null,
-        unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null,
-        unitMaterials: (variant.unitMaterials ?? []).map(material => ({
-            packagingId: material.packagingId,
-            displayName: material.usedUnitMaterial?.displayName ?? "",
-            quantity: Number(material.quantityPerUnit)
-        })),
-        palletMaterials: (variant.palletMaterials ?? []).map(material => ({
-            packagingId: material.packagingId,
-            displayName: material.usedPalletMaterial?.displayName ?? "",
-            quantity: Number(material.quantityValue)
-        }))
-    }
-}
-
 export const productVariantService = {
     listProductVariants,
     getProductVariantById,
     createProductVariant,
     updateProductVariant,
     deleteProductVariant,
-    findVariantConfigBySkuCode,
 }

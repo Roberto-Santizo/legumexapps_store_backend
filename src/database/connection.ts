@@ -12,7 +12,7 @@ import ProductVariant from "../features/product/models/ProductVariant.model"
 import ProductIngredient from "../features/product/models/ProductIngredient.model"
 import ProductVariantPalletMaterial from "../features/product/models/ProductVariantPalletMaterial.model"
 import ProductVariantUnitMaterial from "../features/product/models/ProductVariantUnitMaterial.model"
-import ProductType from "../features/product-type/models/ProductType.model"
+import ProductVariantIntermediateMaterial from "../features/product/models/ProductVariantIntermediateMaterial.model"
 import Unit from "../features/unit/models/Unit.model"
 import Presentation from "../features/presentation/models/Presentation.model"
 import Packaging from "../features/packaging/models/Packaging.model"
@@ -23,7 +23,8 @@ import User from "../features/accessControl/user/models/user.model"
 import Role from "../features/accessControl/roles/models/role.model"
 import Permission from "../features/accessControl/permissions/models/permission.model"
 import RolePermission from "../features/accessControl/rolePermissions/models/rolePermission.model"
-import Customer from "../features/customer/models/Customer.model"
+import Salesperson from "../features/salesperson/models/Salesperson.model"
+import Client from "../features/client/models/Client.model"
 import Quote from "../features/quote/models/Quote.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
@@ -50,7 +51,7 @@ const sequelize = new Sequelize(env.databaseUrl, {
         ProductIngredient,
         ProductVariantPalletMaterial,
         ProductVariantUnitMaterial,
-        ProductType,
+        ProductVariantIntermediateMaterial,
         Unit,
         Presentation,
         Packaging,
@@ -61,7 +62,8 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Role,
         Permission,
         RolePermission,
-        Customer,
+        Salesperson,
+        Client,
         Quote,
         ProcessingCost,
         ProcessingCostTranslation,

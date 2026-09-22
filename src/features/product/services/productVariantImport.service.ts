@@ -7,6 +7,7 @@ import Packaging from "../../packaging/models/Packaging.model"
 import ProductVariant from "../models/ProductVariant.model"
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
+import ProductVariantIntermediateMaterial from "../models/ProductVariantIntermediateMaterial.model"
 import { AppError, BulkImportError, RowIssue } from "../../../shared/errors/AppError"
 import {
     ImportCellValue,
@@ -26,7 +27,6 @@ import {
 
 const productVariantImportRowSchema = z.object({
     productId: z.number().int().positive(),
-    skuCode: z.string().trim().min(1).max(60),
     presentationId: z.number().int().positive(),
     boxesPerPallet: z.number().int().positive(),
     bagsPerBox: z.number().int().positive(),
@@ -37,12 +37,13 @@ type ProductVariantImportRowInput = z.infer<typeof productVariantImportRowSchema
 
 interface ResolvedRow extends ProductVariantImportRowInput {
     rowNumber: number
+    productCodigo: string
+    presentationLabel: string
     packagingRole: string
     packagingDisplayName: string
 }
 
 interface SkuImportCandidate {
-    skuCode: string
     productId: number
     presentationId: number
     boxesPerPallet: number
@@ -138,7 +139,6 @@ function processProductVariantImportRow(
     rowIssues: RowIssue[]
 ): ResolvedRow | null {
     const rawProductCodigo = readImportCell(row, columnIndexByField.get("productCodigo"))
-    const rawSkuCode = readImportCell(row, columnIndexByField.get("skuCode"))
     const rawPresentationLabel = readImportCell(row, columnIndexByField.get("presentationLabel"))
     const rawBoxesPerPallet = readImportCell(row, columnIndexByField.get("boxesPerPallet"))
     const rawBagsPerBox = readImportCell(row, columnIndexByField.get("bagsPerBox"))
@@ -153,7 +153,6 @@ function processProductVariantImportRow(
 
     const candidate = {
         productId,
-        skuCode: rawSkuCode === null ? rawSkuCode : String(rawSkuCode).trim(),
         presentationId,
         boxesPerPallet: rawBoxesPerPallet === null || rawBoxesPerPallet === "" ? undefined : Number(rawBoxesPerPallet),
         bagsPerBox: rawBagsPerBox === null || rawBagsPerBox === "" ? undefined : Number(rawBagsPerBox),
@@ -169,29 +168,59 @@ function processProductVariantImportRow(
         return null
     }
 
+    // productCodigo/presentationLabel crudos (no normalizados) para identificar el grupo de filas
+    // en los mensajes de error de finalizeVariantGroup -- no hay skuCode ya para eso (2026-09-17).
+    // Ambos existen como string en este punto: rowIssues vacío arriba garantiza que
+    // resolveProductField/resolvePresentationField sí resolvieron, y ninguno de los dos devuelve
+    // undefined sin empujar un issue primero.
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rowIssues vacío arriba garantiza que zod sí validó, y packaging se resolvió (mismo campo que packagingId)
-    return { ...validated!, rowNumber, packagingRole: packaging!.packagingRole, packagingDisplayName: packaging!.displayName }
+    return {
+        ...validated!,
+        rowNumber,
+        productCodigo: String(rawProductCodigo).trim(),
+        presentationLabel: String(rawPresentationLabel).trim(),
+        packagingRole: packaging!.packagingRole,
+        packagingDisplayName: packaging!.displayName
+    }
 }
 
 
-function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set<string>, rowIssues: RowIssue[]): SkuImportCandidate | null {
+// Reemplaza a finalizeSkuGroup (2026-09-17) -- sin skuCode, el grupo de filas de un mismo SKU se
+// identifica por (Producto, Presentación) desde el arranque (ver bulkImportProductVariants, que
+// ahora agrupa por esa clave en vez de por skuCode). Por construcción todas las filas de un mismo
+// grupo ya comparten productId/presentationId -- ya no hace falta validar eso como "inconsistencia"
+// (a diferencia de boxesPerPallet/bagsPerBox, que sí pueden variar por error entre filas repetidas).
+function finalizeVariantGroup(
+    rows: ResolvedRow[],
+    existingProductPresentationPairs: Set<string>,
+    claimedProductPresentationPairsInFile: Set<string>,
+    rowIssues: RowIssue[]
+): SkuImportCandidate | null {
     const firstRow = rows[0]
-    const skuCode = firstRow.skuCode
+    const groupParams = { productCodigo: firstRow.productCodigo, presentationLabel: firstRow.presentationLabel }
     let hasIssue = false
 
-    if (existingSkuCodesByNormalized.has(normalizeImportText(skuCode))) {
-        rowIssues.push({ row: firstRow.rowNumber, field: "skuCode", key: "errors.product_variant_skucode_already_exists", params: { skuCode } })
+    // Un SKU por (Producto, Presentación) -- 2026-09-16, mismo criterio que
+    // productVariant.service.ts::assertPresentationNotAlreadyUsed, acá aplicado en dos frentes:
+    // contra la BD (existingProductPresentationPairs) y entre filas del MISMO archivo
+    // (claimedProductPresentationPairsInFile, se va llenando a medida que se procesa cada grupo).
+    const productPresentationKey = `${firstRow.productId}:${firstRow.presentationId}`
+    if (existingProductPresentationPairs.has(productPresentationKey)) {
+        rowIssues.push({ row: firstRow.rowNumber, field: "presentationId", key: "errors.bulk_import_sku_presentation_already_used", params: groupParams })
         hasIssue = true
+    } else if (claimedProductPresentationPairsInFile.has(productPresentationKey)) {
+        rowIssues.push({ row: firstRow.rowNumber, field: "presentationId", key: "errors.bulk_import_sku_presentation_already_used", params: groupParams })
+        hasIssue = true
+    } else {
+        claimedProductPresentationPairsInFile.add(productPresentationKey)
     }
 
     const isInconsistent = rows.some(row =>
-        row.productId !== firstRow.productId ||
-        row.presentationId !== firstRow.presentationId ||
         row.boxesPerPallet !== firstRow.boxesPerPallet ||
         row.bagsPerBox !== firstRow.bagsPerBox
     )
     if (isInconsistent) {
-        rowIssues.push({ row: firstRow.rowNumber, field: "skuCode", key: "errors.bulk_import_sku_inconsistent_fields", params: { skuCode } })
+        rowIssues.push({ row: firstRow.rowNumber, field: "presentationId", key: "errors.bulk_import_sku_inconsistent_fields", params: groupParams })
         hasIssue = true
     }
 
@@ -203,7 +232,7 @@ function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set
                 row: row.rowNumber,
                 field: "materialCode",
                 key: "errors.bulk_import_duplicate_material_in_sku",
-                params: { skuCode, code: row.packagingDisplayName }
+                params: { ...groupParams, code: row.packagingDisplayName }
             })
             hasIssue = true
         }
@@ -212,18 +241,18 @@ function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set
 
     const intermediateRows = rows.filter(row => row.packagingRole === "intermediate")
     if (intermediateRows.length > 1) {
-        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_multiple_intermediate_rows", params: { skuCode } })
+        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_multiple_intermediate_rows", params: groupParams })
         hasIssue = true
     }
 
     const unitRows = rows.filter(row => row.packagingRole === "unit")
     const palletRows = rows.filter(row => row.packagingRole === "pallet")
     if (unitRows.length === 0) {
-        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_sku_missing_unit_materials", params: { skuCode } })
+        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_sku_missing_unit_materials", params: groupParams })
         hasIssue = true
     }
     if (palletRows.length === 0) {
-        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_sku_missing_pallet_materials", params: { skuCode } })
+        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_sku_missing_pallet_materials", params: groupParams })
         hasIssue = true
     }
 
@@ -231,7 +260,6 @@ function finalizeSkuGroup(rows: ResolvedRow[], existingSkuCodesByNormalized: Set
 
     const intermediateRow = intermediateRows[0]
     return {
-        skuCode,
         productId: firstRow.productId,
         presentationId: firstRow.presentationId,
         boxesPerPallet: firstRow.boxesPerPallet,
@@ -266,14 +294,12 @@ async function loadPackagingsByNormalizedCode(): Promise<Map<string, Packaging>>
 }
 
 
-async function loadExistingSkuCodes(): Promise<Set<string>> {
-    const existingVariants = await ProductVariant.findAll({ attributes: ["skuCode"] })
-    return new Set(
-        existingVariants
-            .map(variant => variant.skuCode)
-            .filter((skuCode): skuCode is string => !!skuCode)
-            .map(skuCode => normalizeImportText(skuCode))
-    )
+// Un SKU por (Producto, Presentación) -- ver el comentario en finalizeVariantGroup. Clave
+// "productId:presentationId" -> ya existe una variante para ese par (2026-09-17, sin skuCode ya
+// no hay un código concreto que reportar, solo la existencia del par).
+async function loadExistingProductPresentationPairs(): Promise<Set<string>> {
+    const existingVariants = await ProductVariant.findAll({ attributes: ["productId", "presentationId"] })
+    return new Set(existingVariants.map(variant => `${variant.productId}:${variant.presentationId}`))
 }
 
 function validateProductVariantImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductVariantImportField, number> {
@@ -301,11 +327,16 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
         throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PRODUCT_VARIANT_IMPORT_ROWS })
     }
 
-    const [productsByNormalizedCodigo, presentationsByNormalizedLabel, packagingsByNormalizedCode, existingSkuCodesByNormalized] = await Promise.all([
+    const [
+        productsByNormalizedCodigo,
+        presentationsByNormalizedLabel,
+        packagingsByNormalizedCode,
+        existingProductPresentationPairs,
+    ] = await Promise.all([
         loadProductsByNormalizedCodigo(),
         loadPresentationsByNormalizedLabel(),
         loadPackagingsByNormalizedCode(),
-        loadExistingSkuCodes(),
+        loadExistingProductPresentationPairs(),
     ])
 
     const rowIssues: RowIssue[] = []
@@ -321,17 +352,25 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
         if (resolvedRow) resolvedRows.push(resolvedRow)
     }
 
-    const rowsBySkuCode = new Map<string, ResolvedRow[]>()
+    // Agrupa filas por (Producto, Presentación) -- reemplaza el viejo agrupado por skuCode
+    // (2026-09-17): esta clave YA era la identidad real de un SKU (ver finalizeVariantGroup).
+    const rowsByProductPresentation = new Map<string, ResolvedRow[]>()
     for (const row of resolvedRows) {
-        const key = normalizeImportText(row.skuCode)
-        const bucket = rowsBySkuCode.get(key) ?? []
+        const key = `${row.productId}:${row.presentationId}`
+        const bucket = rowsByProductPresentation.get(key) ?? []
         bucket.push(row)
-        rowsBySkuCode.set(key, bucket)
+        rowsByProductPresentation.set(key, bucket)
     }
 
+    const claimedProductPresentationPairsInFile = new Set<string>()
     const candidates: SkuImportCandidate[] = []
-    for (const rows of rowsBySkuCode.values()) {
-        const candidate = finalizeSkuGroup(rows, existingSkuCodesByNormalized, rowIssues)
+    for (const rows of rowsByProductPresentation.values()) {
+        const candidate = finalizeVariantGroup(
+            rows,
+            existingProductPresentationPairs,
+            claimedProductPresentationPairsInFile,
+            rowIssues
+        )
         if (candidate) candidates.push(candidate)
     }
 
@@ -349,14 +388,22 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
                 {
                     productId: candidate.productId,
                     presentationId: candidate.presentationId,
-                    skuCode: candidate.skuCode,
                     boxesPerPallet: candidate.boxesPerPallet,
                     bagsPerBox: candidate.bagsPerBox,
-                    intermediatePackagingId: candidate.intermediatePackagingId,
                     unitsPerIntermediatePackage: candidate.unitsPerIntermediatePackage,
                 },
                 { transaction }
             )
+
+            // Empaque intermedio (2026-09-21): ahora es una fila de join, no un FK en la variante.
+            // La plantilla no tiene concepto de alternativas, así que se importa como fila fija
+            // (isSwappable=false por default), mismo comportamiento que el viejo FK único.
+            if (candidate.intermediatePackagingId !== null) {
+                await ProductVariantIntermediateMaterial.create(
+                    { productVariantId: variant.id, packagingId: candidate.intermediatePackagingId },
+                    { transaction }
+                )
+            }
 
             await ProductVariantUnitMaterial.bulkCreate(
                 candidate.unitMaterials.map(material => ({
@@ -388,7 +435,6 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     const sheet = workbook.addWorksheet("SKUs")
     sheet.columns = [
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.productCodigo.header, key: "productCodigo", width: 18 },
-        { header: PRODUCT_VARIANT_IMPORT_COLUMNS.skuCode.header, key: "skuCode", width: 16 },
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.presentationLabel.header, key: "presentationLabel", width: 26 },
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.boxesPerPallet.header, key: "boxesPerPallet", width: 16 },
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.bagsPerBox.header, key: "bagsPerBox", width: 16 },
@@ -398,29 +444,30 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     sheet.getRow(1).font = { bold: true }
 
 
-    sheet.addRow({ productCodigo: "JUGO-PINA-WM", skuCode: "PAB1310105", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB010", quantity: 1 })
-    sheet.addRow({ productCodigo: "JUGO-PINA-WM", skuCode: "PAB1310105", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB020", quantity: 1 })
-    sheet.addRow({ productCodigo: "JUGO-PINA-WM", skuCode: "PAB1310105", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB158", quantity: 385 })
+    sheet.addRow({ productCodigo: "JUGO-PINA-WM", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB010", quantity: 1 })
+    sheet.addRow({ productCodigo: "JUGO-PINA-WM", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB020", quantity: 1 })
+    sheet.addRow({ productCodigo: "JUGO-PINA-WM", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB158", quantity: 385 })
 
 
-    sheet.addRow({ productCodigo: "DEMO-PROD", skuCode: "DEMO-001", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-001", quantity: 1 })
-    sheet.addRow({ productCodigo: "DEMO-PROD", skuCode: "DEMO-001", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-002", quantity: 50 })
-    sheet.addRow({ productCodigo: "DEMO-PROD", skuCode: "DEMO-001", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "CAJ-001", quantity: 40 })
+    sheet.addRow({ productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-001", quantity: 1 })
+    sheet.addRow({ productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-002", quantity: 50 })
+    sheet.addRow({ productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "CAJ-001", quantity: 40 })
 
     const helpSheet = workbook.addWorksheet("Instrucciones")
     helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
     helpSheet.getRow(1).font = { bold: true }
     const helpLines = [
-        "Una fila POR CADA material de la receta de empaque de un SKU -- si un SKU tiene 5 materiales, repite sus 6 primeras columnas en 5 filas seguidas, cambiando solo \"Código Material\" y \"Cantidad\".",
+        "Una fila POR CADA material de la receta de empaque de un SKU -- si un SKU tiene 5 materiales, repite sus 5 primeras columnas en 5 filas seguidas, cambiando solo \"Código Material\" y \"Cantidad\".",
+        "Un SKU es, por definición, un Producto en UNA Presentación -- \"Código Producto\" + \"Presentación\" juntos identifican el SKU, ya no hay una columna de código de SKU separada.",
         "\"Código Producto\" debe ser el código EXACTO de un Producto ya creado (ver el módulo de Productos) -- este importador NUNCA crea Productos nuevos.",
         "\"Presentación\" debe ser el nombre EXACTO de una Presentación ya creada (ver el módulo de Presentaciones) -- su peso neto ya quedó definido ahí, no se vuelve a pedir acá.",
         "\"Código Material\" debe ser el código EXACTO de un material ya creado en el catálogo de Empaques -- su ROL (empaque individual/intermedio/paletización) se toma de ahí, no se vuelve a declarar en esta plantilla.",
         "\"Cantidad\" significa algo distinto según el rol del material de esa fila: empaque individual = cuántas unidades de ese material lleva CADA bolsa/unidad de producto (casi siempre 1); empaque intermedio = cuántas unidades pequeñas caben en la bolsa/caja grande; material de paletización = cuántas unidades de ese material lleva CADA palet (para la caja que se apila, normalmente es igual a \"Cajas por palet\").",
         "Cada SKU necesita AL MENOS un material de rol \"empaque individual\" y AL MENOS uno de rol \"material de paletización\". El rol \"empaque intermedio\" es opcional, pero un SKU no puede tener más de una fila de ese rol.",
-        "\"Cajas por palet\" y \"Bolsas por caja\" deben repetirse IGUAL en todas las filas del mismo SKU -- si varían entre filas del mismo Código SKU, el archivo entero se rechaza.",
+        "\"Cajas por palet\" y \"Bolsas por caja\" deben repetirse IGUAL en todas las filas del mismo SKU -- si varían entre filas del mismo Producto+Presentación, el archivo entero se rechaza.",
         "No incluyas ningún SKU sin \"Cajas por palet\" (producto no palletizable) -- esta plantilla es solo para SKUs que sí se paletizan.",
         "El archivo se valida COMPLETO antes de importar nada: si una sola fila tiene un error, no se crea ningún SKU -- corrige el archivo y vuelve a subirlo.",
-        "Un \"Código SKU\" que ya existe en el catálogo se rechaza -- este importador solo CREA SKUs nuevos, no actualiza los que ya existen (usa el formulario de edición para eso).",
+        "Un SKU (Producto + Presentación) que ya existe en el catálogo se rechaza -- este importador solo CREA SKUs nuevos, no actualiza los que ya existen (usa el formulario de edición para eso).",
     ]
     helpLines.forEach(help => helpSheet.addRow({ help }))
 

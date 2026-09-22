@@ -1,7 +1,6 @@
 
 export type ProductVariantImportField =
     | "productCodigo"
-    | "skuCode"
     | "presentationLabel"
     | "boxesPerPallet"
     | "bagsPerBox"
@@ -15,7 +14,6 @@ interface ImportColumnDef {
 
 export const PRODUCT_VARIANT_IMPORT_COLUMNS: Record<ProductVariantImportField, ImportColumnDef> = {
     productCodigo: { header: "Código Producto", aliases: ["codigo producto", "código producto", "producto"] },
-    skuCode: { header: "Código SKU", aliases: ["codigo sku", "código sku", "sku"] },
     presentationLabel: { header: "Presentación", aliases: ["presentacion", "presentación"] },
     boxesPerPallet: { header: "Cajas por palet", aliases: ["cajas por palet", "cajas por pallet"] },
     bagsPerBox: { header: "Bolsas por caja", aliases: ["bolsas por caja"] },
@@ -26,7 +24,6 @@ export const PRODUCT_VARIANT_IMPORT_COLUMNS: Record<ProductVariantImportField, I
 
 export const REQUIRED_PRODUCT_VARIANT_IMPORT_FIELDS: ProductVariantImportField[] = [
     "productCodigo",
-    "skuCode",
     "presentationLabel",
     "boxesPerPallet",
     "bagsPerBox",

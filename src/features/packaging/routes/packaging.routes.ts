@@ -9,7 +9,6 @@ import {
     updatePackagingSchema,
     packagingIdParamSchema,
     packagingQuerySchema,
-    packagingSkuCodeParamSchema,
 } from "../schemas/packaging.schema"
 
 const packagingRouter = Router()
@@ -25,16 +24,6 @@ packagingRouter.get("/", authorize("packagings:view"), validate(packagingQuerySc
 
 packagingRouter.get("/bulk-import/template", authorize("packagings:create"), packagingController.downloadTemplate)
 packagingRouter.post("/bulk-import", authorize("packagings:create"), upload.single("file"), packagingController.bulkImport)
-
-// Declarada ANTES de "/:id" -- mismo criterio defensivo que productVariant.routes.ts::"/lookup/:skuCode"
-// (los dos segmentos de "/by-sku/:skuCode" no chocan con "/:id" de un solo segmento, pero se
-// mantiene el orden por consistencia).
-packagingRouter.get(
-    "/by-sku/:skuCode",
-    authorize("packagings:view"),
-    validate(packagingSkuCodeParamSchema, "params"),
-    packagingController.showBySku
-)
 
 packagingRouter.get("/:id", authorize("packagings:view"), validate(packagingIdParamSchema, "params"), packagingController.show)
 packagingRouter.post("/", authorize("packagings:create"), validate(createPackagingSchema), packagingController.store)

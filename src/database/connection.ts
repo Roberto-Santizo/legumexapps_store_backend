@@ -9,15 +9,15 @@ import SubCategoryTranslation from "../features/category/models/SubCategoryTrans
 import Product from "../features/product/models/Product.model"
 import ProductTranslation from "../features/product/models/ProductTranslation.model"
 import ProductVariant from "../features/product/models/ProductVariant.model"
-import ProductIngredient from "../features/product/models/ProductIngredient.model"
+import ProductRawMaterial from "../features/product/models/ProductRawMaterial.model"
 import ProductVariantPalletMaterial from "../features/product/models/ProductVariantPalletMaterial.model"
 import ProductVariantUnitMaterial from "../features/product/models/ProductVariantUnitMaterial.model"
 import ProductVariantIntermediateMaterial from "../features/product/models/ProductVariantIntermediateMaterial.model"
 import Unit from "../features/unit/models/Unit.model"
 import Presentation from "../features/presentation/models/Presentation.model"
 import Packaging from "../features/packaging/models/Packaging.model"
-import Ingredient from "../features/ingredient/models/Ingredient.model"
-import IngredientTranslation from "../features/ingredient/models/IngredientTranslation.model"
+import RawMaterial from "../features/rawMaterial/models/RawMaterial.model"
+import RawMaterialTranslation from "../features/rawMaterial/models/RawMaterialTranslation.model"
 import Destination from "../features/destination/models/Destination.model"
 import User from "../features/accessControl/user/models/user.model"
 import Role from "../features/accessControl/roles/models/role.model"
@@ -48,15 +48,15 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Product,
         ProductTranslation,
         ProductVariant,
-        ProductIngredient,
+        ProductRawMaterial,
         ProductVariantPalletMaterial,
         ProductVariantUnitMaterial,
         ProductVariantIntermediateMaterial,
         Unit,
         Presentation,
         Packaging,
-        Ingredient,
-        IngredientTranslation,
+        RawMaterial,
+        RawMaterialTranslation,
         Destination,
         User,
         Role,

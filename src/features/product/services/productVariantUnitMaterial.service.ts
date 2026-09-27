@@ -1,7 +1,8 @@
-import { Op, WhereOptions } from "sequelize"
+import { Op } from "sequelize"
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { packagingService } from "../../packaging/services/packaging.service"
+import { isSameOptionGroup, resolveOptionGroupSpelling } from "../../../shared/utils/optionGroup.util"
 import {
     CreateProductVariantUnitMaterialInput,
     UpdateProductVariantUnitMaterialInput
@@ -17,29 +18,47 @@ async function getProductVariantUnitMaterialById(id: number): Promise<ProductVar
     return productVariantUnitMaterial
 }
 
-// Default + opcional (2026-09-21, ver CLAUDE.md #4): entre las filas isSwappable=true de una
-// misma variante, exactamente una debe ser isDefault. Si es la primera fila swappable de la
-// variante, se fuerza isDefault=true sin importar lo pedido (misma conveniencia UX que el
-// auto-fill de 100% en receta fija, ver productIngredientSection.component.tsx); si se pide
-// isDefault=true en una fila que NO es la primera, se desmarca automáticamente cualquier otra
-// fila swappable que ya fuera default (auto-democión, más amigable que rechazar). Una fila
-// isSwappable=false nunca puede quedar con isDefault=true.
+// Grupos de opciones (2026-09-24, ver CLAUDE.md #4 -- reemplaza el "un solo slot swappable por
+// nivel" de 2026-09-21): una fila con optionGroup=null es receta fija (siempre se costea); las filas
+// con el mismo optionGroup (comparado sin mayúsculas/espacios, ver shared/utils/optionGroup.util.ts)
+// son alternativas entre sí, y grupos distintos del mismo SKU coexisten. Todas las reglas de default
+// son POR GRUPO: la primera fila de un grupo se fuerza isDefault=true; pedir isDefault=true en otra
+// desmarca solo a las hermanas de ESE grupo (auto-democión); una fila fija nunca queda isDefault.
+// Al guardar, el nombre se normaliza y adopta la grafía de un grupo ya existente en el SKU ("caja"
+// se une a "Caja"). Se leen las filas agrupadas del SKU y se filtra en memoria (pocas filas por
+// variante) para que la comparación insensible a mayúsculas sea la misma que usa el motor.
+async function findActiveGroupedRows(productVariantId: number, excludeId: number | null): Promise<ProductVariantUnitMaterial[]> {
+    const rows = await ProductVariantUnitMaterial.findAll({
+        where: { productVariantId, optionGroup: { [Op.ne]: null }, isActive: true }
+    })
+    return rows.filter(row => row.id !== excludeId)
+}
+
+async function resolveOptionGroupOnWrite(
+    productVariantId: number,
+    requestedGroup: string | null,
+    excludeId: number | null
+): Promise<string | null> {
+    if (requestedGroup === null) return null
+    const groupedRows = await findActiveGroupedRows(productVariantId, excludeId)
+    return resolveOptionGroupSpelling(requestedGroup, groupedRows.map(row => row.optionGroup))
+}
+
 async function resolveIsDefaultOnWrite(
     productVariantId: number,
-    isSwappable: boolean,
+    optionGroup: string | null,
     requestedIsDefault: boolean,
     excludeId: number | null
 ): Promise<boolean> {
-    if (!isSwappable) return false
+    if (optionGroup === null) return false
 
-    const where: WhereOptions = { productVariantId, isSwappable: true, isActive: true }
-    if (excludeId !== null) where.id = { [Op.ne]: excludeId }
-    const swappableSiblings = await ProductVariantUnitMaterial.findAll({ where })
+    const groupSiblings = (await findActiveGroupedRows(productVariantId, excludeId))
+        .filter(row => isSameOptionGroup(row.optionGroup, optionGroup))
 
-    if (swappableSiblings.length === 0) return true
+    if (groupSiblings.length === 0) return true
 
     if (requestedIsDefault) {
-        const currentDefaults = swappableSiblings.filter(sibling => sibling.isDefault)
+        const currentDefaults = groupSiblings.filter(sibling => sibling.isDefault)
         if (currentDefaults.length > 0) {
             await ProductVariantUnitMaterial.update(
                 { isDefault: false },
@@ -50,43 +69,45 @@ async function resolveIsDefaultOnWrite(
     return requestedIsDefault
 }
 
-async function countOtherSwappableSiblings(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<number> {
-    return ProductVariantUnitMaterial.count({
-        where: {
-            productVariantId: productVariantUnitMaterial.productVariantId,
-            isSwappable: true,
-            isActive: true,
-            id: { [Op.ne]: productVariantUnitMaterial.id }
-        }
-    })
+async function countOtherGroupSiblings(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<number> {
+    const groupedRows = await findActiveGroupedRows(productVariantUnitMaterial.productVariantId, productVariantUnitMaterial.id)
+    return groupedRows.filter(row => isSameOptionGroup(row.optionGroup, productVariantUnitMaterial.optionGroup)).length
 }
 
-// Bloquea (no auto-promueve) eliminar/desactivar el default vigente mientras queden otras
-// alternativas swappable activas -- decisión de negocio 2026-09-21: el admin debe elegir otro
-// default primero, nunca se cambia en silencio qué material se está costeando.
+// Bloquea (no auto-promueve) eliminar/desactivar el default de un grupo mientras ese grupo tenga
+// otras alternativas activas -- decisión de negocio 2026-09-21: el admin debe elegir otro default
+// primero, nunca se cambia en silencio qué material se está costeando. La última fila de un grupo
+// sí se puede eliminar (el grupo simplemente desaparece).
 async function assertDeletionNotBlockedByDefault(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<void> {
-    if (!productVariantUnitMaterial.isSwappable || !productVariantUnitMaterial.isDefault) return
+    if (productVariantUnitMaterial.optionGroup === null || !productVariantUnitMaterial.isDefault) return
 
-    if ((await countOtherSwappableSiblings(productVariantUnitMaterial)) > 0) {
-        throw new AppError(409, "errors.unit_material_default_deletion_blocked")
+    if ((await countOtherGroupSiblings(productVariantUnitMaterial)) > 0) {
+        throw new AppError(409, "errors.unit_material_default_deletion_blocked", { group: productVariantUnitMaterial.optionGroup })
     }
 }
 
-// Mismo criterio que assertDeletionNotBlockedByDefault, para la vía de UPDATE: quitar isDefault
-// (o isSwappable) de la fila que hoy es el default dejaría al nivel con alternativas swappable y
-// CERO defaults -- estado inválido que antes solo se detectaba al cotizar. Si la fila es la única
-// swappable no hay nada que bloquear (resolveIsDefaultOnWrite la fuerza a default, o el nivel
-// simplemente deja de tener menú).
+// Mismo criterio que assertDeletionNotBlockedByDefault, para la vía de UPDATE: quitar isDefault,
+// volver la fila fija, moverla a otro grupo o a otra variante dejaría a su grupo VIEJO con
+// alternativas y CERO defaults -- estado inválido que antes solo se detectaba al cotizar. Si la
+// fila es la única de su grupo no hay nada que bloquear. Moverla a otro grupo como default sí está
+// permitido si el viejo queda vacío; resolveIsDefaultOnWrite desmarca el default del destino.
 async function assertUpdateKeepsADefault(
     productVariantUnitMaterial: ProductVariantUnitMaterial,
-    willBeSwappable: boolean,
+    willBeProductVariantId: number,
+    willBeGroup: string | null,
     willBeDefault: boolean
 ): Promise<void> {
-    const isCurrentDefault = productVariantUnitMaterial.isSwappable && productVariantUnitMaterial.isDefault
-    if (!isCurrentDefault || (willBeSwappable && willBeDefault)) return
+    const isCurrentDefault = productVariantUnitMaterial.optionGroup !== null && productVariantUnitMaterial.isDefault
+    if (!isCurrentDefault) return
 
-    if ((await countOtherSwappableSiblings(productVariantUnitMaterial)) > 0) {
-        throw new AppError(409, "errors.material_default_required")
+    const staysDefaultOfSameGroup =
+        willBeDefault &&
+        willBeProductVariantId === productVariantUnitMaterial.productVariantId &&
+        isSameOptionGroup(willBeGroup, productVariantUnitMaterial.optionGroup)
+    if (staysDefaultOfSameGroup) return
+
+    if ((await countOtherGroupSiblings(productVariantUnitMaterial)) > 0) {
+        throw new AppError(409, "errors.material_default_required", { group: productVariantUnitMaterial.optionGroup })
     }
 }
 
@@ -94,8 +115,9 @@ async function createProductVariantUnitMaterial(
     input: CreateProductVariantUnitMaterialInput
 ): Promise<ProductVariantUnitMaterial> {
     await packagingService.assertPackagingHasRole(input.packagingId, "unit")
-    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, input.isSwappable, input.isDefault, null)
-    return ProductVariantUnitMaterial.create({ ...input, isDefault })
+    const optionGroup = await resolveOptionGroupOnWrite(input.productVariantId, input.optionGroup, null)
+    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, optionGroup, input.isDefault, null)
+    return ProductVariantUnitMaterial.create({ ...input, optionGroup, isDefault })
 }
 
 async function updateProductVariantUnitMaterial(
@@ -105,16 +127,17 @@ async function updateProductVariantUnitMaterial(
     const productVariantUnitMaterial = await getProductVariantUnitMaterialById(id)
     if (input.packagingId) await packagingService.assertPackagingHasRole(input.packagingId, "unit")
 
-    const effectiveIsSwappable = input.isSwappable ?? productVariantUnitMaterial.isSwappable
+    const effectiveProductVariantId = input.productVariantId ?? productVariantUnitMaterial.productVariantId
     const effectiveRequestedIsDefault = input.isDefault ?? productVariantUnitMaterial.isDefault
-    await assertUpdateKeepsADefault(productVariantUnitMaterial, effectiveIsSwappable, effectiveRequestedIsDefault)
+    const optionGroup = await resolveOptionGroupOnWrite(effectiveProductVariantId, input.optionGroup, productVariantUnitMaterial.id)
+    await assertUpdateKeepsADefault(productVariantUnitMaterial, effectiveProductVariantId, optionGroup, effectiveRequestedIsDefault)
     const isDefault = await resolveIsDefaultOnWrite(
-        productVariantUnitMaterial.productVariantId,
-        effectiveIsSwappable,
+        effectiveProductVariantId,
+        optionGroup,
         effectiveRequestedIsDefault,
         productVariantUnitMaterial.id
     )
-    return productVariantUnitMaterial.update({ ...input, isDefault })
+    return productVariantUnitMaterial.update({ ...input, optionGroup, isDefault })
 }
 
 async function deleteProductVariantUnitMaterial(id: number): Promise<void> {

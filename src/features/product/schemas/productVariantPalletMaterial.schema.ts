@@ -4,9 +4,9 @@ export const createProductVariantPalletMaterialSchema = z.object({
     productVariantId: z.number().int().positive(),
     packagingId: z.number().int().positive(),
     quantityValue: z.number().positive(),
-    // Default + opcional (2026-09-21) -- mismo criterio que
+    // Grupos de opciones (2026-09-24) -- mismo criterio que
     // productVariantUnitMaterial.schema.ts, ver el comentario ahí.
-    isSwappable: z.boolean().default(false),
+    optionGroup: z.string().trim().min(1).max(60).nullable().default(null),
     isDefault: z.boolean().default(false),
 })
 
@@ -17,7 +17,7 @@ export const productVariantPalletMaterialIdParamSchema = z.object({
 
 export const updateProductVariantPalletMaterialSchema = createProductVariantPalletMaterialSchema.partial().extend({
     quantityValue: createProductVariantPalletMaterialSchema.shape.quantityValue,
-    isSwappable: createProductVariantPalletMaterialSchema.shape.isSwappable,
+    optionGroup: createProductVariantPalletMaterialSchema.shape.optionGroup,
     isDefault: createProductVariantPalletMaterialSchema.shape.isDefault,
 })
 

@@ -1,7 +1,8 @@
-import { Op, WhereOptions } from "sequelize"
+import { Op } from "sequelize"
 import ProductVariantIntermediateMaterial from "../models/ProductVariantIntermediateMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { packagingService } from "../../packaging/services/packaging.service"
+import { isSameOptionGroup, resolveOptionGroupSpelling } from "../../../shared/utils/optionGroup.util"
 import {
     CreateProductVariantIntermediateMaterialInput,
     UpdateProductVariantIntermediateMaterialInput
@@ -17,24 +18,40 @@ async function getProductVariantIntermediateMaterialById(id: number): Promise<Pr
     return productVariantIntermediateMaterial
 }
 
-// Default + opcional (2026-09-21) -- mismo criterio que
-// productVariantUnitMaterial.service.ts::resolveIsDefaultOnWrite, ver el comentario ahí.
+// Grupos de opciones (2026-09-24) -- mismo criterio que productVariantUnitMaterial.service.ts, ver
+// el comentario ahí (defaults, auto-democión y normalización del nombre, todo POR GRUPO).
+async function findActiveGroupedRows(productVariantId: number, excludeId: number | null): Promise<ProductVariantIntermediateMaterial[]> {
+    const rows = await ProductVariantIntermediateMaterial.findAll({
+        where: { productVariantId, optionGroup: { [Op.ne]: null }, isActive: true }
+    })
+    return rows.filter(row => row.id !== excludeId)
+}
+
+async function resolveOptionGroupOnWrite(
+    productVariantId: number,
+    requestedGroup: string | null,
+    excludeId: number | null
+): Promise<string | null> {
+    if (requestedGroup === null) return null
+    const groupedRows = await findActiveGroupedRows(productVariantId, excludeId)
+    return resolveOptionGroupSpelling(requestedGroup, groupedRows.map(row => row.optionGroup))
+}
+
 async function resolveIsDefaultOnWrite(
     productVariantId: number,
-    isSwappable: boolean,
+    optionGroup: string | null,
     requestedIsDefault: boolean,
     excludeId: number | null
 ): Promise<boolean> {
-    if (!isSwappable) return false
+    if (optionGroup === null) return false
 
-    const where: WhereOptions = { productVariantId, isSwappable: true, isActive: true }
-    if (excludeId !== null) where.id = { [Op.ne]: excludeId }
-    const swappableSiblings = await ProductVariantIntermediateMaterial.findAll({ where })
+    const groupSiblings = (await findActiveGroupedRows(productVariantId, excludeId))
+        .filter(row => isSameOptionGroup(row.optionGroup, optionGroup))
 
-    if (swappableSiblings.length === 0) return true
+    if (groupSiblings.length === 0) return true
 
     if (requestedIsDefault) {
-        const currentDefaults = swappableSiblings.filter(sibling => sibling.isDefault)
+        const currentDefaults = groupSiblings.filter(sibling => sibling.isDefault)
         if (currentDefaults.length > 0) {
             await ProductVariantIntermediateMaterial.update(
                 { isDefault: false },
@@ -45,57 +62,40 @@ async function resolveIsDefaultOnWrite(
     return requestedIsDefault
 }
 
-async function countOtherSwappableSiblings(productVariantIntermediateMaterial: ProductVariantIntermediateMaterial): Promise<number> {
-    return ProductVariantIntermediateMaterial.count({
-        where: {
-            productVariantId: productVariantIntermediateMaterial.productVariantId,
-            isSwappable: true,
-            isActive: true,
-            id: { [Op.ne]: productVariantIntermediateMaterial.id }
-        }
-    })
+async function countOtherGroupSiblings(productVariantIntermediateMaterial: ProductVariantIntermediateMaterial): Promise<number> {
+    const groupedRows = await findActiveGroupedRows(productVariantIntermediateMaterial.productVariantId, productVariantIntermediateMaterial.id)
+    return groupedRows.filter(row => isSameOptionGroup(row.optionGroup, productVariantIntermediateMaterial.optionGroup)).length
 }
 
-// Bloquea (no auto-promueve) eliminar/desactivar el default vigente -- mismo criterio que
+// Bloquea (no auto-promueve) eliminar/desactivar el default de un grupo -- mismo criterio que
 // productVariantUnitMaterial.service.ts::assertDeletionNotBlockedByDefault.
 async function assertDeletionNotBlockedByDefault(productVariantIntermediateMaterial: ProductVariantIntermediateMaterial): Promise<void> {
-    if (!productVariantIntermediateMaterial.isSwappable || !productVariantIntermediateMaterial.isDefault) return
+    if (productVariantIntermediateMaterial.optionGroup === null || !productVariantIntermediateMaterial.isDefault) return
 
-    if ((await countOtherSwappableSiblings(productVariantIntermediateMaterial)) > 0) {
-        throw new AppError(409, "errors.intermediate_material_default_deletion_blocked")
+    if ((await countOtherGroupSiblings(productVariantIntermediateMaterial)) > 0) {
+        throw new AppError(409, "errors.intermediate_material_default_deletion_blocked", { group: productVariantIntermediateMaterial.optionGroup })
     }
 }
 
-// Vía UPDATE del mismo bloqueo -- ver productVariantUnitMaterial.service.ts::assertUpdateKeepsADefault.
+// Vía UPDATE del mismo bloqueo (incluye mover el default a otro grupo) -- ver
+// productVariantUnitMaterial.service.ts::assertUpdateKeepsADefault.
 async function assertUpdateKeepsADefault(
     productVariantIntermediateMaterial: ProductVariantIntermediateMaterial,
-    willBeSwappable: boolean,
+    willBeProductVariantId: number,
+    willBeGroup: string | null,
     willBeDefault: boolean
 ): Promise<void> {
-    const isCurrentDefault = productVariantIntermediateMaterial.isSwappable && productVariantIntermediateMaterial.isDefault
-    if (!isCurrentDefault || (willBeSwappable && willBeDefault)) return
+    const isCurrentDefault = productVariantIntermediateMaterial.optionGroup !== null && productVariantIntermediateMaterial.isDefault
+    if (!isCurrentDefault) return
 
-    if ((await countOtherSwappableSiblings(productVariantIntermediateMaterial)) > 0) {
-        throw new AppError(409, "errors.material_default_required")
-    }
-}
+    const staysDefaultOfSameGroup =
+        willBeDefault &&
+        willBeProductVariantId === productVariantIntermediateMaterial.productVariantId &&
+        isSameOptionGroup(willBeGroup, productVariantIntermediateMaterial.optionGroup)
+    if (staysDefaultOfSameGroup) return
 
-// A diferencia de unit/pallet (receta: N filas fijas que TODAS se costean), el empaque intermedio
-// es estructuralmente 0-o-1 -- "la bolsa grande". Dos filas fijas (isSwappable=false) en una misma
-// variante serían un dato mal armado que el motor resolvería en silencio tomando solo la primera
-// (subcosteo silencioso, misma clase de falla que el viejo baseFactor "costos en millones"), así
-// que se rechaza al guardar. Varias filas swappable SÍ están bien (es el menú de alternativas).
-async function assertAtMostOneFixedRow(
-    productVariantId: number,
-    isSwappable: boolean,
-    excludeId: number | null
-): Promise<void> {
-    if (isSwappable) return
-
-    const where: WhereOptions = { productVariantId, isSwappable: false, isActive: true }
-    if (excludeId !== null) where.id = { [Op.ne]: excludeId }
-    if ((await ProductVariantIntermediateMaterial.count({ where })) > 0) {
-        throw new AppError(409, "errors.multiple_fixed_intermediate_materials")
+    if ((await countOtherGroupSiblings(productVariantIntermediateMaterial)) > 0) {
+        throw new AppError(409, "errors.material_default_required", { group: productVariantIntermediateMaterial.optionGroup })
     }
 }
 
@@ -103,9 +103,9 @@ async function createProductVariantIntermediateMaterial(
     input: CreateProductVariantIntermediateMaterialInput
 ): Promise<ProductVariantIntermediateMaterial> {
     await packagingService.assertPackagingHasRole(input.packagingId, "intermediate")
-    await assertAtMostOneFixedRow(input.productVariantId, input.isSwappable, null)
-    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, input.isSwappable, input.isDefault, null)
-    return ProductVariantIntermediateMaterial.create({ ...input, isDefault })
+    const optionGroup = await resolveOptionGroupOnWrite(input.productVariantId, input.optionGroup, null)
+    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, optionGroup, input.isDefault, null)
+    return ProductVariantIntermediateMaterial.create({ ...input, optionGroup, isDefault })
 }
 
 async function updateProductVariantIntermediateMaterial(
@@ -115,21 +115,17 @@ async function updateProductVariantIntermediateMaterial(
     const productVariantIntermediateMaterial = await getProductVariantIntermediateMaterialById(id)
     if (input.packagingId) await packagingService.assertPackagingHasRole(input.packagingId, "intermediate")
 
-    const effectiveIsSwappable = input.isSwappable ?? productVariantIntermediateMaterial.isSwappable
+    const effectiveProductVariantId = input.productVariantId ?? productVariantIntermediateMaterial.productVariantId
     const effectiveRequestedIsDefault = input.isDefault ?? productVariantIntermediateMaterial.isDefault
-    await assertUpdateKeepsADefault(productVariantIntermediateMaterial, effectiveIsSwappable, effectiveRequestedIsDefault)
-    await assertAtMostOneFixedRow(
-        input.productVariantId ?? productVariantIntermediateMaterial.productVariantId,
-        effectiveIsSwappable,
-        productVariantIntermediateMaterial.id
-    )
+    const optionGroup = await resolveOptionGroupOnWrite(effectiveProductVariantId, input.optionGroup, productVariantIntermediateMaterial.id)
+    await assertUpdateKeepsADefault(productVariantIntermediateMaterial, effectiveProductVariantId, optionGroup, effectiveRequestedIsDefault)
     const isDefault = await resolveIsDefaultOnWrite(
-        productVariantIntermediateMaterial.productVariantId,
-        effectiveIsSwappable,
+        effectiveProductVariantId,
+        optionGroup,
         effectiveRequestedIsDefault,
         productVariantIntermediateMaterial.id
     )
-    return productVariantIntermediateMaterial.update({ ...input, isDefault })
+    return productVariantIntermediateMaterial.update({ ...input, optionGroup, isDefault })
 }
 
 async function deleteProductVariantIntermediateMaterial(id: number): Promise<void> {

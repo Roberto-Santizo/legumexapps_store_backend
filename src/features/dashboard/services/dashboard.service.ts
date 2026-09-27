@@ -10,7 +10,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 const MAX_DAILY_BUCKETS = 62
 const TOP_LIST_LIMIT = 8
 interface RawMaterialSnapshotLine {
-    ingredientId: number
+    rawMaterialId: number
     displayName: string
     lineTotal: number
 }
@@ -52,8 +52,8 @@ interface DashboardTopSalesperson {
     totalRevenue: number
 }
 
-interface DashboardTopIngredient {
-    ingredientId: number
+interface DashboardTopRawMaterial {
+    rawMaterialId: number
     displayName: string
     quoteCount: number
     totalCost: number
@@ -67,7 +67,7 @@ interface DashboardSummary {
     topProducts: DashboardTopProduct[]
     topProductsByRevenue: DashboardTopProduct[]
     topSalespeople: DashboardTopSalesperson[]
-    topIngredients: DashboardTopIngredient[]
+    topRawMaterials: DashboardTopRawMaterial[]
 }
 
 function endOfDay(date: Date): Date {
@@ -206,16 +206,16 @@ function buildTopSalespeople(quotes: Quote[]): DashboardTopSalesperson[] {
 }
 
 
-type IngredientAccumulator = Omit<DashboardTopIngredient, "totalCost"> & { totalCost: Decimal }
+type RawMaterialAccumulator = Omit<DashboardTopRawMaterial, "totalCost"> & { totalCost: Decimal }
 
-function buildTopIngredients(quotes: Quote[]): DashboardTopIngredient[] {
-    const byIngredient = new Map<number, IngredientAccumulator>()
+function buildTopRawMaterials(quotes: Quote[]): DashboardTopRawMaterial[] {
+    const byRawMaterial = new Map<number, RawMaterialAccumulator>()
 
     for (const quote of quotes) {
         const breakdown = quote.breakdown as unknown as QuoteBreakdownSnapshot
         for (const line of breakdown?.rawMaterials ?? []) {
-            const entry = byIngredient.get(line.ingredientId) ?? {
-                ingredientId: line.ingredientId,
+            const entry = byRawMaterial.get(line.rawMaterialId) ?? {
+                rawMaterialId: line.rawMaterialId,
                 displayName: line.displayName,
                 quoteCount: 0,
                 totalCost: new Decimal(0),
@@ -223,11 +223,11 @@ function buildTopIngredients(quotes: Quote[]): DashboardTopIngredient[] {
             entry.displayName = line.displayName
             entry.quoteCount += 1
             entry.totalCost = entry.totalCost.plus(line.lineTotal)
-            byIngredient.set(line.ingredientId, entry)
+            byRawMaterial.set(line.rawMaterialId, entry)
         }
     }
 
-    return Array.from(byIngredient.values())
+    return Array.from(byRawMaterial.values())
         .map(entry => ({ ...entry, totalCost: roundMoney(entry.totalCost) }))
         .sort((a, b) => b.totalCost - a.totalCost)
         .slice(0, TOP_LIST_LIMIT)
@@ -262,7 +262,7 @@ async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSu
         topProducts: buildTopProducts(quotes),
         topProductsByRevenue: buildTopProductsByRevenue(quotes),
         topSalespeople: buildTopSalespeople(quotes),
-        topIngredients: buildTopIngredients(quotes),
+        topRawMaterials: buildTopRawMaterials(quotes),
     }
 }
 

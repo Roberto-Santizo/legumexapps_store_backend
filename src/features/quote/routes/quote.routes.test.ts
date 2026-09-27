@@ -114,6 +114,43 @@ describe("quoteRouter (HTTP)", () => {
             expect(quoteService.saveQuote).toHaveBeenCalledWith(42, validQuoteBody, "es")
         })
 
+        it("201 y reenvía al service las selecciones de materiales por nivel (arrays, un id por grupo -- 2026-09-24)", async () => {
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 6, totalCost: 300 })
+            const body = {
+                productVariantId: 10,
+                requestedPallets: 2,
+                selectedUnitMaterialIds: [502],
+                selectedIntermediateMaterialIds: [],
+                selectedPalletMaterialIds: [601, 604],
+            }
+
+            const res = await request(app).post("/api/quotes").set("Authorization", `Bearer ${salespersonToken}`).send(body)
+
+            expect(res.status).toBe(201)
+            expect(quoteService.saveQuote).toHaveBeenCalledWith(42, body, "es")
+        })
+
+        it("400 si una selección de materiales no es un array de ids (contrato por nivel, no un id suelto)", async () => {
+            const res = await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...validQuoteBody, selectedPalletMaterialIds: 601 })
+
+            expect(res.status).toBe(400)
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("los campos viejos de id único (selectedXMaterialId) ya no existen en el contrato -- se descartan, nunca llegan al service", async () => {
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 7, totalCost: 1 })
+
+            await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...validQuoteBody, selectedPalletMaterialId: 601 })
+
+            expect(quoteService.saveQuote).toHaveBeenCalledWith(42, validQuoteBody, "es")
+        })
+
         it("traduce un AppError del service al statusCode y mensaje en español correctos", async () => {
             (quoteService.saveQuote as jest.Mock).mockRejectedValue(new AppError(422, "errors.pallet_not_configured"))
 
@@ -164,6 +201,17 @@ describe("quoteRouter (HTTP)", () => {
                 .send({ productVariantId: 10, requestedPallets: 1 })
 
             expect(res.status).toBe(200)
+        })
+
+        it("acepta las selecciones de materiales por nivel (arrays) y se las pasa tal cual a calculateQuote", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 150 })
+            const body = { productVariantId: 10, requestedPallets: 1, selectedUnitMaterialIds: [501, 504], selectedPalletMaterialIds: [604] }
+
+            const res = await request(app).post("/api/quotes/preview").set("Authorization", `Bearer ${salespersonToken}`).send(body)
+
+            expect(res.status).toBe(200)
+            expect(quoteService.calculateQuote).toHaveBeenCalledWith(body, "es")
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
         })
 
         it("rechaza sin token de cliente, igual que el resto de rutas de quoteRouter", async () => {

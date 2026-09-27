@@ -1,10 +1,10 @@
 import ExcelJS from "exceljs"
 
-// Plumbing compartido por TODAS las cargas masivas de Excel del admin (Empaques, Ingredientes,
+// Plumbing compartido por TODAS las cargas masivas de Excel del admin (Empaques, Materias Primas,
 // y cualquier catálogo futuro que lo necesite) -- mismo diseño en los 3: encabezados tolerantes
 // a variaciones de tipeo, inserción atómica, filas vacías ignoradas. Lo que SÍ cambia por catálogo
 // (columnas, validaciones, mapeos de texto libre a keys internas) vive en la carpeta de cada
-// feature (ver packagingImport.constant.ts / ingredientImport.constant.ts).
+// feature (ver packagingImport.constant.ts / rawMaterialImport.constant.ts).
 
 // Rango Unicode de "combining diacritical marks" (U+0300-U+036F) construido con
 // String.fromCodePoint en vez de un literal embebido en el regex -- evita cualquier ambigüedad
@@ -14,7 +14,7 @@ const COMBINING_DIACRITICS_REGEX = new RegExp(`[${String.fromCodePoint(0x0300)}-
 // Lo que puede quedar de una celda de Excel ya leída (ver readImportCell) -- null significa
 // "columna no mapeada o celda vacía", nunca "el archivo trae la palabra null". Único alias
 // para este tipo: lo usan tanto este módulo como los helpers de resolución de campo de cada
-// service de import (Empaques, Ingredientes) que reciben el valor crudo de una celda.
+// service de import (Empaques, Materias Primas) que reciben el valor crudo de una celda.
 export type ImportCellValue = string | number | null
 
 // trim + minúsculas + sin acentos -- tolera variaciones razonables de tipeo tanto en

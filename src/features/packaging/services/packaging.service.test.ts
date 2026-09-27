@@ -6,7 +6,7 @@ import { Op } from "sequelize"
 // usan findOne/create -- el resto de la lógica (leer el .xlsx, mapear encabezados, validar cada
 // fila contra createPackagingSchema) corre real, con archivos .xlsx armados de verdad en cada test
 // (no hay atajo honesto para probar un parser de Excel sin un Excel real). Mismo patrón de mock
-// manual que ingredient.service.test.ts.
+// manual que rawMaterial.service.test.ts.
 jest.mock("../models/Packaging.model", () => ({
     __esModule: true,
     default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }

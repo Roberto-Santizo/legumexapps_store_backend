@@ -36,17 +36,17 @@ class ProductVariantUnitMaterial extends BaseCatalogModel {
     })
     declare quantityPerUnit: number
 
-    // Default + opcional (2026-09-21, ver CLAUDE.md #4): isSwappable=false (default) es el
-    // comportamiento de siempre, fila de receta incondicional -- siempre se costea. isSwappable=true
-    // marca la fila como parte del menú de alternativas que el cliente puede elegir en el
-    // cotizador para este nivel; entre las filas isSwappable=true de una misma variante, exactamente
-    // una debe ser isDefault (ver productVariantUnitMaterial.service.ts).
+    // Grupos de opciones (2026-09-24, ver CLAUDE.md #4 -- reemplaza el viejo isSwappable): null
+    // (default) es una fila de receta incondicional, siempre se costea. Un nombre de grupo (texto
+    // libre del admin, ej. "Bolsa", "Etiqueta") marca la fila como alternativa dentro de ESE grupo:
+    // el cliente elige una por grupo, y los grupos distintos de un mismo nivel se suman. Dentro de
+    // cada grupo exactamente una fila es isDefault (ver productVariantUnitMaterial.service.ts); la
+    // comparación de nombres es insensible a mayúsculas/espacios (shared/utils/optionGroup.util.ts).
     @Column({
-        type: DataType.BOOLEAN,
-        allowNull: false,
-        defaultValue: false
+        type: DataType.STRING(60),
+        allowNull: true
     })
-    declare isSwappable: boolean
+    declare optionGroup: string | null
 
     @Column({
         type: DataType.BOOLEAN,

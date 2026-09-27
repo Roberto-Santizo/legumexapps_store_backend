@@ -6,9 +6,11 @@ import Packaging from "../../packaging/models/Packaging.model";
 // Empaque intermedio (2026-09-21) -- reemplaza ProductVariant.intermediatePackagingId (FK único,
 // ver CLAUDE.md #4 "SKU = Product + Presentation" y la entrada de cambio de esta fecha). Mismo
 // join N-filas que ProductVariantUnitMaterial/ProductVariantPalletMaterial, con default + opcional
-// (isSwappable/isDefault, ver el comentario en ProductVariantUnitMaterial.model.ts) -- pero sin
+// (optionGroup/isDefault, ver el comentario en ProductVariantUnitMaterial.model.ts) -- pero sin
 // cantidad propia: el motor sigue leyendo ProductVariant.unitsPerIntermediatePackage (compartido
 // entre cualquier alternativa elegida, no varía por material -- decisión de negocio 2026-09-21).
+// Desde 2026-09-24 ya no es "0-o-1": es un nivel normal como unit/pallet (N filas fijas + N grupos
+// de opciones, todas las filas resueltas se costean).
 @Table({
     tableName: "productVariantIntermediateMaterials",
     indexes: [
@@ -35,11 +37,10 @@ class ProductVariantIntermediateMaterial extends BaseCatalogModel {
     declare packagingId: number
 
     @Column({
-        type: DataType.BOOLEAN,
-        allowNull: false,
-        defaultValue: false
+        type: DataType.STRING(60),
+        allowNull: true
     })
-    declare isSwappable: boolean
+    declare optionGroup: string | null
 
     @Column({
         type: DataType.BOOLEAN,

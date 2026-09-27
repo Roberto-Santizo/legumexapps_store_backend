@@ -1,7 +1,7 @@
 import z from "zod"
 
-const ingredientMixLineSchema = z.object({
-    ingredientId: z.number().int().positive(),
+const rawMaterialMixLineSchema = z.object({
+    rawMaterialId: z.number().int().positive(),
     percentage: z.number().min(0).max(100).multipleOf(0.01),
 })
 
@@ -14,18 +14,19 @@ export const calculateQuoteSchema = z.object({
     // interno) sigue pudiendo mandarlo -- mismo schema para ambas rutas.
     destinationId: z.number().int().positive().optional(),
     requestedPallets: z.number().int().min(1),
-    ingredientMix: z.array(ingredientMixLineSchema).optional(),
-    // Default + opcional (2026-09-21, ver CLAUDE.md #4): el ID de la FILA del join
-    // (ProductVariantUnitMaterial/IntermediateMaterial/PalletMaterial), no el packagingId --
-    // quoteService valida que pertenezca a este SKU y sea isSwappable=true antes de costearlo
-    // (mismo principio que ingredientMix: el backend nunca confía en la elección del cliente sin
-    // validarla contra las opciones reales del SKU). Si se omite, se usa el default de ese nivel.
-    selectedUnitMaterialId: z.number().int().positive().optional(),
-    selectedIntermediateMaterialId: z.number().int().positive().optional(),
-    selectedPalletMaterialId: z.number().int().positive().optional(),
+    rawMaterialMix: z.array(rawMaterialMixLineSchema).optional(),
+    // Grupos de opciones (2026-09-24, ver CLAUDE.md #4 -- reemplaza los tres ids únicos
+    // selectedXMaterialId): un array POR NIVEL (los ids de fila solo son únicos dentro de su propia
+    // tabla de join) con los ids de FILA elegidos, uno por grupo de opciones -- no el packagingId.
+    // El cliente nunca declara a qué grupo pertenece cada id: quoteService lo lee de la fila, valida
+    // que sea una fila agrupada de este SKU en este nivel y que no haya dos del mismo grupo (mismo
+    // principio que rawMaterialMix). Un grupo sin id enviado usa su default.
+    selectedUnitMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
+    selectedIntermediateMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
+    selectedPalletMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
 })
 
-export type IngredientMixLineInput = z.infer<typeof ingredientMixLineSchema>
+export type RawMaterialMixLineInput = z.infer<typeof rawMaterialMixLineSchema>
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),

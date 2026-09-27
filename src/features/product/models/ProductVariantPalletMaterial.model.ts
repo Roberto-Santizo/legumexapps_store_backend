@@ -34,14 +34,13 @@ class ProductVariantPalletMaterial extends BaseCatalogModel {
     })
     declare quantityValue: number
 
-    // Default + opcional (2026-09-21) -- mismo criterio que ProductVariantUnitMaterial, ver el
-    // comentario ahí.
+    // Grupos de opciones (2026-09-24) -- mismo criterio que ProductVariantUnitMaterial.optionGroup,
+    // ver el comentario ahí (ej. grupo "Caja" + grupo "Esquinero" en un mismo SKU).
     @Column({
-        type: DataType.BOOLEAN,
-        allowNull: false,
-        defaultValue: false
+        type: DataType.STRING(60),
+        allowNull: true
     })
-    declare isSwappable: boolean
+    declare optionGroup: string | null
 
     @Column({
         type: DataType.BOOLEAN,

@@ -1,6 +1,8 @@
 import {Request, Response, NextFunction} from "express"
 import {productService} from "../services/product.service"
 import { ProductQuery } from "../schemas/product.schema"
+import { productImportService } from "../services/productImport.service"
+import { AppError } from "../../../shared/errors/AppError"
 
 
 async function index(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -76,6 +78,40 @@ async function updateStatus(req: Request, res: Response, next: NextFunction): Pr
 }
 
 
+const EXCEL_MIME_TYPES = new Set([
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+    "application/vnd.ms-excel", // .xls
+])
+
+async function bulkImport(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        if (!req.file) {
+            throw new AppError(422, "errors.bulk_import_missing_file")
+        }
+        if (!EXCEL_MIME_TYPES.has(req.file.mimetype)) {
+            throw new AppError(422, "errors.bulk_import_invalid_file_type")
+        }
+        const products = await productImportService.bulkImportProducts(req.file.buffer)
+        res.status(201).json({
+            message: req.t("success.bulk_imported", { count: products.length }),
+            data: { created: products.length }
+        })
+    } catch (error) {
+        next(error)
+    }
+}
+
+async function downloadTemplate(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const buffer = await productImportService.buildProductImportTemplate()
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        res.setHeader("Content-Disposition", "attachment; filename=\"plantilla-productos.xlsx\"")
+        res.send(buffer)
+    } catch (error) {
+        next(error)
+    }
+}
+
 export const productController = {
     index,
     show,
@@ -83,4 +119,6 @@ export const productController = {
     update,
     destroy,
     updateStatus,
+    bulkImport,
+    downloadTemplate,
 }

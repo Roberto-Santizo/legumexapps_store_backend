@@ -14,10 +14,10 @@ describe("calculateQuoteSchema", () => {
         expect(calculateQuoteSchema.safeParse(validInput()).success).toBe(true)
     })
 
-    it("acepta un input válido con mix de ingredientes", () => {
+    it("acepta un input válido con mix de materias primas", () => {
         const result = calculateQuoteSchema.safeParse({
             ...validInput(),
-            ingredientMix: [{ ingredientId: 1, percentage: 50 }, { ingredientId: 2, percentage: 50 }]
+            rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 2, percentage: 50 }]
         })
         expect(result.success).toBe(true)
     })
@@ -71,11 +71,11 @@ describe("calculateQuoteSchema", () => {
         })
     })
 
-    describe("ingredientMix[].percentage -- tope a 2 decimales para no inflar precisión falsa (33.333... de dividir 100/3)", () => {
+    describe("rawMaterialMix[].percentage -- tope a 2 decimales para no inflar precisión falsa (33.333... de dividir 100/3)", () => {
         it("rechaza un porcentaje con más de 2 decimales", () => {
             const result = calculateQuoteSchema.safeParse({
                 ...validInput(),
-                ingredientMix: [{ ingredientId: 1, percentage: 33.333 }]
+                rawMaterialMix: [{ rawMaterialId: 1, percentage: 33.333 }]
             })
             expect(result.success).toBe(false)
         })
@@ -83,7 +83,7 @@ describe("calculateQuoteSchema", () => {
         it("acepta un porcentaje con exactamente 2 decimales", () => {
             const result = calculateQuoteSchema.safeParse({
                 ...validInput(),
-                ingredientMix: [{ ingredientId: 1, percentage: 33.33 }]
+                rawMaterialMix: [{ rawMaterialId: 1, percentage: 33.33 }]
             })
             expect(result.success).toBe(true)
         })
@@ -91,7 +91,7 @@ describe("calculateQuoteSchema", () => {
         it("rechaza un porcentaje negativo", () => {
             const result = calculateQuoteSchema.safeParse({
                 ...validInput(),
-                ingredientMix: [{ ingredientId: 1, percentage: -10 }]
+                rawMaterialMix: [{ rawMaterialId: 1, percentage: -10 }]
             })
             expect(result.success).toBe(false)
         })
@@ -99,28 +99,28 @@ describe("calculateQuoteSchema", () => {
         it("rechaza un porcentaje por encima de 100", () => {
             const result = calculateQuoteSchema.safeParse({
                 ...validInput(),
-                ingredientMix: [{ ingredientId: 1, percentage: 100.01 }]
+                rawMaterialMix: [{ rawMaterialId: 1, percentage: 100.01 }]
             })
             expect(result.success).toBe(false)
         })
 
         it("acepta 0 y 100 como bordes válidos", () => {
-            expect(calculateQuoteSchema.safeParse({ ...validInput(), ingredientMix: [{ ingredientId: 1, percentage: 0 }] }).success).toBe(true)
-            expect(calculateQuoteSchema.safeParse({ ...validInput(), ingredientMix: [{ ingredientId: 1, percentage: 100 }] }).success).toBe(true)
+            expect(calculateQuoteSchema.safeParse({ ...validInput(), rawMaterialMix: [{ rawMaterialId: 1, percentage: 0 }] }).success).toBe(true)
+            expect(calculateQuoteSchema.safeParse({ ...validInput(), rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }).success).toBe(true)
         })
 
-        it("rechaza ingredientId no positivo dentro del mix", () => {
+        it("rechaza rawMaterialId no positivo dentro del mix", () => {
             const result = calculateQuoteSchema.safeParse({
                 ...validInput(),
-                ingredientMix: [{ ingredientId: 0, percentage: 100 }]
+                rawMaterialMix: [{ rawMaterialId: 0, percentage: 100 }]
             })
             expect(result.success).toBe(false)
         })
     })
 
-    it("ingredientMix es opcional -- un producto de receta fija no lo manda", () => {
-        const { ingredientMix, ...rest } = validInput() as ReturnType<typeof validInput> & { ingredientMix?: unknown }
+    it("rawMaterialMix es opcional -- un producto de receta fija no lo manda", () => {
+        const { rawMaterialMix, ...rest } = validInput() as ReturnType<typeof validInput> & { rawMaterialMix?: unknown }
         expect(calculateQuoteSchema.safeParse(rest).success).toBe(true)
-        expect(ingredientMix).toBeUndefined()
+        expect(rawMaterialMix).toBeUndefined()
     })
 })

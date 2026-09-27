@@ -1,18 +1,18 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Product from "./Product.model";
-import Ingredient from "../../ingredient/models/Ingredient.model";
+import RawMaterial from "../../rawMaterial/models/RawMaterial.model";
 
 @Table({
-    tableName: "productIngredients",
+    tableName: "productRawMaterials",
     indexes: [
         {
             unique: true,
-            fields: ["productId", "ingredientId"]
+            fields: ["productId", "rawMaterialId"]
         }
     ]
 })
-class ProductIngredient extends BaseCatalogModel {
+class ProductRawMaterial extends BaseCatalogModel {
     @ForeignKey(() => Product)
     @Column({
         type: DataType.INTEGER,
@@ -20,12 +20,12 @@ class ProductIngredient extends BaseCatalogModel {
     })
     declare productId: number
 
-    @ForeignKey(() => Ingredient)
+    @ForeignKey(() => RawMaterial)
     @Column({
         type: DataType.INTEGER,
         allowNull: false
     })
-    declare ingredientId: number
+    declare rawMaterialId: number
 
     // Solo aplica cuando el producto padre es de receta fija (!Product.isCustomizable): el
     // admin fija este % al crear el producto y el cliente nunca puede alterarlo (ver
@@ -61,8 +61,8 @@ class ProductIngredient extends BaseCatalogModel {
     @BelongsTo(() => Product, "productId")
     declare parentProduct: Product
 
-    @BelongsTo(() => Ingredient, "ingredientId")
-    declare usedIngredient: Ingredient
+    @BelongsTo(() => RawMaterial, "rawMaterialId")
+    declare usedRawMaterial: RawMaterial
 }
 
-export default ProductIngredient;
+export default ProductRawMaterial;

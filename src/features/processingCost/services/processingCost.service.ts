@@ -23,7 +23,7 @@ async function getProcessingCostById(id: number): Promise<ProcessingCost> {
     return processingCost
 }
 
-// Mismo patrón que ingredient.service.ts::syncEnglishTranslation -- el español vive siempre en
+// Mismo patrón que rawMaterial.service.ts::syncEnglishTranslation -- el español vive siempre en
 // displayName, la tabla *Translation solo guarda overrides para idiomas adicionales.
 async function syncEnglishTranslation(processingCostId: number, en: ProcessingCostTranslationInput | undefined): Promise<void> {
     if (!en?.displayName) return

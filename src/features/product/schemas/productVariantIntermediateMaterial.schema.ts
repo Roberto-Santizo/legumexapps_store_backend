@@ -6,7 +6,7 @@ import z from "zod"
 export const createProductVariantIntermediateMaterialSchema = z.object({
     productVariantId: z.number().int().positive(),
     packagingId: z.number().int().positive(),
-    isSwappable: z.boolean().default(false),
+    optionGroup: z.string().trim().min(1).max(60).nullable().default(null),
     isDefault: z.boolean().default(false),
 })
 
@@ -14,10 +14,10 @@ export const productVariantIntermediateMaterialIdParamSchema = z.object({
     id: z.string().regex(/^\d+$/),
 })
 
-// isSwappable/isDefault recuperados con su default -- mismo criterio que
+// optionGroup/isDefault recuperados con su default -- mismo criterio que
 // productVariantUnitMaterial.schema.ts, ver el comentario ahí.
 export const updateProductVariantIntermediateMaterialSchema = createProductVariantIntermediateMaterialSchema.partial().extend({
-    isSwappable: createProductVariantIntermediateMaterialSchema.shape.isSwappable,
+    optionGroup: createProductVariantIntermediateMaterialSchema.shape.optionGroup,
     isDefault: createProductVariantIntermediateMaterialSchema.shape.isDefault,
 })
 

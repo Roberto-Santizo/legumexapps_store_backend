@@ -36,7 +36,7 @@ async function getPackagingById(id: number): Promise<Packaging> {
 // El código es manual (nunca se autogenera) y único -- se rechaza con un error de negocio claro
 // ANTES de llegar al unique constraint de la columna (que daría el 409 genérico
 // "errors.unique_constraint" vía errorHandler, menos útil para el admin). Mismo patrón que
-// ingredient.service.ts::assertCodeIsUnique.
+// rawMaterial.service.ts::assertCodeIsUnique.
 async function assertCodeIsUnique(code: string, excludeId?: number): Promise<void> {
     const where: WhereOptions = excludeId ? { code, id: { [Op.ne]: excludeId } } : { code }
     const existing = await Packaging.findOne({ where })
@@ -107,7 +107,7 @@ function buildPackagingImportCandidate(fields: {
     return {
         // String(...) y no el mismo trim condicional que displayName: un código entrado sin
         // formato de texto en Excel puede llegar como number -- hay que forzarlo a string siempre
-        // para no romper el schema (code es string). Mismo criterio que ingredient.service.ts.
+        // para no romper el schema (code es string). Mismo criterio que rawMaterial.service.ts.
         code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         packagingRole: fields.resolvedRole,
@@ -144,7 +144,7 @@ function finalizePackagingImportCandidate(
     // A diferencia de displayName (no es único a nivel de columna, solo se revisa dentro del
     // archivo), code SÍ es único en la BD -- se reportan ambos problemas si aplican, en vez de
     // cortar en el primero, para que el admin vea todos los errores de la fila de una vez. Mismo
-    // criterio que ingredient.service.ts::finalizeIngredientImportCandidate.
+    // criterio que rawMaterial.service.ts::finalizeRawMaterialImportCandidate.
     let hasIssue = false
 
     const normalizedName = normalizeImportText(validated.displayName)
@@ -222,7 +222,7 @@ function processPackagingImportRow(
 // Preload de todos los códigos de material ya existentes (activos o no) para poder rechazar
 // duplicados-contra-la-BD con un RowIssue claro ANTES de intentar el bulkCreate, en vez de dejar
 // que Postgres reviente el batch completo con una violación de unique constraint genérica. Mismo
-// patrón que ingredient.service.ts::loadExistingIngredientCodes.
+// patrón que rawMaterial.service.ts::loadExistingRawMaterialCodes.
 async function loadExistingPackagingCodes(): Promise<Set<string>> {
     const existingPackagings = await Packaging.findAll({ attributes: ["code"] })
     return new Set(existingPackagings.map(packaging => normalizeImportText(packaging.code)))

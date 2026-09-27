@@ -1,4 +1,4 @@
-export type PresentationImportField = "displayLabel" | "netWeightGrams" | "categoryId"
+export type PresentationImportField = "displayLabel" | "netWeightGrams"
 
 interface ImportColumnDef {
     header: string
@@ -12,7 +12,6 @@ export const PRESENTATION_IMPORT_COLUMNS: Record<PresentationImportField, Import
     // del caso acá infla en silencio todos los costos por peso, exactamente el tipo de error que
     // este campo requerido busca evitar).
     netWeightGrams: { header: "Peso neto por unidad (g)", aliases: ["peso neto por unidad (g)", "peso neto por unidad", "peso neto (g)", "peso neto", "peso"] },
-    categoryId: { header: "Categoría", aliases: ["categoria", "categoría"] },
 }
 
 export const REQUIRED_PRESENTATION_IMPORT_FIELDS: PresentationImportField[] = ["displayLabel", "netWeightGrams"]

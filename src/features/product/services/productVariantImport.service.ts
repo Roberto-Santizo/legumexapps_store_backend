@@ -8,6 +8,7 @@ import ProductVariant from "../models/ProductVariant.model"
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
 import ProductVariantIntermediateMaterial from "../models/ProductVariantIntermediateMaterial.model"
+import ProductRawMaterial from "../models/ProductRawMaterial.model"
 import { AppError, BulkImportError, RowIssue } from "../../../shared/errors/AppError"
 import {
     ImportCellValue,
@@ -15,12 +16,16 @@ import {
     loadWorkbookFromBuffer,
     mapImportHeaders,
     normalizeImportText,
+    parseImportBoolean,
     readImportCell,
     writeWorkbookToBuffer,
 } from "../../../shared/utils/excelImport.util"
+import { normalizeOptionGroup, optionGroupKey } from "../../../shared/utils/optionGroup.util"
 import {
+    MAX_PRODUCT_VARIANT_IMPORT_OPTION_GROUP_LENGTH,
     MAX_PRODUCT_VARIANT_IMPORT_ROWS,
     PRODUCT_VARIANT_IMPORT_COLUMNS,
+    RECIPE_COMPLETENESS_TOLERANCE,
     ProductVariantImportField,
     REQUIRED_PRODUCT_VARIANT_IMPORT_FIELDS,
 } from "../constants/productVariantImport.constant"
@@ -41,6 +46,18 @@ interface ResolvedRow extends ProductVariantImportRowInput {
     presentationLabel: string
     packagingRole: string
     packagingDisplayName: string
+    // Grupos de opciones (2026-09-25): ya normalizado (normalizeOptionGroup), null = fila fija.
+    // isDefault es lo que marcó la celda "Predeterminado"; la resolución final (un default por
+    // grupo, el primero si no se marcó ninguno) vive en assignOptionGroupDefaults.
+    optionGroup: string | null
+    isDefault: boolean
+}
+
+interface ImportedMaterial {
+    packagingId: number
+    quantity: number
+    optionGroup: string | null
+    isDefault: boolean
 }
 
 interface SkuImportCandidate {
@@ -48,10 +65,12 @@ interface SkuImportCandidate {
     presentationId: number
     boxesPerPallet: number
     bagsPerBox: number
-    intermediatePackagingId: number | null
     unitsPerIntermediatePackage: number | null
-    unitMaterials: { packagingId: number; quantityPerUnit: number }[]
-    palletMaterials: { packagingId: number; quantityValue: number }[]
+    // Lista desde 2026-09-25 (antes un único intermediatePackagingId) -- el nivel intermedio es
+    // multi-fila desde 2026-09-24 (N fijas + N grupos), igual que unit/pallet.
+    intermediateMaterials: ImportedMaterial[]
+    unitMaterials: ImportedMaterial[]
+    palletMaterials: ImportedMaterial[]
 }
 
 type RowValidation = {
@@ -112,6 +131,37 @@ function resolveMaterialField(
     return packaging
 }
 
+// "Grupo" (opcional): vacío = fila fija. Mismas reglas de normalización que el admin
+// (shared/utils/optionGroup.util.ts); el tope de largo se valida acá para dar un error de fila
+// claro en vez de un fallo genérico de la columna STRING(60) al escribir.
+function resolveOptionGroupField(rawOptionGroup: ImportCellValue, ctx: RowValidation): string | null {
+    const optionGroup = normalizeOptionGroup(rawOptionGroup === null ? null : String(rawOptionGroup))
+    if (optionGroup !== null && optionGroup.length > MAX_PRODUCT_VARIANT_IMPORT_OPTION_GROUP_LENGTH) {
+        ctx.rowIssues.push({
+            row: ctx.rowNumber,
+            field: "optionGroup",
+            key: "errors.bulk_import_option_group_too_long",
+            params: { value: optionGroup, max: MAX_PRODUCT_VARIANT_IMPORT_OPTION_GROUP_LENGTH }
+        })
+    }
+    return optionGroup
+}
+
+// "Predeterminado" (opcional): Sí/No con parseImportBoolean, vacío = no marcado. Marcarlo en una
+// fila fija (sin Grupo) es un error -- una fila fija siempre se costea, no tiene "default" que
+// elegir (decisión 2026-09-25: rechazar en vez de ignorar en silencio).
+function resolveIsDefaultField(rawIsDefault: ImportCellValue, optionGroup: string | null, ctx: RowValidation): boolean {
+    const isDefault = parseImportBoolean(rawIsDefault, false)
+    if (isDefault === undefined) {
+        ctx.rowIssues.push({ row: ctx.rowNumber, field: "isDefault", key: "errors.bulk_import_invalid_boolean", params: { value: rawIsDefault } })
+        return false
+    }
+    if (isDefault && optionGroup === null) {
+        ctx.rowIssues.push({ row: ctx.rowNumber, field: "isDefault", key: "errors.bulk_import_default_without_group" })
+    }
+    return isDefault
+}
+
 function collectRowZodIssues(
     candidate: unknown,
     manuallyValidatedFields: Set<string>,
@@ -144,8 +194,12 @@ function processProductVariantImportRow(
     const rawBagsPerBox = readImportCell(row, columnIndexByField.get("bagsPerBox"))
     const rawMaterialCode = readImportCell(row, columnIndexByField.get("materialCode"))
     const rawQuantity = readImportCell(row, columnIndexByField.get("quantity"))
+    const rawOptionGroup = readImportCell(row, columnIndexByField.get("optionGroup"))
+    const rawIsDefault = readImportCell(row, columnIndexByField.get("isDefault"))
 
     const ctx: RowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
+    const optionGroup = resolveOptionGroupField(rawOptionGroup, ctx)
+    const isDefault = resolveIsDefaultField(rawIsDefault, optionGroup, ctx)
 
     const productId = resolveProductField(rawProductCodigo, productsByNormalizedCodigo, ctx)
     const presentationId = resolvePresentationField(rawPresentationLabel, presentationsByNormalizedLabel, ctx)
@@ -180,10 +234,62 @@ function processProductVariantImportRow(
         productCodigo: String(rawProductCodigo).trim(),
         presentationLabel: String(rawPresentationLabel).trim(),
         packagingRole: packaging!.packagingRole,
-        packagingDisplayName: packaging!.displayName
+        packagingDisplayName: packaging!.displayName,
+        optionGroup,
+        isDefault
     }
 }
 
+
+// Grupos de opciones de UN nivel de UN SKU (2026-09-25, ver CLAUDE.md #4): filas con el mismo
+// grupo (clave insensible a mayúsculas/espacios, optionGroupKey) son alternativas. El nivel sale
+// del packagingRole del material, así que el mismo nombre en unit y en pallet son DOS grupos (el
+// caller llama a esta función una vez por nivel). Dentro de cada grupo: se conserva la grafía de su
+// primera fila; exactamente un default -- el marcado, o si no se marcó ninguno, la PRIMERA fila del
+// grupo en el archivo (misma idea que el auto-default de la primera fila en el admin); dos o más
+// marcados es un error de fila que nombra el grupo. Deja el mismo estado final que garantizan los
+// servicios del admin (un default por grupo), sin pasar por ellos fila por fila.
+function assignOptionGroupDefaults(
+    rows: ResolvedRow[],
+    groupParams: { productCodigo: string; presentationLabel: string },
+    rowIssues: RowIssue[]
+): { materials: ImportedMaterial[]; hasIssue: boolean } {
+    const groups = new Map<string, { label: string; rows: ResolvedRow[] }>()
+    for (const row of rows) {
+        const key = optionGroupKey(row.optionGroup)
+        if (key === null) continue
+        const bucket = groups.get(key) ?? { label: row.optionGroup as string, rows: [] }
+        bucket.rows.push(row)
+        groups.set(key, bucket)
+    }
+
+    let hasIssue = false
+    const defaultRows = new Set<ResolvedRow>()
+    for (const bucket of groups.values()) {
+        const markedRows = bucket.rows.filter(row => row.isDefault)
+        for (const extraRow of markedRows.slice(1)) {
+            rowIssues.push({
+                row: extraRow.rowNumber,
+                field: "isDefault",
+                key: "errors.bulk_import_multiple_defaults_in_group",
+                params: { ...groupParams, group: bucket.label }
+            })
+            hasIssue = true
+        }
+        defaultRows.add(markedRows[0] ?? bucket.rows[0])
+    }
+
+    const materials = rows.map(row => {
+        const key = optionGroupKey(row.optionGroup)
+        return {
+            packagingId: row.packagingId,
+            quantity: row.quantity,
+            optionGroup: key === null ? null : (groups.get(key)?.label ?? row.optionGroup),
+            isDefault: defaultRows.has(row),
+        }
+    })
+    return { materials, hasIssue }
+}
 
 // Reemplaza a finalizeSkuGroup (2026-09-17) -- sin skuCode, el grupo de filas de un mismo SKU se
 // identifica por (Producto, Presentación) desde el arranque (ver bulkImportProductVariants, que
@@ -194,11 +300,20 @@ function finalizeVariantGroup(
     rows: ResolvedRow[],
     existingProductPresentationPairs: Set<string>,
     claimedProductPresentationPairsInFile: Set<string>,
+    productIdsWithCompleteRecipe: Set<number>,
     rowIssues: RowIssue[]
 ): SkuImportCandidate | null {
     const firstRow = rows[0]
     const groupParams = { productCodigo: firstRow.productCodigo, presentationLabel: firstRow.presentationLabel }
     let hasIssue = false
+
+    // Receta completa antes de crear el SKU (2026-09-25, paso 3 de Productos → Recetas → SKUs): un
+    // SKU es lo que hace cotizable a un producto, así que sin receta completa quedaría cotizando $0
+    // de materia prima (calculateQuote lo permite a propósito). Ver loadProductIdsWithCompleteRecipe.
+    if (!productIdsWithCompleteRecipe.has(firstRow.productId)) {
+        rowIssues.push({ row: firstRow.rowNumber, field: "productId", key: "errors.bulk_import_sku_recipe_incomplete", params: groupParams })
+        hasIssue = true
+    }
 
     // Un SKU por (Producto, Presentación) -- 2026-09-16, mismo criterio que
     // productVariant.service.ts::assertPresentationNotAlreadyUsed, acá aplicado en dos frentes:
@@ -224,9 +339,11 @@ function finalizeVariantGroup(
         hasIssue = true
     }
 
+    // Cubre los tres niveles (2026-09-25): antes saltaba las filas intermedias, y un material
+    // intermedio repetido solo fallaba contra el índice único (productVariantId, packagingId) de la
+    // BD con un rollback genérico -- ahora es un error de fila claro, igual que unit/pallet.
     const seenPackagingIds = new Set<number>()
     for (const row of rows) {
-        if (row.packagingRole === "intermediate") continue
         if (seenPackagingIds.has(row.packagingId)) {
             rowIssues.push({
                 row: row.rowNumber,
@@ -239,10 +356,15 @@ function finalizeVariantGroup(
         seenPackagingIds.add(row.packagingId)
     }
 
+    // Nivel intermedio multi-fila (2026-09-24/25): se permiten varias filas, pero su "Cantidad" es
+    // el unitsPerIntermediatePackage del SKU -- UN solo valor compartido por todos los materiales
+    // intermedios --, así que todas deben coincidir (decisión 2026-09-25: rechazar, no tomar la primera).
     const intermediateRows = rows.filter(row => row.packagingRole === "intermediate")
-    if (intermediateRows.length > 1) {
-        rowIssues.push({ row: firstRow.rowNumber, field: "materialCode", key: "errors.bulk_import_multiple_intermediate_rows", params: groupParams })
-        hasIssue = true
+    for (const row of intermediateRows.slice(1)) {
+        if (row.quantity !== intermediateRows[0].quantity) {
+            rowIssues.push({ row: row.rowNumber, field: "quantity", key: "errors.bulk_import_intermediate_quantity_mismatch", params: groupParams })
+            hasIssue = true
+        }
     }
 
     const unitRows = rows.filter(row => row.packagingRole === "unit")
@@ -256,24 +378,52 @@ function finalizeVariantGroup(
         hasIssue = true
     }
 
+    const unitGroups = assignOptionGroupDefaults(unitRows, groupParams, rowIssues)
+    const intermediateGroups = assignOptionGroupDefaults(intermediateRows, groupParams, rowIssues)
+    const palletGroups = assignOptionGroupDefaults(palletRows, groupParams, rowIssues)
+    if (unitGroups.hasIssue || intermediateGroups.hasIssue || palletGroups.hasIssue) hasIssue = true
+
     if (hasIssue) return null
 
-    const intermediateRow = intermediateRows[0]
     return {
         productId: firstRow.productId,
         presentationId: firstRow.presentationId,
         boxesPerPallet: firstRow.boxesPerPallet,
         bagsPerBox: firstRow.bagsPerBox,
-        intermediatePackagingId: intermediateRow ? intermediateRow.packagingId : null,
-        unitsPerIntermediatePackage: intermediateRow ? intermediateRow.quantity : null,
-        unitMaterials: unitRows.map(row => ({ packagingId: row.packagingId, quantityPerUnit: row.quantity })),
-        palletMaterials: palletRows.map(row => ({ packagingId: row.packagingId, quantityValue: row.quantity })),
+        unitsPerIntermediatePackage: intermediateRows[0]?.quantity ?? null,
+        intermediateMaterials: intermediateGroups.materials,
+        unitMaterials: unitGroups.materials,
+        palletMaterials: palletGroups.materials,
     }
 }
 
 async function loadProductsByNormalizedCodigo(): Promise<Map<string, Product>> {
     const products = await Product.findAll({ where: { isActive: true } })
     return new Map(products.map(product => [normalizeImportText(product.codigo), product]))
+}
+
+// Receta completa = receta fija con filas activas que suman 100 (±0.5, misma tolerancia que el
+// motor), o receta personalizable con al menos una materia prima en su pool. Un producto fijo sin
+// ninguna fila suma 0, así que también queda incompleto.
+async function loadProductIdsWithCompleteRecipe(products: Iterable<Product>): Promise<Set<number>> {
+    const recipeRows = await ProductRawMaterial.findAll({ where: { isActive: true }, attributes: ["productId", "percentage"] })
+    const statsByProductId = new Map<number, { count: number; total: number }>()
+    for (const recipeRow of recipeRows) {
+        const stats = statsByProductId.get(recipeRow.productId) ?? { count: 0, total: 0 }
+        stats.count += 1
+        stats.total += Number(recipeRow.percentage ?? 0)
+        statsByProductId.set(recipeRow.productId, stats)
+    }
+
+    const complete = new Set<number>()
+    for (const product of products) {
+        const stats = statsByProductId.get(product.id) ?? { count: 0, total: 0 }
+        const isComplete = product.isCustomizable
+            ? stats.count > 0
+            : Math.abs(stats.total - 100) <= RECIPE_COMPLETENESS_TOLERANCE
+        if (isComplete) complete.add(product.id)
+    }
+    return complete
 }
 
 async function loadPresentationsByNormalizedLabel(): Promise<Map<string, Presentation[]>> {
@@ -338,6 +488,7 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
         loadPackagingsByNormalizedCode(),
         loadExistingProductPresentationPairs(),
     ])
+    const productIdsWithCompleteRecipe = await loadProductIdsWithCompleteRecipe(productsByNormalizedCodigo.values())
 
     const rowIssues: RowIssue[] = []
     const resolvedRows: ResolvedRow[] = []
@@ -369,6 +520,7 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
             rows,
             existingProductPresentationPairs,
             claimedProductPresentationPairsInFile,
+            productIdsWithCompleteRecipe,
             rowIssues
         )
         if (candidate) candidates.push(candidate)
@@ -395,12 +547,19 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
                 { transaction }
             )
 
-            // Empaque intermedio (2026-09-21): ahora es una fila de join, no un FK en la variante.
-            // La plantilla no tiene concepto de alternativas, así que se importa como fila fija
-            // (isSwappable=false por default), mismo comportamiento que el viejo FK único.
-            if (candidate.intermediatePackagingId !== null) {
-                await ProductVariantIntermediateMaterial.create(
-                    { productVariantId: variant.id, packagingId: candidate.intermediatePackagingId },
+            // Grupos de opciones (2026-09-25): optionGroup/isDefault ya vienen resueltos por
+            // assignOptionGroupDefaults (un default por grupo, null/false en las filas fijas) y se
+            // escriben tal cual -- NO se pasa por los servicios del admin, cuyo manejo de defaults
+            // asume filas que llegan de a una; el estado final es el mismo que ellos garantizan.
+            // Sin columnas Grupo/Predeterminado en el archivo, todo llega como fila fija, igual que antes.
+            if (candidate.intermediateMaterials.length > 0) {
+                await ProductVariantIntermediateMaterial.bulkCreate(
+                    candidate.intermediateMaterials.map(material => ({
+                        productVariantId: variant.id,
+                        packagingId: material.packagingId,
+                        optionGroup: material.optionGroup,
+                        isDefault: material.isDefault,
+                    })),
                     { transaction }
                 )
             }
@@ -409,7 +568,9 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
                 candidate.unitMaterials.map(material => ({
                     productVariantId: variant.id,
                     packagingId: material.packagingId,
-                    quantityPerUnit: material.quantityPerUnit,
+                    quantityPerUnit: material.quantity,
+                    optionGroup: material.optionGroup,
+                    isDefault: material.isDefault,
                 })),
                 { transaction }
             )
@@ -418,7 +579,9 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
                 candidate.palletMaterials.map(material => ({
                     productVariantId: variant.id,
                     packagingId: material.packagingId,
-                    quantityValue: material.quantityValue,
+                    quantityValue: material.quantity,
+                    optionGroup: material.optionGroup,
+                    isDefault: material.isDefault,
                 })),
                 { transaction }
             )
@@ -440,6 +603,8 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.bagsPerBox.header, key: "bagsPerBox", width: 16 },
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.materialCode.header, key: "materialCode", width: 18 },
         { header: PRODUCT_VARIANT_IMPORT_COLUMNS.quantity.header, key: "quantity", width: 12 },
+        { header: PRODUCT_VARIANT_IMPORT_COLUMNS.optionGroup.header, key: "optionGroup", width: 16 },
+        { header: PRODUCT_VARIANT_IMPORT_COLUMNS.isDefault.header, key: "isDefault", width: 16 },
     ]
     sheet.getRow(1).font = { bold: true }
 
@@ -449,9 +614,17 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     sheet.addRow({ productCodigo: "JUGO-PINA-WM", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB158", quantity: 385 })
 
 
-    sheet.addRow({ productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-001", quantity: 1 })
-    sheet.addRow({ productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "BOL-002", quantity: 50 })
-    sheet.addRow({ productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50, materialCode: "CAJ-001", quantity: 40 })
+    // Ejemplo con grupos de opciones (2026-09-25): un material fijo (FILM-001, sin Grupo), un grupo
+    // "Caja" de dos alternativas con una marcada como predeterminada, y un grupo "Esquinero" sin
+    // marcar (su primera fila queda como predeterminada).
+    const demo = { productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50 }
+    sheet.addRow({ ...demo, materialCode: "BOL-001", quantity: 1 })
+    sheet.addRow({ ...demo, materialCode: "BOL-002", quantity: 50 })
+    sheet.addRow({ ...demo, materialCode: "FILM-001", quantity: 1 })
+    sheet.addRow({ ...demo, materialCode: "CAJ-001", quantity: 40, optionGroup: "Caja", isDefault: "Sí" })
+    sheet.addRow({ ...demo, materialCode: "CAJ-002", quantity: 40, optionGroup: "Caja" })
+    sheet.addRow({ ...demo, materialCode: "ESQ-001", quantity: 4, optionGroup: "Esquinero" })
+    sheet.addRow({ ...demo, materialCode: "ESQ-002", quantity: 4, optionGroup: "Esquinero" })
 
     const helpSheet = workbook.addWorksheet("Instrucciones")
     helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
@@ -459,11 +632,14 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     const helpLines = [
         "Una fila POR CADA material de la receta de empaque de un SKU -- si un SKU tiene 5 materiales, repite sus 5 primeras columnas en 5 filas seguidas, cambiando solo \"Código Material\" y \"Cantidad\".",
         "Un SKU es, por definición, un Producto en UNA Presentación -- \"Código Producto\" + \"Presentación\" juntos identifican el SKU, ya no hay una columna de código de SKU separada.",
-        "\"Código Producto\" debe ser el código EXACTO de un Producto ya creado (ver el módulo de Productos) -- este importador NUNCA crea Productos nuevos.",
+        "PASO 3 de 3: Productos → Recetas → SKUs. \"Código Producto\" debe ser el código EXACTO de un Producto ya creado (paso 1) -- este importador NUNCA crea Productos nuevos. Su receta ya debe estar completa (paso 2): una receta fija que sume 100%, o una personalizable con al menos una materia prima; si no, sus SKUs se rechazan.",
         "\"Presentación\" debe ser el nombre EXACTO de una Presentación ya creada (ver el módulo de Presentaciones) -- su peso neto ya quedó definido ahí, no se vuelve a pedir acá.",
         "\"Código Material\" debe ser el código EXACTO de un material ya creado en el catálogo de Empaques -- su ROL (empaque individual/intermedio/paletización) se toma de ahí, no se vuelve a declarar en esta plantilla.",
         "\"Cantidad\" significa algo distinto según el rol del material de esa fila: empaque individual = cuántas unidades de ese material lleva CADA bolsa/unidad de producto (casi siempre 1); empaque intermedio = cuántas unidades pequeñas caben en la bolsa/caja grande; material de paletización = cuántas unidades de ese material lleva CADA palet (para la caja que se apila, normalmente es igual a \"Cajas por palet\").",
-        "Cada SKU necesita AL MENOS un material de rol \"empaque individual\" y AL MENOS uno de rol \"material de paletización\". El rol \"empaque intermedio\" es opcional, pero un SKU no puede tener más de una fila de ese rol.",
+        "Cada SKU necesita AL MENOS un material de rol \"empaque individual\" y AL MENOS uno de rol \"material de paletización\". El rol \"empaque intermedio\" es opcional y admite varias filas, pero todas deben traer la MISMA \"Cantidad\" (es un solo valor por SKU: cuántas unidades van en cada empaque intermedio).",
+        "\"Grupo\" (opcional): déjalo vacío para un material FIJO, que siempre se cotiza. Si escribes un nombre (ej. Caja, Esquinero, Bolsa), las filas del mismo SKU con el mismo Grupo y del mismo nivel (individual, intermedio o paletización) son ALTERNATIVAS: el cliente elige una por grupo al cotizar. Grupos distintos se suman (ej. una caja Y un esquinero). Mayúsculas y espacios no importan (\"caja\" y \"CAJA\" son el mismo grupo); el mismo nombre en dos niveles distintos son dos grupos distintos. Máximo 60 caracteres.",
+        "\"Predeterminado\" (opcional): escribe Sí en la opción que se usa cuando el cliente no elige otra. Solo UNA por grupo; si no marcas ninguna, la primera fila del grupo en el archivo queda como predeterminada. No se puede marcar en un material fijo (sin Grupo).",
+        "Las columnas \"Grupo\" y \"Predeterminado\" se pueden omitir del archivo: sin ellas, todos los materiales se importan como fijos.",
         "\"Cajas por palet\" y \"Bolsas por caja\" deben repetirse IGUAL en todas las filas del mismo SKU -- si varían entre filas del mismo Producto+Presentación, el archivo entero se rechaza.",
         "No incluyas ningún SKU sin \"Cajas por palet\" (producto no palletizable) -- esta plantilla es solo para SKUs que sí se paletizan.",
         "El archivo se valida COMPLETO antes de importar nada: si una sola fila tiene un error, no se crea ningún SKU -- corrige el archivo y vuelve a subirlo.",

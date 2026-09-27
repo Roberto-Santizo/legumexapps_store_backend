@@ -3,7 +3,7 @@ import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import SubCategory from "../../category/models/SubCategory.model";
 import Client from "../../client/models/Client.model";
 import ProductVariant from "./ProductVariant.model";
-import ProductIngredient from "./ProductIngredient.model";
+import ProductRawMaterial from "./ProductRawMaterial.model";
 import ProductTranslation from "./ProductTranslation.model";
 
 @Table({
@@ -93,8 +93,8 @@ class Product extends BaseCatalogModel {
     @HasMany(() => ProductVariant, "productId")
     declare productVariants: ProductVariant[]
 
-    @HasMany(() => ProductIngredient, "productId")
-    declare productIngredients: ProductIngredient[]
+    @HasMany(() => ProductRawMaterial, "productId")
+    declare productRawMaterials: ProductRawMaterial[]
 
     @HasMany(() => ProductTranslation, "productId")
     declare translations: ProductTranslation[]

@@ -1,13 +1,13 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Unit from "../../unit/models/Unit.model";
-import ProductIngredient from "../../product/models/ProductIngredient.model";
-import IngredientTranslation from "./IngredientTranslation.model";
+import ProductRawMaterial from "../../product/models/ProductRawMaterial.model";
+import RawMaterialTranslation from "./RawMaterialTranslation.model";
 
 @Table({
-    tableName: "ingredients"
+    tableName: "rawMaterials"
 })
-class Ingredient extends BaseCatalogModel {
+class RawMaterial extends BaseCatalogModel {
 
     @Column({
         type: DataType.STRING(60),
@@ -54,6 +54,11 @@ class Ingredient extends BaseCatalogModel {
     })
     declare isMixable: boolean
 
+    // Costo por libra -- la unidad de costeo ya no la elige el admin, se fuerza server-side a la
+    // Libra en cada create/update (ver rawMaterial.service.ts::findOrCreatePoundUnit). costUnit/
+    // costUnitId se conservan (no se borran) porque el motor de cotización los sigue usando para
+    // convertir % -> gramos -> costo (ver quote.service.ts::buildPercentageRawMaterialLine), y
+    // porque una futura entidad "Ingredientes" (sal, azúcar...) sí necesitará elegir la unidad.
     @Column({
         type: DataType.DECIMAL(10, 4),
         allowNull: true
@@ -70,11 +75,11 @@ class Ingredient extends BaseCatalogModel {
     @BelongsTo(() => Unit, "costUnitId")
     declare costUnit: Unit
 
-    @HasMany(() => ProductIngredient, "ingredientId")
-    declare productIngredients: ProductIngredient[]
+    @HasMany(() => ProductRawMaterial, "rawMaterialId")
+    declare productRawMaterials: ProductRawMaterial[]
 
-    @HasMany(() => IngredientTranslation, "ingredientId")
-    declare translations: IngredientTranslation[]
+    @HasMany(() => RawMaterialTranslation, "rawMaterialId")
+    declare translations: RawMaterialTranslation[]
 }
 
-export default Ingredient;
+export default RawMaterial;

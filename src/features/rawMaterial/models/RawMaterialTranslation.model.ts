@@ -1,23 +1,23 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, Model } from "sequelize-typescript";
-import Ingredient from "./Ingredient.model";
+import RawMaterial from "./RawMaterial.model";
 
 // Mismo patrón que CategoryTranslation -- ver shared/utils/translation.util.ts.
 @Table({
-    tableName: "ingredientTranslations",
+    tableName: "rawMaterialTranslations",
     indexes: [
         {
             unique: true,
-            fields: ["ingredientId", "language"]
+            fields: ["rawMaterialId", "language"]
         }
     ]
 })
-class IngredientTranslation extends Model {
-    @ForeignKey(() => Ingredient)
+class RawMaterialTranslation extends Model {
+    @ForeignKey(() => RawMaterial)
     @Column({
         type: DataType.INTEGER,
         allowNull: false
     })
-    declare ingredientId: number
+    declare rawMaterialId: number
 
     @Column({
         type: DataType.STRING(5),
@@ -31,8 +31,8 @@ class IngredientTranslation extends Model {
     })
     declare displayName: string
 
-    @BelongsTo(() => Ingredient, "ingredientId")
-    declare parentIngredient: Ingredient
+    @BelongsTo(() => RawMaterial, "rawMaterialId")
+    declare parentRawMaterial: RawMaterial
 }
 
-export default IngredientTranslation;
+export default RawMaterialTranslation;

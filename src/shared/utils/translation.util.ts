@@ -1,4 +1,4 @@
-// Traducción de contenido de catálogo (Category/SubCategory/Product/Ingredient) -- NO confundir
+// Traducción de contenido de catálogo (Category/SubCategory/Product/RawMaterial) -- NO confundir
 // con src/config/i18n.ts, que traduce textos fijos de la UI/mensajes de error (req.t(...)).
 //
 // Decisión de diseño: el español NUNCA vive en una tabla de traducciones. Las columnas base
@@ -30,7 +30,7 @@ interface NamedTranslationRow {
 
 // Si language==="es" ni se mira el arreglo de traducciones (ver nota arriba: el español vive en
 // baseName). Si no hay fila para el idioma pedido (admin no cargó la traducción todavía), cae a
-// baseName en vez de mostrar vacío -- nunca se pierde el nombre del producto/categoría/ingrediente.
+// baseName en vez de mostrar vacío -- nunca se pierde el nombre del producto/categoría/materia prima.
 export function pickTranslatedName(
     baseName: string,
     translations: NamedTranslationRow[] | undefined,

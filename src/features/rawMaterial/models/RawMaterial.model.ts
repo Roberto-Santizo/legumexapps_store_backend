@@ -58,7 +58,8 @@ class RawMaterial extends BaseCatalogModel {
     // Libra en cada create/update (ver rawMaterial.service.ts::findOrCreatePoundUnit). costUnit/
     // costUnitId se conservan (no se borran) porque el motor de cotización los sigue usando para
     // convertir % -> gramos -> costo (ver quote.service.ts::buildPercentageRawMaterialLine), y
-    // porque una futura entidad "Ingredientes" (sal, azúcar...) sí necesitará elegir la unidad.
+    // porque así la unidad podría volver a abrirse más adelante sin tocar el motor. (La entidad
+    // Ingredient -- sal, azúcar... -- usa exactamente el mismo modelo de Libra forzada.)
     @Column({
         type: DataType.DECIMAL(10, 4),
         allowNull: true

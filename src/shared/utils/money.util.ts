@@ -12,13 +12,13 @@ import Decimal from "decimal.js"
 // problema de 0.1 + 0.2 !== 0.3) y roundMoney() es el ÚNICO lugar donde se decide a cuántos
 // decimales se corta un monto.
 
-// Precisión interna para CUALQUIER cálculo monetario (2026-08-24, a pedido explícito del usuario:
-// "para todas las operaciones matemáticas... hasta 4 decimales"). Antes eran 2 (centavos) --
+// Precisión interna para CUALQUIER cálculo monetario (decisión de negocio: "para todas las
+// operaciones matemáticas... hasta 4 decimales"). Antes eran 2 (centavos) --
 // con costos unitarios muy pequeños multiplicados por miles de unidades/palets, cortar a 2
 // decimales en cada línea intermedia perdía precisión real de forma acumulativa. Sube a 4 en
 // las columnas DECIMAL de dinero que lo alimentan (Packaging.unitCost, Destination.baseCost,
 // las 6 columnas de costo de Quote) para que este numero no se trunque de vuelta a 2 al
-// persistir -- ver esa entrada de memoria del proyecto. El FORMATO que ve el cliente/admin en
+// persistir. El FORMATO que ve el cliente/admin en
 // pantalla sigue en 2 decimales a propósito (formatCurrency, shared/format/currency.ts) --
 // decisión de negocio explícita: más precisión internamente, mismo aspecto de moneda normal en
 // la UI. Si algún día cambia la cantidad de decimales de la moneda, este es el único número a

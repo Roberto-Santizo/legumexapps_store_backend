@@ -53,7 +53,7 @@ async function syncEnglishTranslation(productId: number, en: ProductTranslationI
 }
 
 // Case-insensitive (Op.iLike) a propósito -- a diferencia de Packaging.code/RawMaterial.code
-// (cuyo chequeo de negocio es exacto), acá el usuario pidió explícitamente que "MP-001" y
+// (cuyo chequeo de negocio es exacto), acá el negocio pidió explícitamente que "MP-001" y
 // "mp-001" cuenten como el mismo código. El índice físico (products_codigo_unique, ver
 // Product.model.ts) sigue siendo case-sensitive -- queda como defensa en profundidad para la
 // ventana de carrera entre este chequeo y el INSERT/UPDATE real, no como la regla de negocio.

@@ -2,10 +2,10 @@ import z from "zod"
 
 export const createProductVariantSchema = z.object({
     productId: z.number().int().positive(),
-    // Requerido (2026-09-16): cada SKU es, por definición, un producto en UNA presentación --
+    // Requerido: cada SKU es, por definición, un producto en UNA presentación --
     // ya no se permite crear una variante sin presentación. También es inmutable una vez creada,
     // ver updateProductVariantSchema y productVariant.service.ts::assertPresentationNotChanged.
-    // (productId, presentationId) ES la identidad del SKU (2026-09-17) -- ya no hay un skuCode
+    // (productId, presentationId) ES la identidad del SKU -- ya no hay un skuCode
     // propio de la variante, ver productVariant.service.ts::assertPresentationNotAlreadyUsed.
     presentationId: z.number().int().positive(),
     boxesPerPallet: z.number().int().positive(),

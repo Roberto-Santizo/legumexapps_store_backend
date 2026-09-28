@@ -9,8 +9,8 @@ interface SalespersonAccessTokenPayload {
     type: string
 }
 
-// El valor del claim `type` se queda literal "customer" a propósito (rename 2026-09-16, ver
-// context.md §9): es el mismo valor que ya llevan los JWT emitidos antes del rename para esta
+// El valor del claim `type` se queda literal "customer" a propósito (rename customer ->
+// salesperson): es el mismo valor que ya llevan los JWT emitidos antes del rename para esta
 // feature -- cambiarlo invalidaría de golpe toda sesión activa. Solo se renombró el código
 // alrededor (la función, el tipo, req.salesperson), no el string que viaja en el token.
 export function authenticateSalesperson(req: Request, _res: Response, next: NextFunction): void {

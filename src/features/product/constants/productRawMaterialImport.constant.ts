@@ -1,6 +1,6 @@
 
-// Carga masiva de Recetas de materias primas (2026-09-25) -- paso 2 de 3 del pipeline Productos →
-// Recetas → SKUs (ver CLAUDE.md #4). Una fila por (Producto, Materia Prima). El tipo de receta
+// Carga masiva de Recetas de materias primas -- paso 2 de 4 del pipeline Productos → Recetas →
+// Ingredientes → SKUs. Una fila por (Producto, Materia Prima). El tipo de receta
 // NUNCA se re-declara acá: sale del Product.isCustomizable ya creado en el paso 1.
 export type ProductRawMaterialImportField =
     | "productCodigo"

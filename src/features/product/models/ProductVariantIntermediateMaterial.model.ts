@@ -3,14 +3,13 @@ import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import ProductVariant from "./ProductVariant.model";
 import Packaging from "../../packaging/models/Packaging.model";
 
-// Empaque intermedio (2026-09-21) -- reemplaza ProductVariant.intermediatePackagingId (FK único,
-// ver CLAUDE.md #4 "SKU = Product + Presentation" y la entrada de cambio de esta fecha). Mismo
+// Empaque intermedio -- reemplaza el viejo FK único ProductVariant.intermediatePackagingId. Mismo
 // join N-filas que ProductVariantUnitMaterial/ProductVariantPalletMaterial, con default + opcional
 // (optionGroup/isDefault, ver el comentario en ProductVariantUnitMaterial.model.ts) -- pero sin
 // cantidad propia: el motor sigue leyendo ProductVariant.unitsPerIntermediatePackage (compartido
-// entre cualquier alternativa elegida, no varía por material -- decisión de negocio 2026-09-21).
-// Desde 2026-09-24 ya no es "0-o-1": es un nivel normal como unit/pallet (N filas fijas + N grupos
-// de opciones, todas las filas resueltas se costean).
+// entre cualquier alternativa elegida, no varía por material -- decisión de negocio).
+// No es "0-o-1": es un nivel normal como unit/pallet (N filas fijas + N grupos de opciones, todas
+// las filas resueltas se costean).
 @Table({
     tableName: "productVariantIntermediateMaterials",
     indexes: [

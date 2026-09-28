@@ -13,8 +13,8 @@ import { leadService } from "./lead.service"
 const mockLeadFindOne = Lead.findOne as unknown as jest.Mock
 const mockLeadCreate = Lead.create as unknown as jest.Mock
 
-// Los Leads nacen únicamente del formulario público de la landing (2026-09-21: el cotizador ya no
-// captura ni vincula prospectos, ver CLAUDE.md #4) -- estas pruebas cubren esa vía y el panel admin.
+// Los Leads nacen únicamente del formulario público de la landing (el cotizador ya no captura ni
+// vincula prospectos) -- estas pruebas cubren esa vía y el panel admin.
 describe("leadService (formulario público + panel admin)", () => {
     beforeEach(() => {
         mockLeadFindOne.mockReset()

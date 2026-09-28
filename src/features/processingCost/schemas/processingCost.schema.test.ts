@@ -41,7 +41,7 @@ describe("createProcessingCostSchema", () => {
 
     // "value" es el campo que alimenta directamente el cálculo (quote.service.ts multiplica esto
     // por el peso total en libras) -- este es exactamente el tipo de campo que el bug histórico
-    // "costos en millones" (ver context.md) demuestra que NO puede quedar con un fallback en
+    // "costos en millones" demuestra que NO puede quedar con un fallback en
     // silencio: debe rechazarse explícito si no es un número válido y no negativo.
     describe("value -- campo crítico para el cálculo, no puede colar un valor inválido en silencio", () => {
         it("rechaza un value negativo", () => {

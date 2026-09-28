@@ -58,11 +58,11 @@ async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS
 }
 
 const HEADERS = ["Código Producto", "Presentación", "Cajas por palet", "Bolsas por caja", "Código Material", "Cantidad"]
-// Plantilla con las dos columnas opcionales de grupos de opciones (2026-09-25).
+// Plantilla con las dos columnas opcionales de grupos de opciones.
 const GROUP_HEADERS = [...HEADERS, "Grupo", "Predeterminado"]
 
 const PRODUCT = { id: 1, codigo: "JUGO-PINA-WM", displayName: "Better Goods Pineapple Juice", isCustomizable: false }
-// Receta fija completa (suma 100) de PRODUCT -- sin ella, desde 2026-09-25 sus SKUs se rechazan.
+// Receta fija completa (suma 100) de PRODUCT -- sin ella, sus SKUs se rechazan.
 const COMPLETE_RECIPE = [{ productId: PRODUCT.id, percentage: "90.00" }, { productId: PRODUCT.id, percentage: "10.00" }]
 const PRESENTATION = { id: 2, displayLabel: "Botella 12 oz (0.75 lb)" }
 const TAPA = { id: 10, code: "T-ME-AB010", displayName: "Tapa", packagingRole: "unit" }
@@ -646,7 +646,7 @@ describe("productVariantImportService.buildProductVariantImportTemplate", () => 
         ])
         mockVariantFindAll.mockResolvedValue([])
         mockVariantCreate.mockImplementation((data: object) => Promise.resolve({ id: 200, ...data }))
-        // Ambos productos del ejemplo con receta completa (gate de 2026-09-25).
+        // Ambos productos del ejemplo con receta completa (gate de receta del importador de SKUs).
         mockRecipeFindAll.mockResolvedValue([...COMPLETE_RECIPE, { productId: 2, percentage: "100.00" }])
 
         const templateBuffer = await productVariantImportService.buildProductVariantImportTemplate()

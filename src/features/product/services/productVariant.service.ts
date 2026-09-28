@@ -13,8 +13,8 @@ async function getProductVariantById(id: number): Promise<ProductVariant> {
     return productVariant
 }
 
-// Cada Producto solo puede tener un SKU por Presentación (2026-09-16) -- desde la eliminación
-// de skuCode (2026-09-17), esta ES la única regla de unicidad de una variante: (productId,
+// Cada Producto solo puede tener un SKU por Presentación -- sin skuCode, esta ES la única regla
+// de unicidad de una variante: (productId,
 // presentationId) es su identidad completa, junto con Product.codigo como "cabeza" del SKU. Se
 // enforce a nivel de aplicación, no con un índice de BD, a propósito: así no puede quedar
 // bloqueado por filas preexistentes, mismo criterio que el resto de "assert*" de este archivo.
@@ -28,7 +28,7 @@ async function assertPresentationNotAlreadyUsed(productId: number, presentationI
     }
 }
 
-// Opción B (2026-09-16, decisión de negocio): la Presentación de un SKU queda fija una vez
+// Opción B (decisión de negocio): la Presentación de un SKU queda fija una vez
 // creada. Si se quiere cotizar el mismo producto en otra presentación, se crea un SKU nuevo --
 // nunca se reasigna uno existente. No afecta cotizaciones ya guardadas (Quote congela su propio
 // snapshot, ver quoteService.calculateQuote), solo bloquea la edición hacia adelante.

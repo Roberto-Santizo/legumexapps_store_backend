@@ -17,6 +17,7 @@ const RESOURCE_KEYS = [
     "presentations",
     "packagings",
     "rawMaterials",
+    "ingredients",
     "destinations",
     "processingCosts",
     "users",

@@ -46,7 +46,7 @@ async function indexAll(_req: Request, res: Response, next: NextFunction): Promi
 }
 
 // Compartido por /admin/quotes/preview (staff, quotes:calculate) y /quotes/preview (salesperson,
-// 2026-09-21 -- ver CLAUDE.md #6 "real-time recalculation") -- no hay lógica específica de
+// recálculo en vivo) -- no hay lógica específica de
 // ninguna de las dos rutas acá, ambas SOLO calculan (calculateQuote), NUNCA guardan (saveQuote):
 // es la misma garantía estructural para las dos, no una convención por convención.
 async function preview(req: Request, res: Response, next: NextFunction): Promise<void> {

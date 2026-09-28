@@ -1,4 +1,4 @@
-// Grupos de opciones de empaque (2026-09-24, ver CLAUDE.md #4 "Packaging default + optional"):
+// Grupos de opciones de empaque:
 // el admin escribe el nombre del grupo como texto libre por fila (ProductVariantUnitMaterial/
 // IntermediateMaterial/PalletMaterial.optionGroup). Estas funciones puras son la única fuente de
 // verdad de "¿son el mismo grupo?", usadas tanto al guardar (servicios de materiales) como al

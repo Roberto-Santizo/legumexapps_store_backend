@@ -36,10 +36,10 @@ class Packaging extends BaseCatalogModel {
     })
     declare packagingRole: string
 
-    // "packagingMaterial" (¿de qué está hecho?) se retiró del modelo (2026-09-13) -- el negocio
+    // "packagingMaterial" (¿de qué está hecho?) se retiró del modelo -- el negocio
     // solo necesita el rol (packagingRole) para el cálculo y la receta, nunca de qué material
     // físico está hecho. La columna sigue físicamente en Postgres como huérfana (sequelize.sync,
-    // sin migraciones -- ver memoria del proyecto), no se botó con SQL.
+    // sin migraciones), no se botó con SQL.
     @Column({
         type: DataType.DECIMAL(10, 4),
         allowNull: true

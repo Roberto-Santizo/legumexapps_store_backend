@@ -18,7 +18,7 @@ async function getProductVariantPalletMaterialById(id: number): Promise<ProductV
     return productVariantPalletMaterial
 }
 
-// Grupos de opciones (2026-09-24) -- mismo criterio que productVariantUnitMaterial.service.ts, ver
+// Grupos de opciones -- mismo criterio que productVariantUnitMaterial.service.ts, ver
 // el comentario ahí (defaults, auto-democión y normalización del nombre, todo POR GRUPO).
 async function findActiveGroupedRows(productVariantId: number, excludeId: number | null): Promise<ProductVariantPalletMaterial[]> {
     const rows = await ProductVariantPalletMaterial.findAll({

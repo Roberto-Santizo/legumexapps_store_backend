@@ -16,7 +16,7 @@ const upload = multer({
 productRouter.use(authenticate)
 
 productRouter.get("/", authorize("products:view"), validate(productQuerySchema, "query"), productController.index)
-// Carga masiva de Productos base (2026-09-25) -- ANTES de /:id para que "bulk-import" no se lea
+// Carga masiva de Productos base -- ANTES de /:id para que "bulk-import" no se lea
 // como un id. Mismo permiso que el formulario de crear producto (products:create).
 productRouter.get("/bulk-import/template", authorize("products:create"), productController.downloadTemplate)
 productRouter.post("/bulk-import", authorize("products:create"), upload.single("file"), productController.bulkImport)

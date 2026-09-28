@@ -10,6 +10,7 @@ import Product from "../features/product/models/Product.model"
 import ProductTranslation from "../features/product/models/ProductTranslation.model"
 import ProductVariant from "../features/product/models/ProductVariant.model"
 import ProductRawMaterial from "../features/product/models/ProductRawMaterial.model"
+import ProductIngredient from "../features/product/models/ProductIngredient.model"
 import ProductVariantPalletMaterial from "../features/product/models/ProductVariantPalletMaterial.model"
 import ProductVariantUnitMaterial from "../features/product/models/ProductVariantUnitMaterial.model"
 import ProductVariantIntermediateMaterial from "../features/product/models/ProductVariantIntermediateMaterial.model"
@@ -18,6 +19,8 @@ import Presentation from "../features/presentation/models/Presentation.model"
 import Packaging from "../features/packaging/models/Packaging.model"
 import RawMaterial from "../features/rawMaterial/models/RawMaterial.model"
 import RawMaterialTranslation from "../features/rawMaterial/models/RawMaterialTranslation.model"
+import Ingredient from "../features/ingredient/models/Ingredient.model"
+import IngredientTranslation from "../features/ingredient/models/IngredientTranslation.model"
 import Destination from "../features/destination/models/Destination.model"
 import User from "../features/accessControl/user/models/user.model"
 import Role from "../features/accessControl/roles/models/role.model"
@@ -49,6 +52,7 @@ const sequelize = new Sequelize(env.databaseUrl, {
         ProductTranslation,
         ProductVariant,
         ProductRawMaterial,
+        ProductIngredient,
         ProductVariantPalletMaterial,
         ProductVariantUnitMaterial,
         ProductVariantIntermediateMaterial,
@@ -57,6 +61,8 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Packaging,
         RawMaterial,
         RawMaterialTranslation,
+        Ingredient,
+        IngredientTranslation,
         Destination,
         User,
         Role,

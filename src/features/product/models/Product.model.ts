@@ -4,6 +4,7 @@ import SubCategory from "../../category/models/SubCategory.model";
 import Client from "../../client/models/Client.model";
 import ProductVariant from "./ProductVariant.model";
 import ProductRawMaterial from "./ProductRawMaterial.model";
+import ProductIngredient from "./ProductIngredient.model";
 import ProductTranslation from "./ProductTranslation.model";
 
 @Table({
@@ -34,7 +35,7 @@ class Product extends BaseCatalogModel {
     })
     declare subCategoryId: number
 
-    // Requerido (2026-09-16): cada Producto pertenece a exactamente un Cliente (el catálogo real
+    // Requerido: cada Producto pertenece a exactamente un Cliente (el catálogo real
     // de clientes, ver features/client/ -- no confundir con salesperson/, la cuenta que cotiza).
     @ForeignKey(() => Client)
     @Column({
@@ -95,6 +96,10 @@ class Product extends BaseCatalogModel {
 
     @HasMany(() => ProductRawMaterial, "productId")
     declare productRawMaterials: ProductRawMaterial[]
+
+    // Ingredientes agregados (sal, azúcar...), fuera del 100% de la receta -- ver ProductIngredient.
+    @HasMany(() => ProductIngredient, "productId")
+    declare productIngredients: ProductIngredient[]
 
     @HasMany(() => ProductTranslation, "productId")
     declare translations: ProductTranslation[]

@@ -17,11 +17,11 @@ class ProductVariant extends BaseCatalogModel {
     })
     declare productId: number
 
-    // Requerido (2026-09-16): cada SKU (variante) debe estar atado a exactamente una Presentación
+    // Requerido: cada SKU (variante) debe estar atado a exactamente una Presentación
     // -- ya no hay variantes "sin presentación". Además es inmutable una vez creada (ver
     // productVariant.service.ts::assertPresentationNotChanged): cambiar de presentación exige
     // crear un SKU nuevo, no reasignar este. Junto con Product.codigo, (productId, presentationId)
-    // ES la identidad del SKU (2026-09-17, ver assertPresentationNotAlreadyUsed) -- ya no hay un
+    // ES la identidad del SKU (ver assertPresentationNotAlreadyUsed) -- ya no hay un
     // skuCode propio de la variante.
     @ForeignKey(() => Presentation)
     @Column({
@@ -62,7 +62,7 @@ class ProductVariant extends BaseCatalogModel {
     @HasMany(() => ProductVariantUnitMaterial, "productVariantId")
     declare unitMaterials: ProductVariantUnitMaterial[]
 
-    // Default + opcional (2026-09-21) -- reemplaza el FK único intermediatePackagingId (eliminado
+    // Default + opcional -- reemplaza el FK único intermediatePackagingId (eliminado
     // del modelo; unitsPerIntermediatePackage se queda arriba, compartido entre alternativas).
     @HasMany(() => ProductVariantIntermediateMaterial, "productVariantId")
     declare intermediateMaterials: ProductVariantIntermediateMaterial[]

@@ -6,9 +6,11 @@ import unitRouter from "../features/unit/routes/unit.routes"
 import packagingRouter from "../features/packaging/routes/packaging.routes"
 import presentationRouter from "../features/presentation/routes/presentation.routes"
 import rawMaterialRouter from "../features/rawMaterial/routes/rawMaterial.routes"
+import ingredientRouter from "../features/ingredient/routes/ingredient.routes"
 import destinationRouter from "../features/destination/routes/destination.routes"
 import productVariantRouter from "../features/product/routes/productVariant.routes"
 import productRawMaterialRouter from "../features/product/routes/productRawMaterial.routes"
+import productIngredientRouter from "../features/product/routes/productIngredient.routes"
 import productVariantPalletMaterialRouter from "../features/product/routes/productVariantPalletMaterial.routes"
 import productVariantUnitMaterialRouter from "../features/product/routes/productVariantUnitMaterial.routes"
 import productVariantIntermediateMaterialRouter from "../features/product/routes/productVariantIntermediateMaterial.routes"
@@ -54,10 +56,12 @@ appRouter.use("/units", unitRouter)
 appRouter.use("/packagings", packagingRouter)
 appRouter.use("/presentations", presentationRouter)
 appRouter.use("/raw-materials", rawMaterialRouter)
+appRouter.use("/ingredients", ingredientRouter)
 appRouter.use("/destinations", destinationRouter)
 appRouter.use("/processing-costs", processingCostRouter)
 appRouter.use("/product-variants", productVariantRouter)
 appRouter.use("/product-raw-materials", productRawMaterialRouter)
+appRouter.use("/product-ingredients", productIngredientRouter)
 appRouter.use("/product-variant-pallet-materials", productVariantPalletMaterialRouter)
 appRouter.use("/product-variant-unit-materials", productVariantUnitMaterialRouter)
 appRouter.use("/product-variant-intermediate-materials", productVariantIntermediateMaterialRouter)

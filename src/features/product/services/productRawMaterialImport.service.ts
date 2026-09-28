@@ -22,8 +22,8 @@ import {
     REQUIRED_PRODUCT_RAW_MATERIAL_IMPORT_FIELDS,
 } from "../constants/productRawMaterialImport.constant"
 
-// Carga masiva de Recetas (2026-09-25) -- paso 2 de 3 (Productos → Recetas → SKUs, ver CLAUDE.md
-// #4). Una fila por (Producto, Materia Prima); las filas se agrupan por producto, igual que
+// Carga masiva de Recetas -- paso 2 de 4 (Productos → Recetas → Ingredientes → SKUs).
+// Una fila por (Producto, Materia Prima); las filas se agrupan por producto, igual que
 // productVariantImport.service.ts::finalizeVariantGroup agrupa por SKU. Las reglas dependen del
 // Product.isCustomizable ya guardado (el archivo nunca re-declara el tipo de receta):
 //   - Fija: Porcentaje obligatorio en cada fila y el grupo debe sumar 100 (±0.5) -- más estricto
@@ -355,7 +355,7 @@ async function buildProductRawMaterialImportTemplate(): Promise<Buffer> {
     helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
     helpSheet.getRow(1).font = { bold: true }
     const helpLines = [
-        "PASO 2 de 3: Productos → Recetas → SKUs. Una fila por cada materia prima de la receta de un producto -- si un producto lleva 3 materias primas, escribe 3 filas con el mismo \"Código Producto\".",
+        "PASO 2 de 4: Productos → Recetas → Ingredientes (opcional) → SKUs. Una fila por cada materia prima de la receta de un producto -- si un producto lleva 3 materias primas, escribe 3 filas con el mismo \"Código Producto\".",
         "\"Código Producto\" debe ser el código de un Producto ya creado (paso 1). El tipo de receta (Fija o Personalizable) se toma de ese producto, no se vuelve a escribir acá.",
         "\"Código Materia Prima\" debe ser el código EXACTO de una materia prima activa del catálogo de Materias Primas.",
         "Receta FIJA: llena solo \"Porcentaje\" en cada fila (mayor a 0, máximo 100). Las filas del producto deben sumar exactamente 100%. Deja vacías \"% mínimo\" y \"% máximo\".",

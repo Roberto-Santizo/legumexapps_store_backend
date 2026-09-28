@@ -27,8 +27,8 @@ import {
     REQUIRED_PRODUCT_IMPORT_FIELDS,
 } from "../constants/productImport.constant"
 
-// Carga masiva de Productos base (2026-09-25) -- paso 1 de 3 (Productos → Recetas → SKUs, ver
-// CLAUDE.md #4). Solo CREA productos (create-only), todo-o-nada por archivo. Cada fila se valida
+// Carga masiva de Productos base -- paso 1 de 4 (Productos → Recetas → Ingredientes → SKUs).
+// Solo CREA productos (create-only), todo-o-nada por archivo. Cada fila se valida
 // con el mismo createProductSchema que el formulario manual, sin imagen: el producto se crea con
 // imageUrl null y la imagen se sube después en su pantalla de edición.
 
@@ -130,7 +130,7 @@ function resolveClientField(rawClient: ImportCellValue, catalogs: NamedCatalogs,
     return matches[0].id
 }
 
-// "Tipo de receta" es obligatorio (decisión 2026-09-25): cambia cómo se interpreta toda la receta
+// "Tipo de receta" es obligatorio (decisión de negocio): cambia cómo se interpreta toda la receta
 // del producto, así que no se asume "Fija" por omisión.
 function resolveRecipeTypeField(rawRecipeType: ImportCellValue, ctx: RowValidation): boolean | undefined {
     if (isBlankCell(rawRecipeType)) {
@@ -373,7 +373,7 @@ async function buildProductImportTemplate(): Promise<Buffer> {
     helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
     helpSheet.getRow(1).font = { bold: true }
     const helpLines = [
-        "PASO 1 de 3: Productos → Recetas → SKUs. Una fila por Producto. Después carga su receta de materias primas (paso 2) y luego sus SKUs con empaque (paso 3).",
+        "PASO 1 de 4: Productos → Recetas → Ingredientes (opcional) → SKUs. Una fila por Producto. Después carga su receta de materias primas (paso 2), sus ingredientes agregados si los lleva (paso 3, opcional) y luego sus SKUs con empaque (paso 4).",
         `"${PRODUCT_IMPORT_COLUMNS.codigo.header}" es el SKU / número de artículo del producto: único (sin importar mayúsculas), no puede existir ya en el catálogo ni repetirse en este archivo.`,
         `"${PRODUCT_IMPORT_COLUMNS.subCategory.header}" debe ser el nombre EXACTO de una Subcategoría activa. Si hay dos Subcategorías con el mismo nombre en Categorías distintas, escribe también "${PRODUCT_IMPORT_COLUMNS.category.header}" para indicar cuál (si no, puedes dejarla vacía).`,
         `"${PRODUCT_IMPORT_COLUMNS.client.header}" debe ser el nombre EXACTO de un Cliente activo del catálogo de Clientes. Si dos Clientes activos se llaman igual, el archivo se rechaza: corrige el catálogo de Clientes primero.`,

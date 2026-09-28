@@ -10,8 +10,8 @@ const server = express()
 // No exponer la versión/tecnología del framework vía el header "X-Powered-By".
 server.disable("x-powered-by")
 
-// Sin ETags (2026-09-22): esta app es una API JSON pura (no sirve estáticos -- las imágenes
-// viven en S3, ver CLAUDE.md #2), pero Express genera un ETag por default en cada respuesta JSON
+// Sin ETags: esta app es una API JSON pura (no sirve estáticos -- las imágenes viven en S3),
+// pero Express genera un ETag por default en cada respuesta JSON
 // igual. Con un ETag + If-None-Match del lado del cliente, un GET repetido con el mismo cuerpo
 // (ej. GET /quotes/products sin cambios en el catálogo) responde 304 Not Modified sin body --
 // axios se lo entrega tal cual al caller, y el zod .parse(data) del frontend revienta contra un

@@ -48,7 +48,7 @@ describe("roundMoney", () => {
     it("redondea half-up también para negativos (away from zero, no half-up hacia +infinito)", () => {
         // Nunca deberían aparecer costos negativos en el dominio real, pero roundMoney no debe
         // comportarse de forma sorpresiva si algún día se usa para una resta (ej. descuentos,
-        // Fase 5 pendiente según la memoria del proyecto).
+        // Fase 5 pendiente).
         expect(roundMoney(new Decimal("-1.00005"))).toBe(-1.0001)
     })
 

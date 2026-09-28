@@ -36,7 +36,7 @@ class ProductVariantUnitMaterial extends BaseCatalogModel {
     })
     declare quantityPerUnit: number
 
-    // Grupos de opciones (2026-09-24, ver CLAUDE.md #4 -- reemplaza el viejo isSwappable): null
+    // Grupos de opciones (reemplaza el viejo isSwappable): null
     // (default) es una fila de receta incondicional, siempre se costea. Un nombre de grupo (texto
     // libre del admin, ej. "Bolsa", "Etiqueta") marca la fila como alternativa dentro de ESE grupo:
     // el cliente elige una por grupo, y los grupos distintos de un mismo nivel se suman. Dentro de

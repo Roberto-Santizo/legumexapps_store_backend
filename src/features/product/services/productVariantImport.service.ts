@@ -46,7 +46,7 @@ interface ResolvedRow extends ProductVariantImportRowInput {
     presentationLabel: string
     packagingRole: string
     packagingDisplayName: string
-    // Grupos de opciones (2026-09-25): ya normalizado (normalizeOptionGroup), null = fila fija.
+    // Grupos de opciones: ya normalizado (normalizeOptionGroup), null = fila fija.
     // isDefault es lo que marcó la celda "Predeterminado"; la resolución final (un default por
     // grupo, el primero si no se marcó ninguno) vive en assignOptionGroupDefaults.
     optionGroup: string | null
@@ -66,8 +66,8 @@ interface SkuImportCandidate {
     boxesPerPallet: number
     bagsPerBox: number
     unitsPerIntermediatePackage: number | null
-    // Lista desde 2026-09-25 (antes un único intermediatePackagingId) -- el nivel intermedio es
-    // multi-fila desde 2026-09-24 (N fijas + N grupos), igual que unit/pallet.
+    // Lista (no un único intermediatePackagingId) -- el nivel intermedio es multi-fila (N fijas +
+    // N grupos), igual que unit/pallet.
     intermediateMaterials: ImportedMaterial[]
     unitMaterials: ImportedMaterial[]
     palletMaterials: ImportedMaterial[]
@@ -149,7 +149,7 @@ function resolveOptionGroupField(rawOptionGroup: ImportCellValue, ctx: RowValida
 
 // "Predeterminado" (opcional): Sí/No con parseImportBoolean, vacío = no marcado. Marcarlo en una
 // fila fija (sin Grupo) es un error -- una fila fija siempre se costea, no tiene "default" que
-// elegir (decisión 2026-09-25: rechazar en vez de ignorar en silencio).
+// elegir (decisión: rechazar en vez de ignorar en silencio).
 function resolveIsDefaultField(rawIsDefault: ImportCellValue, optionGroup: string | null, ctx: RowValidation): boolean {
     const isDefault = parseImportBoolean(rawIsDefault, false)
     if (isDefault === undefined) {
@@ -223,7 +223,7 @@ function processProductVariantImportRow(
     }
 
     // productCodigo/presentationLabel crudos (no normalizados) para identificar el grupo de filas
-    // en los mensajes de error de finalizeVariantGroup -- no hay skuCode ya para eso (2026-09-17).
+    // en los mensajes de error de finalizeVariantGroup -- no hay skuCode para eso.
     // Ambos existen como string en este punto: rowIssues vacío arriba garantiza que
     // resolveProductField/resolvePresentationField sí resolvieron, y ninguno de los dos devuelve
     // undefined sin empujar un issue primero.
@@ -241,7 +241,7 @@ function processProductVariantImportRow(
 }
 
 
-// Grupos de opciones de UN nivel de UN SKU (2026-09-25, ver CLAUDE.md #4): filas con el mismo
+// Grupos de opciones de UN nivel de UN SKU: filas con el mismo
 // grupo (clave insensible a mayúsculas/espacios, optionGroupKey) son alternativas. El nivel sale
 // del packagingRole del material, así que el mismo nombre en unit y en pallet son DOS grupos (el
 // caller llama a esta función una vez por nivel). Dentro de cada grupo: se conserva la grafía de su
@@ -291,7 +291,7 @@ function assignOptionGroupDefaults(
     return { materials, hasIssue }
 }
 
-// Reemplaza a finalizeSkuGroup (2026-09-17) -- sin skuCode, el grupo de filas de un mismo SKU se
+// Sin skuCode, el grupo de filas de un mismo SKU se
 // identifica por (Producto, Presentación) desde el arranque (ver bulkImportProductVariants, que
 // ahora agrupa por esa clave en vez de por skuCode). Por construcción todas las filas de un mismo
 // grupo ya comparten productId/presentationId -- ya no hace falta validar eso como "inconsistencia"
@@ -307,7 +307,7 @@ function finalizeVariantGroup(
     const groupParams = { productCodigo: firstRow.productCodigo, presentationLabel: firstRow.presentationLabel }
     let hasIssue = false
 
-    // Receta completa antes de crear el SKU (2026-09-25, paso 3 de Productos → Recetas → SKUs): un
+    // Receta completa antes de crear el SKU (paso 4 de Productos → Recetas → Ingredientes → SKUs): un
     // SKU es lo que hace cotizable a un producto, así que sin receta completa quedaría cotizando $0
     // de materia prima (calculateQuote lo permite a propósito). Ver loadProductIdsWithCompleteRecipe.
     if (!productIdsWithCompleteRecipe.has(firstRow.productId)) {
@@ -315,7 +315,7 @@ function finalizeVariantGroup(
         hasIssue = true
     }
 
-    // Un SKU por (Producto, Presentación) -- 2026-09-16, mismo criterio que
+    // Un SKU por (Producto, Presentación) -- mismo criterio que
     // productVariant.service.ts::assertPresentationNotAlreadyUsed, acá aplicado en dos frentes:
     // contra la BD (existingProductPresentationPairs) y entre filas del MISMO archivo
     // (claimedProductPresentationPairsInFile, se va llenando a medida que se procesa cada grupo).
@@ -339,9 +339,9 @@ function finalizeVariantGroup(
         hasIssue = true
     }
 
-    // Cubre los tres niveles (2026-09-25): antes saltaba las filas intermedias, y un material
-    // intermedio repetido solo fallaba contra el índice único (productVariantId, packagingId) de la
-    // BD con un rollback genérico -- ahora es un error de fila claro, igual que unit/pallet.
+    // Cubre los tres niveles: si saltara las filas intermedias, un material
+    // intermedio repetido solo fallaría contra el índice único (productVariantId, packagingId) de la
+    // BD con un rollback genérico -- así es un error de fila claro, igual que unit/pallet.
     const seenPackagingIds = new Set<number>()
     for (const row of rows) {
         if (seenPackagingIds.has(row.packagingId)) {
@@ -356,9 +356,9 @@ function finalizeVariantGroup(
         seenPackagingIds.add(row.packagingId)
     }
 
-    // Nivel intermedio multi-fila (2026-09-24/25): se permiten varias filas, pero su "Cantidad" es
+    // Nivel intermedio multi-fila: se permiten varias filas, pero su "Cantidad" es
     // el unitsPerIntermediatePackage del SKU -- UN solo valor compartido por todos los materiales
-    // intermedios --, así que todas deben coincidir (decisión 2026-09-25: rechazar, no tomar la primera).
+    // intermedios --, así que todas deben coincidir (decisión: rechazar, no tomar la primera).
     const intermediateRows = rows.filter(row => row.packagingRole === "intermediate")
     for (const row of intermediateRows.slice(1)) {
         if (row.quantity !== intermediateRows[0].quantity) {
@@ -445,8 +445,8 @@ async function loadPackagingsByNormalizedCode(): Promise<Map<string, Packaging>>
 
 
 // Un SKU por (Producto, Presentación) -- ver el comentario en finalizeVariantGroup. Clave
-// "productId:presentationId" -> ya existe una variante para ese par (2026-09-17, sin skuCode ya
-// no hay un código concreto que reportar, solo la existencia del par).
+// "productId:presentationId" -> ya existe una variante para ese par (sin skuCode no hay un
+// código concreto que reportar, solo la existencia del par).
 async function loadExistingProductPresentationPairs(): Promise<Set<string>> {
     const existingVariants = await ProductVariant.findAll({ attributes: ["productId", "presentationId"] })
     return new Set(existingVariants.map(variant => `${variant.productId}:${variant.presentationId}`))
@@ -503,8 +503,8 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
         if (resolvedRow) resolvedRows.push(resolvedRow)
     }
 
-    // Agrupa filas por (Producto, Presentación) -- reemplaza el viejo agrupado por skuCode
-    // (2026-09-17): esta clave YA era la identidad real de un SKU (ver finalizeVariantGroup).
+    // Agrupa filas por (Producto, Presentación): esta clave es la identidad real de un SKU (ver
+    // finalizeVariantGroup).
     const rowsByProductPresentation = new Map<string, ResolvedRow[]>()
     for (const row of resolvedRows) {
         const key = `${row.productId}:${row.presentationId}`
@@ -547,7 +547,7 @@ async function bulkImportProductVariants(buffer: Buffer): Promise<ProductVariant
                 { transaction }
             )
 
-            // Grupos de opciones (2026-09-25): optionGroup/isDefault ya vienen resueltos por
+            // Grupos de opciones: optionGroup/isDefault ya vienen resueltos por
             // assignOptionGroupDefaults (un default por grupo, null/false en las filas fijas) y se
             // escriben tal cual -- NO se pasa por los servicios del admin, cuyo manejo de defaults
             // asume filas que llegan de a una; el estado final es el mismo que ellos garantizan.
@@ -614,7 +614,7 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     sheet.addRow({ productCodigo: "JUGO-PINA-WM", presentationLabel: "Botella 12 oz (0.75 lb)", boxesPerPallet: 385, bagsPerBox: 6, materialCode: "T-ME-AB158", quantity: 385 })
 
 
-    // Ejemplo con grupos de opciones (2026-09-25): un material fijo (FILM-001, sin Grupo), un grupo
+    // Ejemplo con grupos de opciones: un material fijo (FILM-001, sin Grupo), un grupo
     // "Caja" de dos alternativas con una marcada como predeterminada, y un grupo "Esquinero" sin
     // marcar (su primera fila queda como predeterminada).
     const demo = { productCodigo: "DEMO-PROD", presentationLabel: "Demo 2kg", boxesPerPallet: 40, bagsPerBox: 50 }
@@ -632,7 +632,7 @@ async function buildProductVariantImportTemplate(): Promise<Buffer> {
     const helpLines = [
         "Una fila POR CADA material de la receta de empaque de un SKU -- si un SKU tiene 5 materiales, repite sus 5 primeras columnas en 5 filas seguidas, cambiando solo \"Código Material\" y \"Cantidad\".",
         "Un SKU es, por definición, un Producto en UNA Presentación -- \"Código Producto\" + \"Presentación\" juntos identifican el SKU, ya no hay una columna de código de SKU separada.",
-        "PASO 3 de 3: Productos → Recetas → SKUs. \"Código Producto\" debe ser el código EXACTO de un Producto ya creado (paso 1) -- este importador NUNCA crea Productos nuevos. Su receta ya debe estar completa (paso 2): una receta fija que sume 100%, o una personalizable con al menos una materia prima; si no, sus SKUs se rechazan.",
+        "PASO 4 de 4: Productos → Recetas → Ingredientes (opcional) → SKUs. \"Código Producto\" debe ser el código EXACTO de un Producto ya creado (paso 1) -- este importador NUNCA crea Productos nuevos. Su receta ya debe estar completa (paso 2): una receta fija que sume 100%, o una personalizable con al menos una materia prima; si no, sus SKUs se rechazan. Los ingredientes agregados (paso 3) son opcionales y no bloquean los SKUs.",
         "\"Presentación\" debe ser el nombre EXACTO de una Presentación ya creada (ver el módulo de Presentaciones) -- su peso neto ya quedó definido ahí, no se vuelve a pedir acá.",
         "\"Código Material\" debe ser el código EXACTO de un material ya creado en el catálogo de Empaques -- su ROL (empaque individual/intermedio/paletización) se toma de ahí, no se vuelve a declarar en esta plantilla.",
         "\"Cantidad\" significa algo distinto según el rol del material de esa fila: empaque individual = cuántas unidades de ese material lleva CADA bolsa/unidad de producto (casi siempre 1); empaque intermedio = cuántas unidades pequeñas caben en la bolsa/caja grande; material de paletización = cuántas unidades de ese material lleva CADA palet (para la caja que se apila, normalmente es igual a \"Cajas por palet\").",

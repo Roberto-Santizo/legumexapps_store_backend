@@ -1,6 +1,6 @@
 
-// Carga masiva de Productos base (2026-09-25) -- paso 1 de 3 del pipeline Productos → Recetas →
-// SKUs (ver CLAUDE.md #4 "Bulk-load pipeline"). Una fila por Producto; la imagen NUNCA viene por
+// Carga masiva de Productos base -- paso 1 de 4 del pipeline Productos → Recetas → Ingredientes →
+// SKUs. Una fila por Producto; la imagen NUNCA viene por
 // Excel (el producto se crea sin imagen y se sube después en su pantalla de edición).
 export type ProductImportField =
     | "codigo"

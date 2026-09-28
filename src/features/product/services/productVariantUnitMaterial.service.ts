@@ -18,8 +18,8 @@ async function getProductVariantUnitMaterialById(id: number): Promise<ProductVar
     return productVariantUnitMaterial
 }
 
-// Grupos de opciones (2026-09-24, ver CLAUDE.md #4 -- reemplaza el "un solo slot swappable por
-// nivel" de 2026-09-21): una fila con optionGroup=null es receta fija (siempre se costea); las filas
+// Grupos de opciones (reemplaza el viejo "un solo slot swappable por nivel"): una fila con
+// optionGroup=null es receta fija (siempre se costea); las filas
 // con el mismo optionGroup (comparado sin mayúsculas/espacios, ver shared/utils/optionGroup.util.ts)
 // son alternativas entre sí, y grupos distintos del mismo SKU coexisten. Todas las reglas de default
 // son POR GRUPO: la primera fila de un grupo se fuerza isDefault=true; pedir isDefault=true en otra
@@ -75,7 +75,7 @@ async function countOtherGroupSiblings(productVariantUnitMaterial: ProductVarian
 }
 
 // Bloquea (no auto-promueve) eliminar/desactivar el default de un grupo mientras ese grupo tenga
-// otras alternativas activas -- decisión de negocio 2026-09-21: el admin debe elegir otro default
+// otras alternativas activas -- decisión de negocio: el admin debe elegir otro default
 // primero, nunca se cambia en silencio qué material se está costeando. La última fila de un grupo
 // sí se puede eliminar (el grupo simplemente desaparece).
 async function assertDeletionNotBlockedByDefault(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<void> {

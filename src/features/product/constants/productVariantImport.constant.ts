@@ -21,7 +21,7 @@ export const PRODUCT_VARIANT_IMPORT_COLUMNS: Record<ProductVariantImportField, I
     bagsPerBox: { header: "Bolsas por caja", aliases: ["bolsas por caja"] },
     materialCode: { header: "Código Material", aliases: ["codigo material", "código material", "material"] },
     quantity: { header: "Cantidad", aliases: ["cantidad"] },
-    // Grupos de opciones (2026-09-25, ver CLAUDE.md #4) -- columnas OPCIONALES: un archivo sin
+    // Grupos de opciones -- columnas OPCIONALES: un archivo sin
     // ellas sigue importando cada material como fila fija, igual que antes. Aliases ya
     // normalizados con normalizeImportText (minúsculas, sin acentos).
     optionGroup: { header: "Grupo", aliases: ["grupo", "grupo de opciones", "option group", "group"] },
@@ -44,6 +44,6 @@ export const MAX_PRODUCT_VARIANT_IMPORT_ROWS = 5000
 // STRING(60) de los tres modelos ProductVariant*Material.
 export const MAX_PRODUCT_VARIANT_IMPORT_OPTION_GROUP_LENGTH = 60
 
-// Receta completa para poder crear un SKU (2026-09-25): misma tolerancia que
+// Receta completa para poder crear un SKU: misma tolerancia que
 // quoteService.MIX_PERCENTAGE_TOLERANCE al exigir que una receta fija sume 100.
 export const RECIPE_COMPLETENESS_TOLERANCE = 0.5

@@ -39,7 +39,7 @@ import Quote from "../models/Quote.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import { quoteService } from "./quote.service"
 import { NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput, calculateQuoteSchema } from "../schemas/quote.schema"
 // Se importa el catálogo REAL (no mockeado -- es un módulo de constantes puro, sin Sequelize) para
 // derivar el factor gramos->libras de la misma fuente que usa quote.service.ts, en vez de
 // hardcodear "453.592" una tercera vez en este archivo. Si algún día quote.service.ts dejara de
@@ -139,7 +139,7 @@ describe("quoteService.calculateQuote", () => {
         // percentage:100 (única materia prima activa) + netWeightGrams(0.5)/baseFactor(1) reproduce
         // exactamente el mismo quantityPerUnit(0.5) y rawMaterialCost(200) que el viejo
         // quantityValue:0.5 -- ver el comentario extendido en el describe "receta fija" de abajo
-        // para la fórmula general usada en todo este archivo tras el pivote a % (2026-09-19).
+        // para la fórmula general usada en todo este archivo tras el pivote a %.
         function stubMinimalVariant(): void {
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
@@ -202,7 +202,7 @@ describe("quoteService.calculateQuote", () => {
     })
 
     describe("receta fija (producto no personalizable, pivote a % 2026-09-19)", () => {
-        // A partir de 2026-09-19 la receta fija usa la MISMA matemática %->gramos->costo que el
+        // La receta fija usa la MISMA matemática %->gramos->costo que el
         // mix personalizable (ver buildPercentageRawMaterialLine en quote.service.ts): el % lo
         // fija el admin (ProductRawMaterial.percentage) en vez del cliente, y queda congelado.
         // Convención usada en TODO este archivo para reproducir bit-a-bit los valores exactos que
@@ -1225,7 +1225,7 @@ describe("quoteService.calculateQuote", () => {
         })
     })
 
-    describe("grupos de opciones (2026-09-24, ver CLAUDE.md #4) -- empaque individual", () => {
+    describe("grupos de opciones -- empaque individual", () => {
         // Fija "Etiqueta" + grupo "Bolsa" (estándar default / con logo) + grupo "Tapa" (simple
         // default / premium). totalUnits = 10 con baseInput (1 palet × 10 × 1).
         function stubVariantWithUnitGroups(): void {
@@ -1550,8 +1550,8 @@ describe("quoteService.calculateQuote", () => {
             })
         }
 
-        // Caso verificado a mano por el usuario contra el cotizador real en producción
-        // (2026-08-10, ver memoria del proyecto) -- Q763.40 exacto. Si este test empieza a
+        // Caso verificado a mano contra el cotizador real en producción -- Q763.40 exacto. Si
+        // este test empieza a
         // fallar, es una señal directa de regresión en el motor de cálculo, no un falso positivo.
         it("reproduce el caso verificado en producción: 40% piña convencional + 59.9% piña orgánica = Q763.40", async () => {
             stubCustomizableVariant()
@@ -1910,6 +1910,242 @@ describe("quoteService.calculateQuote", () => {
         })
     })
 
+    describe("ingredientes agregados (sal, azúcar...) -- línea aparte, fuera del 100% de la receta", () => {
+        // Libra REAL del catálogo (igual que el resto del archivo) -- Ingredient.costUnit siempre es
+        // la Libra forzada (ingredient.service.ts), y la materia prima de estos fixtures también.
+        const POUND_UNIT = { unitType: "weight", baseFactor: getUnitCatalogEntry("pound")!.baseFactor }
+
+        // Ejemplo trabajado: sal a $0.50/lb, "40 g en una presentación de
+        // 2000 g" (= 2% del peso neto), cotizada en una presentación de 500 g -> 10 g por unidad.
+        const SAL = {
+            id: 1,
+            ingredientId: 50,
+            grams: "40.000", // DECIMAL llega como string desde Postgres -- el motor debe castear
+            referenceNetWeightGrams: "2000.00",
+            usedIngredient: { displayName: "Sal", costPerUnit: "0.5000", costUnit: POUND_UNIT, translations: [{ language: "en", displayName: "Salt" }] }
+        }
+        const AZUCAR = {
+            id: 2,
+            ingredientId: 51,
+            grams: 100,
+            referenceNetWeightGrams: 2000,
+            usedIngredient: { displayName: "Azúcar", costPerUnit: 0.75, costUnit: POUND_UNIT, translations: [] }
+        }
+
+        const MANGO_100 = [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "Mango", costPerUnit: 1, costUnit: POUND_UNIT } }]
+
+        // 60 cajas × 12 bolsas = 720 unidades por palet.
+        function stubIngredientVariant(options: {
+            netWeightGrams?: number | null
+            productIngredients?: unknown[]
+            productRawMaterials?: unknown[]
+            isCustomizable?: boolean
+        } = {}): void {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10,
+                boxesPerPallet: 60,
+                bagsPerBox: 12,
+                parentProduct: {
+                    isCustomizable: options.isCustomizable ?? false,
+                    displayName: "Mango deshidratado",
+                    productRawMaterials: options.productRawMaterials ?? MANGO_100,
+                    productIngredients: options.productIngredients ?? [SAL]
+                },
+                sizePresentation: { displayLabel: "Bolsa", netWeightGrams: options.netWeightGrams === undefined ? 500 : options.netWeightGrams },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa", unitCost: 0.1 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 60, usedPalletMaterial: { displayName: "Caja", unitCost: 0.5 } }]
+            })
+        }
+
+        const input: CalculateQuoteInput = { productVariantId: 10, requestedPallets: 1 }
+
+        it("costea el ejemplo trabajado exacto: 40 g/2000 g de sal a $0.50/lb en 500 g × 720 unidades = $7.9366", async () => {
+            stubIngredientVariant()
+
+            const result = await quoteService.calculateQuote(input)
+
+            // 10 g / 453.592 g/lb = 0.0220462 lb × $0.50 × 720 = 7.93664 -> 7.9366 (4 decimales internos)
+            expect(result.ingredientCost).toBe(7.9366)
+            expect(result.breakdown.ingredients).toEqual([
+                {
+                    ingredientId: 50,
+                    displayName: "Sal",
+                    grams: 40,
+                    referenceNetWeightGrams: 2000,
+                    gramsPerUnit: 10,
+                    unitCost: 0.5,
+                    quantityPerUnit: 0.022046,
+                    totalUnits: 720,
+                    lineTotal: 7.9366
+                }
+            ])
+        })
+
+        it("escala con la presentación: el mismo producto en 2000 g cuesta ×4 que en 500 g", async () => {
+            stubIngredientVariant({ netWeightGrams: 500 })
+            const small = await quoteService.calculateQuote(input)
+            stubIngredientVariant({ netWeightGrams: 2000 })
+            const large = await quoteService.calculateQuote(input)
+
+            expect(small.breakdown.ingredients[0].gramsPerUnit).toBe(10)
+            expect(large.breakdown.ingredients[0].gramsPerUnit).toBe(40) // la presentación de referencia
+            // 4 × 7.93664 = 31.74656 -> 31.7466 (redondeo propio de la línea, no 4 × 7.9366)
+            expect(large.ingredientCost).toBe(31.7466)
+            expect(large.ingredientCost).toBeCloseTo(small.ingredientCost * 4, 3)
+        })
+
+        it("sin ingredientes: ingredientCost 0, breakdown.ingredients [] y un total idéntico al de antes", async () => {
+            stubIngredientVariant({ productIngredients: [] })
+
+            const result = await quoteService.calculateQuote(input)
+
+            expect(result.ingredientCost).toBe(0)
+            expect(result.breakdown.ingredients).toEqual([])
+            // raw 500/453.592 × $1 × 720 = 793.6648; bolsa 0.1 × 720 = 72; cajas 60 × 0.5 = 30
+            expect(result.totalCost).toBe(895.6648)
+        })
+
+        it("no cambia la materia prima: mismo rawMaterialCost con y sin ingredientes, y el total sube exactamente ingredientCost", async () => {
+            stubIngredientVariant({ productIngredients: [] })
+            const withoutIngredients = await quoteService.calculateQuote(input)
+            stubIngredientVariant({ productIngredients: [SAL, AZUCAR] })
+            const withIngredients = await quoteService.calculateQuote(input)
+
+            expect(withIngredients.rawMaterialCost).toBe(withoutIngredients.rawMaterialCost)
+            expect(withIngredients.breakdown.rawMaterials).toEqual(withoutIngredients.breakdown.rawMaterials)
+            // azúcar: 100/2000 = 5% -> 25 g/unidad -> 25/453.592 × 0.75 × 720 = 29.7624
+            expect(withIngredients.breakdown.ingredients.map(line => line.lineTotal)).toEqual([7.9366, 29.7624])
+            expect(withIngredients.ingredientCost).toBe(37.699)
+            expect(withIngredients.totalCost).toBe(withoutIngredients.totalCost + 37.699)
+        })
+
+        it("un producto sin materias primas ni ingredientes no exige peso neto; con ingredientes sí (422)", async () => {
+            stubIngredientVariant({ productRawMaterials: [], productIngredients: [], netWeightGrams: null })
+            await expect(quoteService.calculateQuote(input)).resolves.toMatchObject({ ingredientCost: 0 })
+
+            stubIngredientVariant({ productRawMaterials: [], productIngredients: [SAL], netWeightGrams: null })
+            await expect(quoteService.calculateQuote(input)).rejects.toMatchObject({
+                statusCode: 422,
+                key: "errors.presentation_missing_net_weight"
+            })
+        })
+
+        it("rechaza un ingrediente sin unidad de costeo con su propia clave de error", async () => {
+            stubIngredientVariant({ productIngredients: [{ ...SAL, usedIngredient: { ...SAL.usedIngredient, costUnit: null } }] })
+
+            await expect(quoteService.calculateQuote(input)).rejects.toMatchObject({
+                statusCode: 422,
+                key: "errors.ingredient_missing_cost_unit",
+                params: { ingredientId: 50 }
+            })
+        })
+
+        it("ingredientCost entra en la base de los costos adicionales tipo porcentaje", async () => {
+            stubIngredientVariant()
+            mockProcessingCostFindAll.mockImplementation(({ where }: { where: { calculationType: string } }) =>
+                Promise.resolve(where.calculationType === "percentage"
+                    ? [{ id: 1, displayName: "Imprevistos", value: 10, calculationType: "percentage", translations: [] }]
+                    : [])
+            )
+
+            const result = await quoteService.calculateQuote(input)
+
+            // base = raw 793.6648 + ingredientes 7.9366 + bolsa 72 + cajas 30 = 903.6014
+            expect(result.breakdown.percentageCosts[0].baseAmount).toBe(903.6014)
+            expect(result.percentageCostTotal).toBe(90.3601)
+        })
+
+        it("receta fija + ingredientes: la receta sigue sumando 100 sin contar el 2% de sal", async () => {
+            stubIngredientVariant({
+                productRawMaterials: [
+                    { rawMaterialId: 1, percentage: 60, usedRawMaterial: { displayName: "Mango", costPerUnit: 1, costUnit: POUND_UNIT } },
+                    { rawMaterialId: 2, percentage: 40, usedRawMaterial: { displayName: "Piña", costPerUnit: 1, costUnit: POUND_UNIT } }
+                ]
+            })
+
+            const result = await quoteService.calculateQuote(input)
+
+            expect(result.breakdown.rawMaterials).toHaveLength(2)
+            expect(result.ingredientCost).toBe(7.9366)
+        })
+
+        it("receta fija incompleta sigue fallando aunque los ingredientes 'completarían' el 100%", async () => {
+            stubIngredientVariant({
+                productRawMaterials: [{ rawMaterialId: 1, percentage: 98, usedRawMaterial: { displayName: "Mango", costPerUnit: 1, costUnit: POUND_UNIT } }]
+            })
+
+            await expect(quoteService.calculateQuote(input)).rejects.toMatchObject({ key: "errors.fixed_recipe_percentage_must_total_100" })
+        })
+
+        describe("producto personalizable", () => {
+            const POOL = [
+                { rawMaterialId: 1, minPercentage: null, maxPercentage: null, usedRawMaterial: { displayName: "Mango", costPerUnit: 1, costUnit: POUND_UNIT } },
+                { rawMaterialId: 2, minPercentage: null, maxPercentage: null, usedRawMaterial: { displayName: "Piña", costPerUnit: 2, costUnit: POUND_UNIT } }
+            ]
+
+            it("la mezcla sigue sumando 100 y los ingredientes se cobran encima", async () => {
+                stubIngredientVariant({ isCustomizable: true, productRawMaterials: POOL })
+
+                const result = await quoteService.calculateQuote({
+                    ...input,
+                    rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 2, percentage: 50 }]
+                })
+
+                expect(result.breakdown.rawMaterials).toHaveLength(2)
+                expect(result.ingredientCost).toBe(7.9366)
+            })
+
+            it("una mezcla que no suma 100 se sigue rechazando -- los ingredientes no cuentan para el 100", async () => {
+                stubIngredientVariant({ isCustomizable: true, productRawMaterials: POOL })
+
+                await expect(quoteService.calculateQuote({
+                    ...input,
+                    rawMaterialMix: [{ rawMaterialId: 1, percentage: 49 }, { rawMaterialId: 2, percentage: 49 }]
+                })).rejects.toMatchObject({ key: "errors.mix_percentage_must_total_100" })
+            })
+
+            it("un ingrediente mandado dentro de la mezcla del cliente no se costea como ingrediente (no está en el pool -> 422)", async () => {
+                stubIngredientVariant({ isCustomizable: true, productRawMaterials: POOL })
+
+                await expect(quoteService.calculateQuote({
+                    ...input,
+                    rawMaterialMix: [{ rawMaterialId: 1, percentage: 98 }, { rawMaterialId: SAL.ingredientId, percentage: 2 }]
+                })).rejects.toMatchObject({ key: "errors.raw_material_not_in_pool" })
+            })
+        })
+
+        it("el cliente no puede alterar los ingredientes: una clave extra en el payload se ignora (el schema la descarta y el motor no la lee)", async () => {
+            stubIngredientVariant()
+            const rawPayload = { ...input, ingredients: [{ ingredientId: 50, grams: 0 }], ingredientMix: [{ ingredientId: 50, percentage: 0 }] }
+
+            const parsed = calculateQuoteSchema.parse(rawPayload)
+            expect(parsed).not.toHaveProperty("ingredients")
+            expect(parsed).not.toHaveProperty("ingredientMix")
+
+            const result = await quoteService.calculateQuote(rawPayload as unknown as CalculateQuoteInput)
+            expect(result.ingredientCost).toBe(7.9366)
+        })
+
+        it("usa el nombre traducido del ingrediente según el idioma", async () => {
+            stubIngredientVariant()
+
+            const result = await quoteService.calculateQuote(input, "en")
+
+            expect(result.breakdown.ingredients[0].displayName).toBe("Salt")
+        })
+
+        it("saveQuote persiste ingredientCost como columna y congela las líneas en breakdown.ingredients", async () => {
+            stubIngredientVariant()
+            mockQuoteCreate.mockResolvedValueOnce({ id: 77, get: () => new Date("2026-09-27T00:00:00Z") })
+
+            await quoteService.saveQuote(42, input)
+
+            const persisted = mockQuoteCreate.mock.calls[mockQuoteCreate.mock.calls.length - 1][0]
+            expect(persisted.ingredientCost).toBe(7.9366)
+            expect(persisted.breakdown.ingredients).toEqual([expect.objectContaining({ ingredientId: 50, grams: 40, referenceNetWeightGrams: 2000, lineTotal: 7.9366 })])
+        })
+    })
+
     describe("etiqueta compuesta de la variante (variantLabel, 2026-09-13)", () => {
         // Mismo formato que el selector de SKU del cliente (quoteCalculatorForm.component.tsx,
         // frontend): "{{bagsPerBox}} und × {{presentacion}} · {{boxesPerPallet}} cajas/palet".
@@ -2008,7 +2244,7 @@ describe("quoteService.saveQuote", () => {
         )
     })
 
-    // Desacople Quote <-> Lead (2026-09-21): guardar una cotización ya no crea, busca ni vincula un
+    // Desacople Quote <-> Lead: guardar una cotización no crea, busca ni vincula un
     // prospecto -- no hay leadContact en el input ni leadId en lo que se persiste. Los Leads solo
     // nacen del formulario público de la landing (ver lead/).
     describe("sin vínculo con Lead (prospecto)", () => {
@@ -2127,7 +2363,7 @@ describe("quoteService.listQuotableProducts", () => {
         mockProductFindAll.mockReset().mockResolvedValue([])
     })
 
-    // Regresión (2026-09-16): presentationId ya es NOT NULL a nivel de columna en ProductVariant
+    // Regresión: presentationId ya es NOT NULL a nivel de columna en ProductVariant
     // (cada SKU es, por definición, un producto + una Presentación), pero este filtro es defensa
     // en profundidad además de la columna -- mismo criterio que boxesPerPallet/bagsPerBox, que ya
     // se filtraban acá desde antes. No hay una BD real en esta suite (ver el resto del archivo),

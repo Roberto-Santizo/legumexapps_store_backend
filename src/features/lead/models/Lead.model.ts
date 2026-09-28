@@ -22,8 +22,8 @@ class Lead extends Model {
     })
     declare companyName: string
 
-    // Nullable a nivel de columna (2026-09-13, cuando el cotizador también creaba Leads sin
-    // teléfono). Ese origen se eliminó (2026-09-21) y hoy el único que crea Leads es el formulario
+    // Nullable a nivel de columna (de cuando el cotizador también creaba Leads sin teléfono).
+    // Ese origen se eliminó y hoy el único que crea Leads es el formulario
     // público de la landing (publicCreateLeadSchema), que SÍ exige phone -- la columna se deja
     // nullable, no hay razón para endurecerla.
     @Column({

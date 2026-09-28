@@ -2,7 +2,7 @@ import z from "zod"
 
 // Sin cantidad propia (a diferencia de Unit/Pallet material) -- el motor sigue leyendo
 // ProductVariant.unitsPerIntermediatePackage, compartido entre cualquier alternativa elegida
-// (decisión de negocio 2026-09-21, ver CLAUDE.md #4).
+// (decisión de negocio).
 export const createProductVariantIntermediateMaterialSchema = z.object({
     productVariantId: z.number().int().positive(),
     packagingId: z.number().int().positive(),

@@ -7,7 +7,7 @@ import Destination from "../../destination/models/Destination.model";
     tableName: "quotes"
 })
 class Quote extends Model {
-    // Columna física sigue llamándose "customerId" (rename 2026-09-16: esta FK apuntaba a la
+    // Columna física sigue llamándose "customerId" (rename customer -> salesperson: esta FK apuntaba a la
     // feature que se llamaba "customer") -- field explícito para que sequelize-typescript NO
     // infiera "salespersonId" como nombre de columna a partir de la propiedad renombrada. No es
     // una migración de datos, solo el nombre en código.
@@ -26,7 +26,7 @@ class Quote extends Model {
     })
     declare productVariantId: number
 
-    // allowNull: true (2026-09-10) -- transporte "apagado" temporalmente para el cliente: ya no
+    // allowNull: true -- transporte "apagado" temporalmente para el cliente: ya no
     // elige destino, así que una Quote puede quedar sin destinationId. Solo se relaja la
     // restricción NOT NULL (sequelize.sync({alter}) altera la columna en Postgres, no borra
     // datos existentes) -- las cotizaciones viejas guardadas con destino siguen intactas.
@@ -67,6 +67,16 @@ class Quote extends Model {
         allowNull: false
     })
     declare rawMaterialCost: number
+
+    // Ingredientes agregados (sal, azúcar...) -- línea aparte de rawMaterialCost, ver
+    // quoteService.buildIngredientLines. defaultValue: 0, mismo criterio que los demás costos que se
+    // agregaron después (una cotización sin ingredientes vale 0, nunca NULL).
+    @Column({
+        type: DataType.DECIMAL(12, 4),
+        allowNull: false,
+        defaultValue: 0
+    })
+    declare ingredientCost: number
 
     @Column({
         type: DataType.DECIMAL(12, 4),

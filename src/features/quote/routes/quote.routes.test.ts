@@ -28,7 +28,7 @@ import { AppError } from "../../../shared/errors/AppError"
 
 const app = buildTestApp("/api/quotes", quoteRouter)
 
-// type se queda literal "customer" a propósito (rename 2026-09-16) -- ver authenticateSalesperson.ts
+// type se queda literal "customer" a propósito (rename customer -> salesperson) -- ver authenticateSalesperson.ts
 const salespersonToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const staffToken = jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions: ["*"] }, "test-secret")
 
@@ -178,7 +178,7 @@ describe("quoteRouter (HTTP)", () => {
         })
     })
 
-    describe("POST /preview -- recalculo en vivo (2026-09-21, ver CLAUDE.md #6): calcula pero NUNCA guarda", () => {
+    describe("POST /preview -- recalculo en vivo: calcula pero NUNCA guarda", () => {
         it("200 con el cálculo del service, y jamás llama a saveQuote -- mismo contrato que /admin/quotes/preview", async () => {
             (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 })
 

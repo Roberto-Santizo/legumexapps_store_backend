@@ -16,7 +16,7 @@ const upload = multer({
 productRawMaterialRouter.use(authenticate)
 
 productRawMaterialRouter.get("/", authorize("products:view"), productRawMaterialController.index)
-// Carga masiva de Recetas (2026-09-25) -- ANTES de /:id. Mismo permiso que el CRUD de filas de
+// Carga masiva de Recetas -- ANTES de /:id. Mismo permiso que el CRUD de filas de
 // receta (products:edit).
 productRawMaterialRouter.get("/bulk-import/template", authorize("products:edit"), productRawMaterialController.downloadTemplate)
 productRawMaterialRouter.post("/bulk-import", authorize("products:edit"), upload.single("file"), productRawMaterialController.bulkImport)

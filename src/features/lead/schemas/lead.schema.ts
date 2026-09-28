@@ -2,7 +2,7 @@ import { z } from "zod"
 import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema"
 import { LEAD_STATUSES } from "../models/Lead.model"
 
-// Única fuente de verdad para los valores de status (2026-09-16): antes este archivo tenía su
+// Única fuente de verdad para los valores de status: antes este archivo tenía su
 // propio literal ["new", "contacted"] duplicado del de Lead.model.ts (que alimenta la columna
 // ENUM física) -- ahora ambos derivan de LEAD_STATUSES, para que agregar/quitar un status no
 // pueda quedar aplicado en un solo lado por error.

@@ -34,7 +34,7 @@ class ProductVariantPalletMaterial extends BaseCatalogModel {
     })
     declare quantityValue: number
 
-    // Grupos de opciones (2026-09-24) -- mismo criterio que ProductVariantUnitMaterial.optionGroup,
+    // Grupos de opciones -- mismo criterio que ProductVariantUnitMaterial.optionGroup,
     // ver el comentario ahí (ej. grupo "Caja" + grupo "Esquinero" en un mismo SKU).
     @Column({
         type: DataType.STRING(60),

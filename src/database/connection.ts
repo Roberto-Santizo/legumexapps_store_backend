@@ -30,6 +30,10 @@ import Salesperson from "../features/salesperson/models/Salesperson.model"
 import Client from "../features/client/models/Client.model"
 import Quote from "../features/quote/models/Quote.model"
 import QuoteDraft from "../features/quoteDraft/models/QuoteDraft.model"
+import CustomQuoteRawMaterialOption from "../features/customQuote/models/CustomQuoteRawMaterialOption.model"
+import CustomQuoteIngredientOption from "../features/customQuote/models/CustomQuoteIngredientOption.model"
+import CustomQuotePresentationOption from "../features/customQuote/models/CustomQuotePresentationOption.model"
+import CustomQuotePackagingOption from "../features/customQuote/models/CustomQuotePackagingOption.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
 import Lead from "../features/lead/models/Lead.model"
@@ -73,6 +77,10 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Client,
         Quote,
         QuoteDraft,
+        CustomQuoteRawMaterialOption,
+        CustomQuoteIngredientOption,
+        CustomQuotePresentationOption,
+        CustomQuotePackagingOption,
         ProcessingCost,
         ProcessingCostTranslation,
         Lead,

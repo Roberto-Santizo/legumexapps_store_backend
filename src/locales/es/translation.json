@@ -102,7 +102,15 @@
         "unit_material_default_deletion_blocked": "No puedes eliminar este material: es el predeterminado del grupo \"{{group}}\" (empaque individual) y ese grupo todavía tiene otras alternativas activas. Marca otro material del grupo como predeterminado primero.",
         "intermediate_material_default_deletion_blocked": "No puedes eliminar este material: es el predeterminado del grupo \"{{group}}\" (empaque intermedio) y ese grupo todavía tiene otras alternativas activas. Marca otro material del grupo como predeterminado primero.",
         "material_default_required": "Este material es el predeterminado del grupo \"{{group}}\" y ese grupo todavía tiene otras alternativas activas. No puedes quitarle el predeterminado, volverlo fijo ni moverlo a otro grupo sin marcar antes otro material del grupo como predeterminado.",
-        "pallet_material_default_deletion_blocked": "No puedes eliminar este material: es el predeterminado del grupo \"{{group}}\" (paletización) y ese grupo todavía tiene otras alternativas activas. Marca otro material del grupo como predeterminado primero."
+        "pallet_material_default_deletion_blocked": "No puedes eliminar este material: es el predeterminado del grupo \"{{group}}\" (paletización) y ese grupo todavía tiene otras alternativas activas. Marca otro material del grupo como predeterminado primero.",
+        "custom_quote_option_already_exists": "Este elemento ya está en la configuración de cotizaciones a la medida. Si está desactivado, reactívalo en lugar de agregarlo de nuevo.",
+        "custom_quote_min_greater_than_max": "El porcentaje mínimo ({{minPercentage}}) no puede ser mayor que el máximo ({{maxPercentage}}).",
+        "custom_quote_presentation_missing_net_weight": "Esta presentación no tiene peso neto definido. Configúralo en la presentación antes de ofrecerla en cotizaciones a la medida.",
+        "custom_quote_packaging_unknown_level": "El material tiene un rol de empaque desconocido (\"{{packagingRole}}\") y no se puede ofrecer en cotizaciones a la medida.",
+        "custom_quote_packaging_quantity_required": "Indica la cantidad de este material: por unidad en empaque individual, o por palet o por caja en paletización.",
+        "custom_quote_packaging_quantity_basis_required": "Indica si la cantidad de este material de paletización es por palet o por caja.",
+        "custom_quote_packaging_invalid_quantity_basis": "La base de cantidad \"{{quantityBasis}}\" no aplica a este nivel: empaque individual va por unidad y paletización por palet o por caja.",
+        "custom_quote_intermediate_packaging_has_no_quantity": "Un material de empaque intermedio no lleva cantidad: se calcula con las unidades por empaque intermedio de la presentación elegida."
     },
     "success": {
         "created": "Creación de {{resource}} exitosa",
@@ -138,7 +146,11 @@
         "QuoteDraft": "Cotización sin finalizar",
         "ProcessingCost": "Costo adicional",
         "Lead": "Prospecto",
-        "SiteImage": "Imagen del sitio"
+        "SiteImage": "Imagen del sitio",
+        "CustomQuoteRawMaterialOption": "Materia prima de cotización a la medida",
+        "CustomQuoteIngredientOption": "Ingrediente de cotización a la medida",
+        "CustomQuotePresentationOption": "Presentación de cotización a la medida",
+        "CustomQuotePackagingOption": "Material de empaque de cotización a la medida"
     },
     "permissionActions": {
         "view": "Ver",
@@ -167,6 +179,7 @@
         "dashboard": "panel",
         "processingCosts": "costos adicionales",
         "leads": "prospectos",
-        "siteContent": "contenido del sitio"
+        "siteContent": "contenido del sitio",
+        "customQuoteConfig": "configuración de cotizaciones a la medida"
     }
 }

@@ -32,6 +32,9 @@ const EXTRA_PERMISSIONS = [
     { name: "quotes:view" },
     { name: "quotes:calculate" },
     { name: "quoteDrafts:view" },
+    // Configuración de cotizaciones a la medida: un solo permiso (lectura + escritura), aparte de
+    // quotes:* porque decide qué se puede cotizar y con qué cantidades.
+    { name: "customQuoteConfig:edit" },
     { name: "dashboard:view" },
     { name: "leads:view" },
     { name: "leads:edit" },

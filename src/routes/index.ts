@@ -25,6 +25,7 @@ import salespersonLoginRouter from "../features/salesperson/routes/salespersonLo
 import quoteRouter from "../features/quote/routes/quote.routes"
 import adminQuoteRouter from "../features/quote/routes/adminQuote.routes"
 import adminQuoteDraftRouter from "../features/quoteDraft/routes/adminQuoteDraft.routes"
+import customQuoteConfigRouter from "../features/customQuote/routes/customQuoteConfig.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
 import processingCostRouter from "../features/processingCost/routes/processingCost.routes"
 import leadRouter from "../features/lead/routes/lead.routes"
@@ -45,6 +46,7 @@ appRouter.use("/salesperson-login", salespersonLoginRouter)
 appRouter.use("/quotes", quoteRouter)
 appRouter.use("/admin/quotes", adminQuoteRouter)
 appRouter.use("/admin/quote-drafts", adminQuoteDraftRouter)
+appRouter.use("/admin/custom-quote-config", customQuoteConfigRouter)
 appRouter.use("/admin/dashboard", dashboardRouter)
 appRouter.use("/leads", leadRouter)
 appRouter.use("/admin/leads", adminLeadRouter)

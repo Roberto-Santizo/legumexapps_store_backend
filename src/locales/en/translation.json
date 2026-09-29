@@ -102,7 +102,15 @@
         "unit_material_default_deletion_blocked": "You can't delete this material: it's the default of the \"{{group}}\" group (unit packaging) and that group still has other active options. Mark another material in the group as default first.",
         "intermediate_material_default_deletion_blocked": "You can't delete this material: it's the default of the \"{{group}}\" group (intermediate packaging) and that group still has other active options. Mark another material in the group as default first.",
         "material_default_required": "This material is the default of the \"{{group}}\" group and that group still has other active options. You can't remove its default status, make it fixed, or move it to another group until you mark another material in the group as default.",
-        "pallet_material_default_deletion_blocked": "You can't delete this material: it's the default of the \"{{group}}\" group (pallet materials) and that group still has other active options. Mark another material in the group as default first."
+        "pallet_material_default_deletion_blocked": "You can't delete this material: it's the default of the \"{{group}}\" group (pallet materials) and that group still has other active options. Mark another material in the group as default first.",
+        "custom_quote_option_already_exists": "This item is already in the custom-quote configuration. If it is deactivated, reactivate it instead of adding it again.",
+        "custom_quote_min_greater_than_max": "The minimum percentage ({{minPercentage}}) cannot be greater than the maximum ({{maxPercentage}}).",
+        "custom_quote_presentation_missing_net_weight": "This presentation has no net weight. Set it on the presentation before offering it in custom quotes.",
+        "custom_quote_packaging_unknown_level": "The material has an unknown packaging role (\"{{packagingRole}}\") and cannot be offered in custom quotes.",
+        "custom_quote_packaging_quantity_required": "Enter this material's quantity: per unit for unit packaging, or per pallet or per box for palletizing.",
+        "custom_quote_packaging_quantity_basis_required": "Choose whether this palletizing material's quantity is per pallet or per box.",
+        "custom_quote_packaging_invalid_quantity_basis": "The quantity basis \"{{quantityBasis}}\" does not apply to this level: unit packaging is per unit and palletizing is per pallet or per box.",
+        "custom_quote_intermediate_packaging_has_no_quantity": "An intermediate packaging material has no quantity: it is calculated from the chosen presentation's units per intermediate package."
     },
     "success": {
         "created": "{{resource}} created successfully",
@@ -138,7 +146,11 @@
         "QuoteDraft": "Unfinished quote",
         "ProcessingCost": "Additional cost",
         "Lead": "Lead",
-        "SiteImage": "Site image"
+        "SiteImage": "Site image",
+        "CustomQuoteRawMaterialOption": "Custom-quote raw material",
+        "CustomQuoteIngredientOption": "Custom-quote ingredient",
+        "CustomQuotePresentationOption": "Custom-quote presentation",
+        "CustomQuotePackagingOption": "Custom-quote packaging material"
     },
     "permissionActions": {
         "view": "View",
@@ -167,6 +179,7 @@
         "dashboard": "dashboard",
         "processingCosts": "additional costs",
         "leads": "leads",
-        "siteContent": "site content"
+        "siteContent": "site content",
+        "customQuoteConfig": "custom-quote configuration"
     }
 }

@@ -1,9 +1,9 @@
 import { z } from "zod"
 import { businessDateSchema, isBusinessDateRangeOrdered } from "../../../shared/schemas/businessDate.schema"
 
-// Días calendario "YYYY-MM-DD" en hora de Guatemala, NO instantes: el servicio los convierte a
-// límites de día locales (ver shared/schemas/businessDate.schema.ts).
-export const dashboardSummaryQuerySchema = z
+// Rango opcional sobre la ÚLTIMA actividad del borrador (updatedAt) -- mismo formato que
+// dashboardSummaryQuerySchema: días "YYYY-MM-DD" en hora de Guatemala.
+export const listQuoteDraftsQuerySchema = z
     .object({
         startDate: businessDateSchema.optional(),
         endDate: businessDateSchema.optional(),
@@ -13,4 +13,4 @@ export const dashboardSummaryQuerySchema = z
         path: ["endDate"],
     })
 
-export type DashboardSummaryQuery = z.infer<typeof dashboardSummaryQuerySchema>
+export type ListQuoteDraftsQuery = z.infer<typeof listQuoteDraftsQuerySchema>

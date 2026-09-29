@@ -4,9 +4,18 @@ import Quote from "../../quote/models/Quote.model"
 import Salesperson from "../../salesperson/models/Salesperson.model"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
+import ProductTranslation from "../../product/models/ProductTranslation.model"
+import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
+import RawMaterialTranslation from "../../rawMaterial/models/RawMaterialTranslation.model"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
+import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
+import {
+    businessDayKey,
+    businessDayRangeFilter,
+    businessWeekKey,
+    inclusiveDaySpan,
+} from "../../../shared/utils/businessTime.util"
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000
 const MAX_DAILY_BUCKETS = 62
 const TOP_LIST_LIMIT = 8
 interface RawMaterialSnapshotLine {
@@ -60,34 +69,17 @@ interface DashboardTopRawMaterial {
 }
 
 interface DashboardSummary {
-    range: { startDate: Date | null; endDate: Date | null }
+    // Días "YYYY-MM-DD" en hora de Guatemala, tal como llegaron en el query.
+    range: { startDate: string | null; endDate: string | null }
     overview: DashboardOverview
     trend: DashboardTrendPoint[]
     trendGranularity: "day" | "week"
+    // Ordenado por valor cotizado (suma de Quote.totalCost), NO por unidades: sumar bolsas de
+    // presentaciones distintas (500 g vs 2 kg) no es comparable. Alimenta la lista y la dona de
+    // participación (antes había un topProductsByRevenue aparte; ahora sería idéntico).
     topProducts: DashboardTopProduct[]
-    topProductsByRevenue: DashboardTopProduct[]
     topSalespeople: DashboardTopSalesperson[]
     topRawMaterials: DashboardTopRawMaterial[]
-}
-
-function endOfDay(date: Date): Date {
-    const result = new Date(date)
-    result.setUTCHours(23, 59, 59, 999)
-    return result
-}
-
-function dayKey(date: Date): string {
-    return date.toISOString().slice(0, 10)
-}
-
-// Lunes de la semana ISO a la que pertenece `date`, como clave "YYYY-MM-DD".
-function weekKey(date: Date): string {
-    const monday = new Date(date)
-    const day = monday.getUTCDay()
-    const diffToMonday = day === 0 ? -6 : 1 - day
-    monday.setUTCDate(monday.getUTCDate() + diffToMonday)
-    monday.setUTCHours(0, 0, 0, 0)
-    return dayKey(monday)
 }
 
 function buildOverview(quotes: Quote[]): DashboardOverview {
@@ -107,27 +99,31 @@ function buildOverview(quotes: Quote[]): DashboardOverview {
     }
 }
 
+// `quotes` es el MISMO conjunto ya filtrado por rango que usa el resto del resumen. El largo del
+// rango (y con él la granularidad) sale de los días pedidos; un extremo abierto se completa con la
+// cotización más antigua/reciente. Días y semanas se cuentan en hora de Guatemala.
 function buildTrend(
     quotes: Quote[],
-    startDate?: Date,
-    endDate?: Date
+    startDate?: string,
+    endDate?: string
 ): { granularity: "day" | "week"; points: DashboardTrendPoint[] } {
     if (quotes.length === 0) return { granularity: "day", points: [] }
 
-    const timestamps = quotes.map(quote => new Date(quote.get("createdAt") as Date).getTime())
-    const rangeStartMs = startDate ? startDate.getTime() : Math.min(...timestamps)
-    const rangeEndMs = endDate ? endOfDay(endDate).getTime() : Math.max(...timestamps)
-    const spanDays = Math.max(1, Math.ceil((rangeEndMs - rangeStartMs) / MS_PER_DAY) + 1)
+    const createdAts = quotes.map(quote => new Date(quote.get("createdAt") as Date))
+    const timestamps = createdAts.map(createdAt => createdAt.getTime())
+    const firstDay = startDate ?? businessDayKey(new Date(Math.min(...timestamps)))
+    const lastDay = endDate ?? businessDayKey(new Date(Math.max(...timestamps)))
+    const spanDays = Math.max(1, inclusiveDaySpan(firstDay, lastDay))
     const granularity: "day" | "week" = spanDays > MAX_DAILY_BUCKETS ? "week" : "day"
     const buckets = new Map<string, { count: number; revenue: Decimal }>()
-    for (const quote of quotes) {
-        const createdAt = new Date(quote.get("createdAt") as Date)
-        const key = granularity === "week" ? weekKey(createdAt) : dayKey(createdAt)
+    quotes.forEach((quote, index) => {
+        const createdAt = createdAts[index]
+        const key = granularity === "week" ? businessWeekKey(createdAt) : businessDayKey(createdAt)
         const bucket = buckets.get(key) ?? { count: 0, revenue: new Decimal(0) }
         bucket.count += 1
         bucket.revenue = bucket.revenue.plus(quote.totalCost)
         buckets.set(key, bucket)
-    }
+    })
 
     const points = Array.from(buckets.entries())
         .map(([bucketStart, value]) => ({ bucketStart, count: value.count, revenue: roundMoney(value.revenue) }))
@@ -138,6 +134,8 @@ function buildTrend(
 
 type ProductAccumulator = Omit<DashboardTopProduct, "totalRevenue"> & { totalRevenue: Decimal }
 
+// El nombre que queda aquí es el del snapshot más reciente -- solo el respaldo si el producto ya no se
+// encuentra; applyLiveProductNames lo reemplaza por el nombre vivo del catálogo.
 function groupProductsByRealId(quotes: Quote[]): DashboardTopProduct[] {
     const byProduct = new Map<number | string, ProductAccumulator>()
 
@@ -164,12 +162,6 @@ function groupProductsByRealId(quotes: Quote[]): DashboardTopProduct[] {
 }
 
 function buildTopProducts(quotes: Quote[]): DashboardTopProduct[] {
-    return groupProductsByRealId(quotes)
-        .sort((a, b) => b.totalUnits - a.totalUnits)
-        .slice(0, TOP_LIST_LIMIT)
-}
-
-function buildTopProductsByRevenue(quotes: Quote[]): DashboardTopProduct[] {
     return groupProductsByRealId(quotes)
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
         .slice(0, TOP_LIST_LIMIT)
@@ -233,13 +225,61 @@ function buildTopRawMaterials(quotes: Quote[]): DashboardTopRawMaterial[] {
         .slice(0, TOP_LIST_LIMIT)
 }
 
-async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSummary> {
-    const createdAtFilter: Record<symbol, Date> = {}
-    if (startDate) createdAtFilter[Op.gte] = startDate
-    if (endDate) createdAtFilter[Op.lte] = endOfDay(endDate)
+// Nombres VIVOS del catálogo, en el idioma del admin, para las filas ya rankeadas. El snapshot guarda el
+// nombre en el idioma de quien cotizó (un panel en español podía mostrar "Pineapple chunks"). Una
+// consulta por id, solo de los ids del ranking (máximo TOP_LIST_LIMIT), sin filtrar por isActive (un
+// producto desactivado sigue teniendo nombre). Solo cambia nombres: nunca montos ni el orden.
+async function applyLiveProductNames(
+    products: DashboardTopProduct[],
+    language: ContentLanguage
+): Promise<DashboardTopProduct[]> {
+    const ids = products.map(product => product.productId).filter((id): id is number => id !== null)
+    if (ids.length === 0) return products
+
+    const rows = await Product.findAll({
+        where: { id: { [Op.in]: ids } },
+        attributes: ["id", "displayName"],
+        include: [{ model: ProductTranslation, as: "translations", attributes: ["language", "displayName"] }],
+    })
+    const liveNames = new Map(rows.map(row => [row.id, pickTranslatedName(row.displayName, row.translations, language)]))
+
+    return products.map(product => {
+        const liveName = product.productId !== null ? liveNames.get(product.productId) : undefined
+        return liveName ? { ...product, productDisplayName: liveName } : product
+    })
+}
+
+// Mismo criterio que applyLiveProductNames, por rawMaterialId.
+async function applyLiveRawMaterialNames(
+    rawMaterials: DashboardTopRawMaterial[],
+    language: ContentLanguage
+): Promise<DashboardTopRawMaterial[]> {
+    if (rawMaterials.length === 0) return rawMaterials
+
+    const rows = await RawMaterial.findAll({
+        where: { id: { [Op.in]: rawMaterials.map(rawMaterial => rawMaterial.rawMaterialId) } },
+        attributes: ["id", "displayName"],
+        include: [{ model: RawMaterialTranslation, as: "translations", attributes: ["language", "displayName"] }],
+    })
+    const liveNames = new Map(rows.map(row => [row.id, pickTranslatedName(row.displayName, row.translations, language)]))
+
+    return rawMaterials.map(rawMaterial => {
+        const liveName = liveNames.get(rawMaterial.rawMaterialId)
+        return liveName ? { ...rawMaterial, displayName: liveName } : rawMaterial
+    })
+}
+
+// startDate/endDate: días "YYYY-MM-DD" en hora de Guatemala (ver dashboard.schema.ts). `language`: el
+// del admin (Accept-Language), solo para los nombres de productos y materias primas.
+async function getSummary(
+    startDate?: string,
+    endDate?: string,
+    language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE
+): Promise<DashboardSummary> {
+    const createdAtFilter = businessDayRangeFilter(startDate, endDate)
 
     const quotes = await Quote.findAll({
-        where: Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {},
+        where: createdAtFilter ? { createdAt: createdAtFilter } : {},
         include: [
             { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] },
             {
@@ -253,16 +293,19 @@ async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSu
     })
 
     const trend = buildTrend(quotes, startDate, endDate)
+    const [topProducts, topRawMaterials] = await Promise.all([
+        applyLiveProductNames(buildTopProducts(quotes), language),
+        applyLiveRawMaterialNames(buildTopRawMaterials(quotes), language),
+    ])
 
     return {
         range: { startDate: startDate ?? null, endDate: endDate ?? null },
         overview: buildOverview(quotes),
         trend: trend.points,
         trendGranularity: trend.granularity,
-        topProducts: buildTopProducts(quotes),
-        topProductsByRevenue: buildTopProductsByRevenue(quotes),
+        topProducts,
         topSalespeople: buildTopSalespeople(quotes),
-        topRawMaterials: buildTopRawMaterials(quotes),
+        topRawMaterials,
     }
 }
 

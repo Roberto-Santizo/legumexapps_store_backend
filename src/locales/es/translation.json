@@ -135,6 +135,7 @@
         "Salesperson": "Representante Legumex",
         "Client": "Cliente",
         "Quote": "Cotización",
+        "QuoteDraft": "Cotización sin finalizar",
         "ProcessingCost": "Costo adicional",
         "Lead": "Prospecto",
         "SiteImage": "Imagen del sitio"
@@ -162,6 +163,7 @@
         "roles": "roles",
         "permissions": "permisos",
         "quotes": "cotizaciones",
+        "quoteDrafts": "cotizaciones sin finalizar",
         "dashboard": "panel",
         "processingCosts": "costos adicionales",
         "leads": "prospectos",

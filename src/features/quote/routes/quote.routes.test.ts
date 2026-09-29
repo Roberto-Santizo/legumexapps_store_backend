@@ -17,12 +17,16 @@ jest.mock("../services/quote.service", () => ({
 jest.mock("../../../shared/services/email.service", () => ({
     emailService: { sendMailWithAttachment: jest.fn() }
 }))
+jest.mock("../../quoteDraft/services/quoteDraft.service", () => ({
+    quoteDraftService: { upsertFromCalculation: jest.fn(), markConverted: jest.fn(), listDrafts: jest.fn() }
+}))
 
 import request from "supertest"
 import jwt from "jsonwebtoken"
 import { buildTestApp } from "../../../shared/test-utils/testApp"
 import quoteRouter from "./quote.routes"
 import { quoteService } from "../services/quote.service"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { emailService } from "../../../shared/services/email.service"
 import { AppError } from "../../../shared/errors/AppError"
 
@@ -221,6 +225,111 @@ describe("quoteRouter (HTTP)", () => {
 
             expect(res.status).toBe(401)
             expect(quoteService.calculateQuote).not.toHaveBeenCalled()
+        })
+    })
+
+    describe("borradores (cotizaciones sin finalizar) -- draftKey", () => {
+        const DRAFT_KEY = "3f1c2b8e-9d4a-4c6b-8e2f-1a2b3c4d5e6f"
+        const calcBody = { productVariantId: 10, requestedPallets: 2, selectedPalletMaterialIds: [601] }
+
+        beforeEach(() => {
+            (quoteDraftService.upsertFromCalculation as jest.Mock).mockReset();
+            (quoteService.calculateQuote as jest.Mock).mockReset()
+        })
+
+        it("preview con draftKey: calcula sin la clave y DESPUÉS registra el borrador del representante del JWT", async () => {
+            const calculation = { productVariantId: 10, totalCost: 284 };
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculation);
+            (quoteDraftService.upsertFromCalculation as jest.Mock).mockResolvedValue(undefined)
+
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...calcBody, draftKey: DRAFT_KEY })
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ data: calculation }) // misma respuesta que sin borrador
+            expect(quoteService.calculateQuote).toHaveBeenCalledWith(calcBody, "es")
+            expect(quoteDraftService.upsertFromCalculation).toHaveBeenCalledWith(42, DRAFT_KEY, calcBody, calculation)
+            const calcOrder = (quoteService.calculateQuote as jest.Mock).mock.invocationCallOrder[0]
+            const draftOrder = (quoteDraftService.upsertFromCalculation as jest.Mock).mock.invocationCallOrder[0]
+            expect(calcOrder).toBeLessThan(draftOrder)
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("un cálculo que falla no escribe ningún borrador (sin borradores para configs inválidas)", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockRejectedValue(new AppError(422, "errors.pallet_not_configured"))
+
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...calcBody, draftKey: DRAFT_KEY })
+
+            expect(res.status).toBe(422)
+            expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+        })
+
+        it("preview sin draftKey (frontend viejo) no escribe nada", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 1 })
+
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send(calcBody)
+
+            expect(res.status).toBe(200)
+            expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+        })
+
+        it("si la escritura del borrador falla, igual devuelve 200 con el cálculo (el total en vivo nunca se rompe)", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 });
+            (quoteDraftService.upsertFromCalculation as jest.Mock).mockRejectedValue(new Error("db down"))
+            const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...calcBody, draftKey: DRAFT_KEY })
+
+            expect(res.status).toBe(200)
+            expect(res.body).toEqual({ data: { totalCost: 284 } })
+            consoleErrorSpy.mockRestore()
+        })
+
+        it("400 si draftKey no es un UUID -- nunca calcula ni escribe", async () => {
+            const res = await request(app)
+                .post("/api/quotes/preview")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...calcBody, draftKey: "no-es-uuid" })
+
+            expect(res.status).toBe(400)
+            expect(quoteService.calculateQuote).not.toHaveBeenCalled()
+            expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+        })
+
+        it("guardar reenvía el draftKey al service (que marca el borrador convertido)", async () => {
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 9, totalCost: 284 })
+
+            const res = await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send({ ...calcBody, draftKey: DRAFT_KEY })
+
+            expect(res.status).toBe(201)
+            expect(quoteService.saveQuote).toHaveBeenCalledWith(42, { ...calcBody, draftKey: DRAFT_KEY }, "es")
+        })
+
+        it("guardar sin draftKey se comporta igual que antes (el body llega sin la clave)", async () => {
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 10, totalCost: 284 })
+
+            const res = await request(app)
+                .post("/api/quotes")
+                .set("Authorization", `Bearer ${salespersonToken}`)
+                .send(calcBody)
+
+            expect(res.status).toBe(201)
+            expect(quoteService.saveQuote).toHaveBeenCalledWith(42, calcBody, "es")
+            expect((quoteService.saveQuote as jest.Mock).mock.calls[0][1]).not.toHaveProperty("draftKey")
         })
     })
 

@@ -31,6 +31,7 @@ const ACTION_SUFFIXES = ["view", "create", "edit", "delete"] as const
 const EXTRA_PERMISSIONS = [
     { name: "quotes:view" },
     { name: "quotes:calculate" },
+    { name: "quoteDrafts:view" },
     { name: "dashboard:view" },
     { name: "leads:view" },
     { name: "leads:edit" },

@@ -26,8 +26,17 @@ export const calculateQuoteSchema = z.object({
     selectedPalletMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
 })
 
+// SOLO para las rutas del representante (POST /quotes/preview y POST /quotes): draftKey identifica el
+// intento de cotización en curso (UUID generado por el wizard) para registrar el borrador
+// (quoteDraft/) y marcarlo convertido al guardar. Opcional: un frontend viejo simplemente no genera
+// borradores. calculateQuoteSchema (y por lo tanto las rutas admin) NO lo tiene.
+export const salespersonQuoteSchema = calculateQuoteSchema.extend({
+    draftKey: z.string().uuid().optional(),
+})
+
 export type RawMaterialMixLineInput = z.infer<typeof rawMaterialMixLineSchema>
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
+export type SalespersonQuoteInput = z.infer<typeof salespersonQuoteSchema>
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),
     subject: z.string().min(1).max(200),

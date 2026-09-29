@@ -3,7 +3,8 @@ import { AppError } from "../../../shared/errors/AppError"
 import { quoteService } from "../services/quote.service"
 import { emailService } from "../../../shared/services/email.service"
 import { resolveContentLanguage } from "../../../shared/utils/translation.util"
-import { SendQuotePdfEmailInput } from "../schemas/quote.schema"
+import { SalespersonQuoteInput, SendQuotePdfEmailInput } from "../schemas/quote.schema"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 
 async function save(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -45,13 +46,36 @@ async function indexAll(_req: Request, res: Response, next: NextFunction): Promi
     }
 }
 
-// Compartido por /admin/quotes/preview (staff, quotes:calculate) y /quotes/preview (salesperson,
-// recálculo en vivo) -- no hay lógica específica de
-// ninguna de las dos rutas acá, ambas SOLO calculan (calculateQuote), NUNCA guardan (saveQuote):
-// es la misma garantía estructural para las dos, no una convención por convención.
+// SOLO /admin/quotes/preview (staff, quotes:calculate): calcula (calculateQuote) y NUNCA persiste
+// nada -- ni Quote (saveQuote) ni borradores (quoteDraft/). Garantía estructural, no convención.
 async function preview(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const calculation = await quoteService.calculateQuote(req.body, resolveContentLanguage(req.language))
+        res.json({ data: calculation })
+    } catch (error) {
+        next(error)
+    }
+}
+
+// /quotes/preview (representante, recálculo en vivo del wizard): mismo cálculo y MISMA respuesta que
+// `preview`, nunca llama a saveQuote. Además, si el wizard mandó draftKey, registra el borrador
+// (quoteDraftService.upsertFromCalculation) -- solo después de un cálculo exitoso (una config inválida
+// tira antes y no escribe nada). El seguimiento es best-effort: si la escritura del borrador falla, se
+// loguea y el total en vivo se devuelve igual.
+async function previewAndTrackDraft(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        if (!req.salesperson) throw new AppError(401, "errors.unauthenticated")
+        const { draftKey, ...calculationInput } = req.body as SalespersonQuoteInput
+        const calculation = await quoteService.calculateQuote(calculationInput, resolveContentLanguage(req.language))
+
+        if (draftKey) {
+            try {
+                await quoteDraftService.upsertFromCalculation(req.salesperson.id, draftKey, calculationInput, calculation)
+            } catch (draftError) {
+                console.error("[quoteDraft] no se pudo registrar el borrador", draftError)
+            }
+        }
+
         res.json({ data: calculation })
     } catch (error) {
         next(error)
@@ -94,5 +118,6 @@ export const quoteController = {
     save,
     indexAll,
     preview,
+    previewAndTrackDraft,
     sendPdfEmail,
 }

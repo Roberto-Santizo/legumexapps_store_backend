@@ -31,6 +31,10 @@ jest.mock("../../processingCost/models/ProcessingCost.model", () => ({
     __esModule: true,
     default: { findAll: jest.fn() }
 }))
+// Borradores (cotizaciones sin finalizar): saveQuote solo llama a markConverted DESPUÉS del Quote.create.
+jest.mock("../../quoteDraft/services/quoteDraft.service", () => ({
+    quoteDraftService: { upsertFromCalculation: jest.fn(), markConverted: jest.fn(), listDrafts: jest.fn() }
+}))
 
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
@@ -38,6 +42,7 @@ import Destination from "../../destination/models/Destination.model"
 import Quote from "../models/Quote.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import { quoteService } from "./quote.service"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { NotFoundError } from "../../../shared/errors/AppError"
 import { CalculateQuoteInput, calculateQuoteSchema } from "../schemas/quote.schema"
 // Se importa el catálogo REAL (no mockeado -- es un módulo de constantes puro, sin Sequelize) para
@@ -2355,6 +2360,58 @@ describe("quoteService.saveQuote", () => {
         // tampoco se muta después por la segunda llamada.
         expect(quote1.processingCostTotal).toBe(3)
         expect(quote1.breakdown.processingCosts).toEqual([expect.objectContaining({ processingCostId: 1, lineTotal: 3 })])
+    })
+
+    describe("borrador (draftKey) -- la cotización finalizada no cambia en nada", () => {
+        const DRAFT_KEY = "3f1c2b8e-9d4a-4c6b-8e2f-1a2b3c4d5e6f"
+        const mockMarkConverted = quoteDraftService.markConverted as jest.Mock
+
+        beforeEach(() => {
+            mockMarkConverted.mockReset()
+            stubOnePoundVariant()
+        })
+
+        it("con draftKey, marca el borrador convertido DESPUÉS del Quote.create, con el id real de la cotización", async () => {
+            mockQuoteCreate.mockResolvedValue({ id: 812, get: () => new Date("2026-09-28T00:00:00Z") })
+            mockMarkConverted.mockResolvedValue(undefined)
+
+            await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 1, draftKey: DRAFT_KEY })
+
+            expect(mockMarkConverted).toHaveBeenCalledWith(DRAFT_KEY, 42, 812)
+            expect(mockQuoteCreate.mock.invocationCallOrder[0]).toBeLessThan(mockMarkConverted.mock.invocationCallOrder[0])
+        })
+
+        it("si markConverted falla, la cotización real igual se guarda y se devuelve", async () => {
+            mockQuoteCreate.mockResolvedValue({ id: 813, get: () => new Date("2026-09-28T00:00:00Z") })
+            mockMarkConverted.mockRejectedValue(new Error("db down"))
+            const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+
+            const saved = await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 1, draftKey: DRAFT_KEY })
+
+            expect(saved.id).toBe(813)
+            expect(mockQuoteCreate).toHaveBeenCalledTimes(1)
+            consoleErrorSpy.mockRestore()
+        })
+
+        it("sin draftKey no toca borradores", async () => {
+            mockQuoteCreate.mockResolvedValue({ id: 814, get: () => new Date("2026-09-28T00:00:00Z") })
+
+            await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 1 })
+
+            expect(mockMarkConverted).not.toHaveBeenCalled()
+        })
+
+        it("el payload de Quote.create y la respuesta son idénticos con o sin draftKey", async () => {
+            mockQuoteCreate.mockResolvedValue({ id: 815, get: () => new Date("2026-09-28T00:00:00Z") })
+
+            const withoutKey = await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 1 })
+            const withKey = await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 1, draftKey: DRAFT_KEY })
+
+            expect(mockQuoteCreate.mock.calls[1][0]).toEqual(mockQuoteCreate.mock.calls[0][0])
+            expect(mockQuoteCreate.mock.calls[1][0]).not.toHaveProperty("draftKey")
+            expect(withKey).toEqual(withoutKey)
+            expect(withKey).not.toHaveProperty("draftKey")
+        })
     })
 })
 

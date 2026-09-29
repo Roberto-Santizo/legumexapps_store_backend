@@ -14,12 +14,16 @@ jest.mock("../services/quote.service", () => ({
 jest.mock("../../../shared/services/email.service", () => ({
     emailService: { sendMailWithAttachment: jest.fn() }
 }))
+jest.mock("../../quoteDraft/services/quoteDraft.service", () => ({
+    quoteDraftService: { upsertFromCalculation: jest.fn(), markConverted: jest.fn(), listDrafts: jest.fn() }
+}))
 
 import request from "supertest"
 import jwt from "jsonwebtoken"
 import { buildTestApp } from "../../../shared/test-utils/testApp"
 import adminQuoteRouter from "./adminQuote.routes"
 import { quoteService } from "../services/quote.service"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { emailService } from "../../../shared/services/email.service"
 
 const app = buildTestApp("/api/admin/quotes", adminQuoteRouter)
@@ -82,6 +86,23 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
             expect(res.status).toBe(200)
             expect(res.body).toEqual({ data: { totalCost: 284, breakdown: { rawMaterials: [] } } })
             expect(quoteService.calculateQuote).toHaveBeenCalledWith(validQuoteBody, "es")
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("nunca escribe un borrador (cotización sin finalizar), aunque el body traiga un draftKey", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 })
+            const token = staffToken(["quotes:calculate"])
+
+            const res = await request(app)
+                .post("/api/admin/quotes/preview")
+                .set("Authorization", `Bearer ${token}`)
+                .send({ ...validQuoteBody, draftKey: "3f1c2b8e-9d4a-4c6b-8e2f-1a2b3c4d5e6f" })
+
+            expect(res.status).toBe(200)
+            // calculateQuoteSchema (admin) no conoce draftKey: zod lo descarta antes del service.
+            expect(quoteService.calculateQuote).toHaveBeenCalledWith(validQuoteBody, "es")
+            expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+            expect(quoteDraftService.markConverted).not.toHaveBeenCalled()
             expect(quoteService.saveQuote).not.toHaveBeenCalled()
         })
 

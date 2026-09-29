@@ -24,7 +24,8 @@ import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../../processingCost/models/ProcessingCostTranslation.model"
 import { getUnitCatalogEntry } from "../../unit/constants/unitCatalog"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput, RawMaterialMixLineInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput, RawMaterialMixLineInput, SalespersonQuoteInput } from "../schemas/quote.schema"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
 import { normalizeOptionGroup, optionGroupKey } from "../../../shared/utils/optionGroup.util"
@@ -1070,8 +1071,12 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 // Una cotización guardada NO captura ni vincula un prospecto: el flujo de cotizar
 // no pide datos de contacto; los Leads siguen existiendo pero solo nacen del formulario público de
 // la landing (ver lead/), sin relación con Quote.
-async function saveQuote(salespersonId: number, input: CalculateQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
-    const calculation = await calculateQuote(input, language)
+// draftKey (opcional, solo del wizard del representante): NO participa del cálculo ni del Quote.create
+// -- se separa antes de calcular y solo se usa DESPUÉS de crear la cotización, para marcar el borrador
+// como convertido (best-effort: si eso falla, la cotización real ya quedó guardada y se devuelve igual).
+async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
+    const { draftKey, ...calculationInput } = input
+    const calculation = await calculateQuote(calculationInput, language)
 
     const quote = await Quote.create({
         salespersonId,
@@ -1093,6 +1098,14 @@ async function saveQuote(salespersonId: number, input: CalculateQuoteInput, lang
         totalCost: calculation.totalCost,
         breakdown: calculation.breakdown
     })
+
+    if (draftKey) {
+        try {
+            await quoteDraftService.markConverted(draftKey, salespersonId, quote.id)
+        } catch (error) {
+            console.error("[quoteDraft] no se pudo marcar el borrador como convertido", error)
+        }
+    }
 
     return {
         ...calculation,

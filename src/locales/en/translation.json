@@ -135,6 +135,7 @@
         "Salesperson": "Salesperson",
         "Client": "Client",
         "Quote": "Quote",
+        "QuoteDraft": "Unfinished quote",
         "ProcessingCost": "Additional cost",
         "Lead": "Lead",
         "SiteImage": "Site image"
@@ -162,6 +163,7 @@
         "roles": "roles",
         "permissions": "permissions",
         "quotes": "quotes",
+        "quoteDrafts": "unfinished quotes",
         "dashboard": "dashboard",
         "processingCosts": "additional costs",
         "leads": "leads",

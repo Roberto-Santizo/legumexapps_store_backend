@@ -29,6 +29,7 @@ import RolePermission from "../features/accessControl/rolePermissions/models/rol
 import Salesperson from "../features/salesperson/models/Salesperson.model"
 import Client from "../features/client/models/Client.model"
 import Quote from "../features/quote/models/Quote.model"
+import QuoteDraft from "../features/quoteDraft/models/QuoteDraft.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
 import Lead from "../features/lead/models/Lead.model"
@@ -71,6 +72,7 @@ const sequelize = new Sequelize(env.databaseUrl, {
         Salesperson,
         Client,
         Quote,
+        QuoteDraft,
         ProcessingCost,
         ProcessingCostTranslation,
         Lead,

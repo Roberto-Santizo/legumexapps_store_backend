@@ -110,7 +110,19 @@
         "custom_quote_packaging_quantity_required": "Indica la cantidad de este material: por unidad en empaque individual, o por palet o por caja en paletización.",
         "custom_quote_packaging_quantity_basis_required": "Indica si la cantidad de este material de paletización es por palet o por caja.",
         "custom_quote_packaging_invalid_quantity_basis": "La base de cantidad \"{{quantityBasis}}\" no aplica a este nivel: empaque individual va por unidad y paletización por palet o por caja.",
-        "custom_quote_intermediate_packaging_has_no_quantity": "Un material de empaque intermedio no lleva cantidad: se calcula con las unidades por empaque intermedio de la presentación elegida."
+        "custom_quote_intermediate_packaging_has_no_quantity": "Un material de empaque intermedio no lleva cantidad: se calcula con las unidades por empaque intermedio de la presentación elegida.",
+        "custom_quote_presentation_not_offered": "La presentación {{presentationId}} no está disponible para cotizaciones a la medida.",
+        "custom_quote_raw_material_not_offered": "La materia prima {{rawMaterialId}} no está disponible en esta subcategoría para cotizaciones a la medida.",
+        "custom_quote_raw_material_not_mixable": "{{rawMaterial}} no se puede mezclar con otras materias primas: úsala sola (100 %) o elige otra.",
+        "custom_quote_raw_material_not_organic_compatible": "{{rawMaterial}} no es orgánica, así que no puede ir en un producto orgánico.",
+        "custom_quote_duplicate_ingredient": "El ingrediente {{ingredientId}} aparece más de una vez.",
+        "custom_quote_ingredient_not_offered": "El ingrediente {{ingredientId}} no está disponible para cotizaciones a la medida.",
+        "custom_quote_ingredient_exceeds_net_weight": "Los gramos de {{ingredient}} no pueden superar el peso neto de la presentación ({{netWeightGrams}} g).",
+        "custom_quote_ingredient_exceeds_cap": "{{ingredient}} supera el máximo permitido de {{maxGramsPerKg}} g por kg de peso neto.",
+        "custom_quote_unit_packaging_not_configured": "Todavía no hay empaque individual configurado para cotizaciones a la medida. Contacta al administrador.",
+        "custom_quote_pallet_packaging_not_configured": "Todavía no hay materiales de paletización configurados para cotizaciones a la medida. Contacta al administrador.",
+        "custom_quote_presentation_has_no_intermediate": "La presentación elegida no lleva empaque intermedio: no se puede elegir un material de ese nivel.",
+        "custom_quote_packaging_quantity_missing": "El material {{packagingId}} no tiene cantidad configurada para cotizaciones a la medida. Contacta al administrador."
     },
     "success": {
         "created": "Creación de {{resource}} exitosa",
@@ -150,7 +162,8 @@
         "CustomQuoteRawMaterialOption": "Materia prima de cotización a la medida",
         "CustomQuoteIngredientOption": "Ingrediente de cotización a la medida",
         "CustomQuotePresentationOption": "Presentación de cotización a la medida",
-        "CustomQuotePackagingOption": "Material de empaque de cotización a la medida"
+        "CustomQuotePackagingOption": "Material de empaque de cotización a la medida",
+        "CustomQuote": "Cotización a la medida"
     },
     "permissionActions": {
         "view": "Ver",
@@ -180,6 +193,7 @@
         "processingCosts": "costos adicionales",
         "leads": "prospectos",
         "siteContent": "contenido del sitio",
-        "customQuoteConfig": "configuración de cotizaciones a la medida"
+        "customQuoteConfig": "configuración de cotizaciones a la medida",
+        "customQuotes": "cotizaciones a la medida"
     }
 }

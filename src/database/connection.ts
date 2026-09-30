@@ -34,6 +34,7 @@ import CustomQuoteRawMaterialOption from "../features/customQuote/models/CustomQ
 import CustomQuoteIngredientOption from "../features/customQuote/models/CustomQuoteIngredientOption.model"
 import CustomQuotePresentationOption from "../features/customQuote/models/CustomQuotePresentationOption.model"
 import CustomQuotePackagingOption from "../features/customQuote/models/CustomQuotePackagingOption.model"
+import CustomQuote from "../features/customQuote/models/CustomQuote.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
 import Lead from "../features/lead/models/Lead.model"
@@ -81,6 +82,7 @@ const sequelize = new Sequelize(env.databaseUrl, {
         CustomQuoteIngredientOption,
         CustomQuotePresentationOption,
         CustomQuotePackagingOption,
+        CustomQuote,
         ProcessingCost,
         ProcessingCostTranslation,
         Lead,

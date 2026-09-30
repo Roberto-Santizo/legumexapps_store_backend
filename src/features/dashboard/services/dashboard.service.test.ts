@@ -28,10 +28,18 @@ jest.mock("../../rawMaterial/models/RawMaterial.model", () => ({
     default: { findAll: jest.fn() }
 }))
 
+// Cotizaciones a la medida (productos que no existen, sin SKU) viven en su propia tabla y NUNCA
+// alimentan el dashboard -- se mockea solo para afirmar que getSummary jamás la consulta.
+jest.mock("../../customQuote/models/CustomQuote.model", () => ({
+    __esModule: true,
+    default: { findAll: jest.fn(), findOne: jest.fn(), count: jest.fn() }
+}))
+
 import Quote from "../../quote/models/Quote.model"
 import Product from "../../product/models/Product.model"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import QuoteDraft from "../../quoteDraft/models/QuoteDraft.model"
+import CustomQuote from "../../customQuote/models/CustomQuote.model"
 import { dashboardService } from "./dashboard.service"
 
 const mockQuoteFindAll = Quote.findAll as unknown as jest.Mock
@@ -499,6 +507,19 @@ describe("dashboardService.getSummary", () => {
 
             expect(withDrafts).toEqual(withoutDrafts)
             expect(withDrafts.overview.totalQuotes).toBe(2)
+        })
+    })
+
+    describe("aislamiento de cotizaciones a la medida", () => {
+        it("nunca consulta customQuotes: el resumen solo mide cotizaciones de productos definidos", async () => {
+            mockQuoteFindAll.mockResolvedValue([stubQuote({ totalCost: 100 })])
+
+            const summary = await dashboardService.getSummary()
+
+            expect(CustomQuote.findAll).not.toHaveBeenCalled()
+            expect(CustomQuote.findOne).not.toHaveBeenCalled()
+            expect(CustomQuote.count).not.toHaveBeenCalled()
+            expect(summary.overview.totalQuotes).toBe(1)
         })
     })
 })

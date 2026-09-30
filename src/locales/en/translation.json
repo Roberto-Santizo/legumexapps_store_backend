@@ -110,7 +110,19 @@
         "custom_quote_packaging_quantity_required": "Enter this material's quantity: per unit for unit packaging, or per pallet or per box for palletizing.",
         "custom_quote_packaging_quantity_basis_required": "Choose whether this palletizing material's quantity is per pallet or per box.",
         "custom_quote_packaging_invalid_quantity_basis": "The quantity basis \"{{quantityBasis}}\" does not apply to this level: unit packaging is per unit and palletizing is per pallet or per box.",
-        "custom_quote_intermediate_packaging_has_no_quantity": "An intermediate packaging material has no quantity: it is calculated from the chosen presentation's units per intermediate package."
+        "custom_quote_intermediate_packaging_has_no_quantity": "An intermediate packaging material has no quantity: it is calculated from the chosen presentation's units per intermediate package.",
+        "custom_quote_presentation_not_offered": "Presentation {{presentationId}} is not available for custom quotes.",
+        "custom_quote_raw_material_not_offered": "Raw material {{rawMaterialId}} is not available in this subcategory for custom quotes.",
+        "custom_quote_raw_material_not_mixable": "{{rawMaterial}} cannot be mixed with other raw materials: use it alone (100%) or choose another one.",
+        "custom_quote_raw_material_not_organic_compatible": "{{rawMaterial}} is not organic, so it cannot go into an organic product.",
+        "custom_quote_duplicate_ingredient": "Ingredient {{ingredientId}} appears more than once.",
+        "custom_quote_ingredient_not_offered": "Ingredient {{ingredientId}} is not available for custom quotes.",
+        "custom_quote_ingredient_exceeds_net_weight": "The grams of {{ingredient}} cannot exceed the presentation's net weight ({{netWeightGrams}} g).",
+        "custom_quote_ingredient_exceeds_cap": "{{ingredient}} exceeds the allowed maximum of {{maxGramsPerKg}} g per kg of net weight.",
+        "custom_quote_unit_packaging_not_configured": "No unit packaging is configured for custom quotes yet. Contact the administrator.",
+        "custom_quote_pallet_packaging_not_configured": "No palletizing materials are configured for custom quotes yet. Contact the administrator.",
+        "custom_quote_presentation_has_no_intermediate": "The chosen presentation has no intermediate packaging: a material of that level cannot be chosen.",
+        "custom_quote_packaging_quantity_missing": "Material {{packagingId}} has no quantity configured for custom quotes. Contact the administrator."
     },
     "success": {
         "created": "{{resource}} created successfully",
@@ -150,7 +162,8 @@
         "CustomQuoteRawMaterialOption": "Custom-quote raw material",
         "CustomQuoteIngredientOption": "Custom-quote ingredient",
         "CustomQuotePresentationOption": "Custom-quote presentation",
-        "CustomQuotePackagingOption": "Custom-quote packaging material"
+        "CustomQuotePackagingOption": "Custom-quote packaging material",
+        "CustomQuote": "Custom quote"
     },
     "permissionActions": {
         "view": "View",
@@ -180,6 +193,7 @@
         "processingCosts": "additional costs",
         "leads": "leads",
         "siteContent": "site content",
-        "customQuoteConfig": "custom-quote configuration"
+        "customQuoteConfig": "custom-quote configuration",
+        "customQuotes": "custom quotes"
     }
 }

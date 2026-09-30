@@ -35,6 +35,9 @@ const EXTRA_PERMISSIONS = [
     // Configuración de cotizaciones a la medida: un solo permiso (lectura + escritura), aparte de
     // quotes:* porque decide qué se puede cotizar y con qué cantidades.
     { name: "customQuoteConfig:edit" },
+    // Seguimiento de cotizaciones a la medida guardadas: ver (lista + detalle) y editar (estado).
+    { name: "customQuotes:view" },
+    { name: "customQuotes:edit" },
     { name: "dashboard:view" },
     { name: "leads:view" },
     { name: "leads:edit" },

@@ -73,7 +73,7 @@ describe("productRouter (HTTP) — carga masiva de Productos (2026-09-25)", () =
     })
 
     it("POST /bulk-import con 'products:create' y un .xlsx -> 201 con la cantidad creada", async () => {
-        (productImportService.bulkImportProducts as jest.Mock).mockResolvedValue([{ id: 1 }, { id: 2 }])
+        (productImportService.bulkImportProducts as jest.Mock).mockResolvedValue({ products: 1, variants: 2 })
 
         const res = await request(app)
             .post("/api/products/bulk-import")
@@ -81,7 +81,7 @@ describe("productRouter (HTTP) — carga masiva de Productos (2026-09-25)", () =
             .attach("file", Buffer.from("x"), { filename: "productos.xlsx", contentType: XLSX_MIME })
 
         expect(res.status).toBe(201)
-        expect(res.body.data).toEqual({ created: 2 })
+        expect(res.body.data).toEqual({ created: 2, productsCreated: 1, variantsCreated: 2 })
     })
 
     it("GET /bulk-import/template se resuelve antes que /:id y devuelve el Excel", async () => {

@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
+import { loadProductsByVariantSku, skuCodeKey } from "./productSkuReference"
 import ProductRawMaterial from "../models/ProductRawMaterial.model"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import { AppError, BulkImportError, RowIssue } from "../../../shared/errors/AppError"
@@ -22,9 +23,9 @@ import {
     REQUIRED_PRODUCT_RAW_MATERIAL_IMPORT_FIELDS,
 } from "../constants/productRawMaterialImport.constant"
 
-// Carga masiva de Recetas -- paso 2 de 4 (Productos → Recetas → Ingredientes → SKUs).
+// Carga masiva de Recetas -- paso 2 de 3 (Productos y SKUs → Recetas → Ingredientes (opcional)).
 // Una fila por (Producto, Materia Prima); las filas se agrupan por producto, igual que
-// productVariantImport.service.ts::finalizeVariantGroup agrupa por SKU. Las reglas dependen del
+// La referencia SKU resuelve al producto. Las reglas dependen del
 // Product.isCustomizable ya guardado (el archivo nunca re-declara el tipo de receta):
 //   - Fija: Porcentaje obligatorio en cada fila y el grupo debe sumar 100 (±0.5) -- más estricto
 //     que el techo blando del admin, porque el archivo trae la receta COMPLETA.
@@ -42,7 +43,7 @@ interface ResolvedRecipeRow {
     rowNumber: number
     product: Product
     rawMaterial: RawMaterial
-    productCodigo: string
+    productSku: string
     rawMaterialCode: string
     percentage: number | undefined
     minPercentage: number | undefined
@@ -58,13 +59,13 @@ function parseOptionalNumber(value: ImportCellValue): number | undefined {
     return Number(value)
 }
 
-function resolveProductField(rawCodigo: ImportCellValue, productsByNormalizedCodigo: Map<string, Product>, ctx: RowValidation): Product | undefined {
-    if (rawCodigo === null) return undefined
+function resolveProductField(rawSku: ImportCellValue, productsByVariantSku: Map<string, Product>, ctx: RowValidation): Product | undefined {
+    if (rawSku === null) return undefined
     ctx.manuallyValidatedFields.add("productId")
-    const codigo = String(rawCodigo).trim()
-    const product = productsByNormalizedCodigo.get(normalizeImportText(codigo))
+    const skuCode = String(rawSku).trim()
+    const product = productsByVariantSku.get(skuCodeKey(skuCode))
     if (!product) {
-        ctx.rowIssues.push({ row: ctx.rowNumber, field: "productId", key: "errors.bulk_import_unknown_product_codigo", params: { codigo } })
+        ctx.rowIssues.push({ row: ctx.rowNumber, field: "productId", key: "errors.bulk_import_unknown_product_sku", params: { skuCode } })
         return undefined
     }
     return product
@@ -87,7 +88,7 @@ function resolveRawMaterialField(rawCode: ImportCellValue, rawMaterialsByNormali
 // más las propias del archivo (columna equivocada para el tipo, mín > máx).
 function checkRecipeTypeRules(row: ResolvedRecipeRow, ctx: RowValidation): void {
     const { product, rawMaterial } = row
-    const params = { productCodigo: row.productCodigo }
+    const params = { productSku: row.productSku }
 
     if (product.isCustomizable) {
         if (row.percentage !== undefined) {
@@ -142,17 +143,17 @@ function processRecipeImportRow(
     row: ExcelJS.Row,
     rowNumber: number,
     columnIndexByField: Map<ProductRawMaterialImportField, number>,
-    productsByNormalizedCodigo: Map<string, Product>,
+    productsByVariantSku: Map<string, Product>,
     rawMaterialsByNormalizedCode: Map<string, RawMaterial>,
     productIdsWithRowIssues: Set<number>,
     rowIssues: RowIssue[]
 ): ResolvedRecipeRow | null {
     const read = (field: ProductRawMaterialImportField) => readImportCell(row, columnIndexByField.get(field))
-    const rawProductCodigo = read("productCodigo")
+    const rawProductSku = read("productSku")
     const rawMaterialCode = read("rawMaterialCode")
 
     const ctx: RowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
-    const product = resolveProductField(rawProductCodigo, productsByNormalizedCodigo, ctx)
+    const product = resolveProductField(rawProductSku, productsByVariantSku, ctx)
     const rawMaterial = resolveRawMaterialField(rawMaterialCode, rawMaterialsByNormalizedCode, ctx)
     const percentage = parseOptionalNumber(read("percentage"))
     const minPercentage = parseOptionalNumber(read("minPercentage"))
@@ -169,7 +170,7 @@ function processRecipeImportRow(
             rowNumber,
             product,
             rawMaterial,
-            productCodigo: String(rawProductCodigo).trim(),
+            productSku: String(rawProductSku).trim(),
             rawMaterialCode: String(rawMaterialCode).trim(),
             percentage,
             minPercentage,
@@ -186,7 +187,7 @@ function processRecipeImportRow(
     return null
 }
 
-function checkFixedRecipeTotal(rows: ResolvedRecipeRow[], params: { productCodigo: string }, rowNumber: number, rowIssues: RowIssue[]): boolean {
+function checkFixedRecipeTotal(rows: ResolvedRecipeRow[], params: { productSku: string }, rowNumber: number, rowIssues: RowIssue[]): boolean {
     const total = rows.reduce((sum, row) => sum + (row.percentage ?? 0), 0)
     if (Math.abs(total - 100) <= RECIPE_PERCENTAGE_TOLERANCE) return true
     rowIssues.push({
@@ -201,7 +202,7 @@ function checkFixedRecipeTotal(rows: ResolvedRecipeRow[], params: { productCodig
 // Mismos defaults que quoteService al validar la mezcla del representante: sin mínimo = 0, sin
 // máximo = 100. Si ni con todos los mínimos cabe en 100, o ni con todos los máximos llega a 100,
 // ninguna mezcla válida puede existir -- el producto sería imposible de cotizar.
-function checkCustomizablePoolReaches100(rows: ResolvedRecipeRow[], params: { productCodigo: string }, rowNumber: number, rowIssues: RowIssue[]): boolean {
+function checkCustomizablePoolReaches100(rows: ResolvedRecipeRow[], params: { productSku: string }, rowNumber: number, rowIssues: RowIssue[]): boolean {
     const minTotal = rows.reduce((sum, row) => sum + (row.minPercentage ?? 0), 0)
     const maxTotal = rows.reduce((sum, row) => sum + (row.maxPercentage ?? 100), 0)
     if (minTotal <= 100 + RECIPE_PERCENTAGE_TOLERANCE && maxTotal >= 100 - RECIPE_PERCENTAGE_TOLERANCE) return true
@@ -216,7 +217,7 @@ function checkCustomizablePoolReaches100(rows: ResolvedRecipeRow[], params: { pr
 
 function finalizeRecipeGroup(rows: ResolvedRecipeRow[], productIdsWithExistingRecipe: Set<number>, rowIssues: RowIssue[]): boolean {
     const firstRow = rows[0]
-    const params = { productCodigo: firstRow.productCodigo }
+    const params = { productSku: firstRow.productSku }
 
     if (productIdsWithExistingRecipe.has(firstRow.product.id)) {
         rowIssues.push({ row: firstRow.rowNumber, field: "productId", key: "errors.bulk_import_product_recipe_already_exists", params })
@@ -244,10 +245,7 @@ function finalizeRecipeGroup(rows: ResolvedRecipeRow[], productIdsWithExistingRe
         : checkFixedRecipeTotal(rows, params, firstRow.rowNumber, rowIssues)
 }
 
-async function loadProductsByNormalizedCodigo(): Promise<Map<string, Product>> {
-    const products = await Product.findAll({ where: { isActive: true } })
-    return new Map(products.map(product => [normalizeImportText(product.codigo), product]))
-}
+
 
 async function loadRawMaterialsByNormalizedCode(): Promise<Map<string, RawMaterial>> {
     const rawMaterials = await RawMaterial.findAll({ where: { isActive: true } })
@@ -283,8 +281,8 @@ async function bulkImportProductRawMaterials(buffer: Buffer): Promise<ProductRaw
         throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PRODUCT_RAW_MATERIAL_IMPORT_ROWS })
     }
 
-    const [productsByNormalizedCodigo, rawMaterialsByNormalizedCode, productIdsWithExistingRecipe] = await Promise.all([
-        loadProductsByNormalizedCodigo(),
+    const [productsByVariantSku, rawMaterialsByNormalizedCode, productIdsWithExistingRecipe] = await Promise.all([
+        loadProductsByVariantSku(),
         loadRawMaterialsByNormalizedCode(),
         loadProductIdsWithExistingRecipe(),
     ])
@@ -298,7 +296,7 @@ async function bulkImportProductRawMaterials(buffer: Buffer): Promise<ProductRaw
         if (isImportRowBlank(row, columnIndexByField)) continue
 
         const resolved = processRecipeImportRow(
-            row, rowNumber, columnIndexByField, productsByNormalizedCodigo, rawMaterialsByNormalizedCode, productIdsWithRowIssues, rowIssues
+            row, rowNumber, columnIndexByField, productsByVariantSku, rawMaterialsByNormalizedCode, productIdsWithRowIssues, rowIssues
         )
         if (!resolved) continue
         const bucket = rowsByProductId.get(resolved.product.id) ?? []
@@ -336,7 +334,7 @@ async function buildProductRawMaterialImportTemplate(): Promise<Buffer> {
 
     const sheet = workbook.addWorksheet("Recetas")
     sheet.columns = [
-        { header: PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS.productCodigo.header, key: "productCodigo", width: 18 },
+        { header: PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS.productSku.header, key: "productSku", width: 18 },
         { header: PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS.rawMaterialCode.header, key: "rawMaterialCode", width: 22 },
         { header: PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS.percentage.header, key: "percentage", width: 14 },
         { header: PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS.minPercentage.header, key: "minPercentage", width: 14 },
@@ -344,24 +342,25 @@ async function buildProductRawMaterialImportTemplate(): Promise<Buffer> {
     ]
     sheet.getRow(1).font = { bold: true }
     // Receta fija: solo Porcentaje, sumando 100.
-    sheet.addRow({ productCodigo: "JUGO-PINA-WM", rawMaterialCode: "MP-PINA", percentage: 90 })
-    sheet.addRow({ productCodigo: "JUGO-PINA-WM", rawMaterialCode: "MP-AGUA", percentage: 10 })
+    sheet.addRow({ productSku: "JUGO-PINA-WM", rawMaterialCode: "MP-PINA", percentage: 90 })
+    sheet.addRow({ productSku: "JUGO-PINA-WM", rawMaterialCode: "MP-AGUA", percentage: 10 })
     // Receta personalizable: sin Porcentaje, rangos opcionales.
-    sheet.addRow({ productCodigo: "SMOOTHIE-MIX", rawMaterialCode: "MP-FRESA", minPercentage: 20, maxPercentage: 80 })
-    sheet.addRow({ productCodigo: "SMOOTHIE-MIX", rawMaterialCode: "MP-BANANO", minPercentage: 20, maxPercentage: 80 })
-    sheet.addRow({ productCodigo: "SMOOTHIE-MIX", rawMaterialCode: "MP-MANGO" })
+    sheet.addRow({ productSku: "SMOOTHIE-MIX", rawMaterialCode: "MP-FRESA", minPercentage: 20, maxPercentage: 80 })
+    sheet.addRow({ productSku: "SMOOTHIE-MIX", rawMaterialCode: "MP-BANANO", minPercentage: 20, maxPercentage: 80 })
+    sheet.addRow({ productSku: "SMOOTHIE-MIX", rawMaterialCode: "MP-MANGO" })
 
     const helpSheet = workbook.addWorksheet("Instrucciones")
     helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
     helpSheet.getRow(1).font = { bold: true }
     const helpLines = [
-        "PASO 2 de 4: Productos → Recetas → Ingredientes (opcional) → SKUs. Una fila por cada materia prima de la receta de un producto -- si un producto lleva 3 materias primas, escribe 3 filas con el mismo \"Código Producto\".",
-        "\"Código Producto\" debe ser el código de un Producto ya creado (paso 1). El tipo de receta (Fija o Personalizable) se toma de ese producto, no se vuelve a escribir acá.",
+        "PASO 2 de 3: Productos y SKUs → Recetas → Ingredientes (opcional). Una fila por cada materia prima de la receta de un producto -- si un producto lleva 3 materias primas, escribe 3 filas con el mismo \"SKU de una variante del producto\".",
+        "\"SKU de una variante del producto\" debe ser el SKU de una variante activa de un producto activo ya creado (paso 1). El tipo de receta (Fija o Personalizable) se toma de ese producto, no se vuelve a escribir acá.",
         "\"Código Materia Prima\" debe ser el código EXACTO de una materia prima activa del catálogo de Materias Primas.",
         "Receta FIJA: llena solo \"Porcentaje\" en cada fila (mayor a 0, máximo 100). Las filas del producto deben sumar exactamente 100%. Deja vacías \"% mínimo\" y \"% máximo\".",
         "Receta PERSONALIZABLE: deja vacío \"Porcentaje\" (la mezcla la arma el representante al cotizar). \"% mínimo\" y \"% máximo\" son opcionales (vacío = 0 y 100). Cada materia prima debe estar marcada como mezclable, y los rangos deben permitir llegar a 100% (la suma de los mínimos no puede pasar de 100 y la de los máximos debe llegar al menos a 100).",
         "Si el producto es orgánico, cada materia prima debe ser orgánica o de tipo \"otro\" (agua, sal, azúcar...).",
         "Solo CREA recetas: un producto que ya tiene receta se rechaza -- edítala desde la pantalla del producto. El archivo se valida COMPLETO antes de importar nada: si una sola fila tiene un error, no se crea ninguna receta.",
+        "Los SKUs distintos del mismo producto se agrupan por producto. No repitas una receta completa ni el mismo material/ingrediente usando otro SKU: se rechaza como duplicado del producto.",
     ]
     helpLines.forEach(help => helpSheet.addRow({ help }))
 

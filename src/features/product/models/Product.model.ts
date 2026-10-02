@@ -7,26 +7,8 @@ import ProductRawMaterial from "./ProductRawMaterial.model";
 import ProductIngredient from "./ProductIngredient.model";
 import ProductTranslation from "./ProductTranslation.model";
 
-@Table({
-    tableName: "products",
-    indexes: [
-        {
-            name: "products_codigo_unique",
-            unique: true,
-            fields: ["codigo"]
-        }
-    ]
-})
+@Table({ tableName: "products" })
 class Product extends BaseCatalogModel {
-
-    @Column({
-        type: DataType.STRING(60),
-        allowNull: false,
-        validate: {
-            notEmpty: true
-        }
-    })
-    declare codigo: string
 
     @ForeignKey(() => SubCategory)
     @Column({

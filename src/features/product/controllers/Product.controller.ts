@@ -91,10 +91,10 @@ async function bulkImport(req: Request, res: Response, next: NextFunction): Prom
         if (!EXCEL_MIME_TYPES.has(req.file.mimetype)) {
             throw new AppError(422, "errors.bulk_import_invalid_file_type")
         }
-        const products = await productImportService.bulkImportProducts(req.file.buffer)
+        const result = await productImportService.bulkImportProducts(req.file.buffer)
         res.status(201).json({
-            message: req.t("success.bulk_imported", { count: products.length }),
-            data: { created: products.length }
+            message: req.t("success.bulk_imported", { count: result.variants }),
+            data: { created: result.variants, productsCreated: result.products, variantsCreated: result.variants }
         })
     } catch (error) {
         next(error)

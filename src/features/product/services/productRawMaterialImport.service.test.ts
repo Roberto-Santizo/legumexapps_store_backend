@@ -1,7 +1,7 @@
 import "reflect-metadata"
 import ExcelJS from "exceljs"
 
-// Mismo patrón que productVariantImport.service.test.ts: modelos mockeados, archivos .xlsx reales
+// Modelos mockeados, archivos .xlsx reales
 // armados en memoria, y sequelize.transaction invocando el callback con una transacción falsa.
 jest.mock("../../../database/connection", () => ({
     __esModule: true,
@@ -12,6 +12,8 @@ jest.mock("../models/ProductRawMaterial.model", () => ({ __esModule: true, defau
 jest.mock("../../rawMaterial/models/RawMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 
 import sequelize from "../../../database/connection"
+jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
+import ProductVariant from "../models/ProductVariant.model"
 import Product from "../models/Product.model"
 import ProductRawMaterial from "../models/ProductRawMaterial.model"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
@@ -26,7 +28,7 @@ const mockRawMaterialFindAll = RawMaterial.findAll as unknown as jest.Mock
 
 type SheetRow = Record<string, string | number | undefined>
 
-const HEADERS = ["Código Producto", "Código Materia Prima", "Porcentaje", "% mínimo", "% máximo"]
+const HEADERS = ["SKU de una variante del producto", "Código Materia Prima", "Porcentaje", "% mínimo", "% máximo"]
 
 async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
@@ -39,9 +41,9 @@ async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS
     return arrayBuffer as unknown as Buffer
 }
 
-const FIXED = { id: 1, codigo: "JUGO-PINA", isCustomizable: false, isOrganic: false }
-const MIX = { id: 2, codigo: "SMOOTHIE", isCustomizable: true, isOrganic: false }
-const ORGANIC_FIXED = { id: 3, codigo: "JUGO-ORG", isCustomizable: false, isOrganic: true }
+const FIXED = { id: 1, skuCode: "JUGO-PINA", isCustomizable: false, isOrganic: false }
+const MIX = { id: 2, skuCode: "SMOOTHIE", isCustomizable: true, isOrganic: false }
+const ORGANIC_FIXED = { id: 3, skuCode: "JUGO-ORG", isCustomizable: false, isOrganic: true }
 
 const PINA = { id: 10, code: "MP-PINA", isMixable: true, isOrganic: false, ingredientType: "fruit" }
 const AGUA = { id: 11, code: "MP-AGUA", isMixable: false, isOrganic: false, ingredientType: "other" }
@@ -50,11 +52,11 @@ const BANANO = { id: 13, code: "MP-BANANO", isMixable: true, isOrganic: false, i
 const PINA_ORG = { id: 14, code: "MP-PINA-ORG", isMixable: true, isOrganic: true, ingredientType: "fruit" }
 
 function fixedRow(rawMaterialCode: string, percentage: number | undefined, overrides: Partial<SheetRow> = {}): SheetRow {
-    return { "Código Producto": FIXED.codigo, "Código Materia Prima": rawMaterialCode, "Porcentaje": percentage, ...overrides }
+    return { "SKU de una variante del producto": FIXED.skuCode, "Código Materia Prima": rawMaterialCode, "Porcentaje": percentage, ...overrides }
 }
 
 function mixRow(rawMaterialCode: string, overrides: Partial<SheetRow> = {}): SheetRow {
-    return { "Código Producto": MIX.codigo, "Código Materia Prima": rawMaterialCode, ...overrides }
+    return { "SKU de una variante del producto": MIX.skuCode, "Código Materia Prima": rawMaterialCode, ...overrides }
 }
 
 async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<BulkImportError> {
@@ -68,11 +70,29 @@ async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<Bulk
 
 describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => {
     beforeEach(() => {
+        (ProductVariant.findAll as jest.Mock).mockImplementation(async () => (await mockProductFindAll()).map((product: { id: number; skuCode: string }) => ({ skuCode: product.skuCode, productId: product.id, parentProduct: product })))
         mockTransaction.mockClear()
         mockProductFindAll.mockReset().mockResolvedValue([FIXED, MIX, ORGANIC_FIXED])
         mockRawMaterialFindAll.mockReset().mockResolvedValue([PINA, AGUA, FRESA, BANANO, PINA_ORG])
         mockRecipeFindAll.mockReset().mockResolvedValue([]) // ningún producto tiene receta todavía
         mockRecipeBulkCreate.mockReset().mockImplementation((rows: object[]) => Promise.resolve(rows))
+    })
+
+    it("dos SKUs del mismo producto comparten una sola receta", async () => {
+        (ProductVariant.findAll as jest.Mock).mockResolvedValue([
+            { skuCode: FIXED.skuCode, parentProduct: FIXED }, { skuCode: "SECOND", parentProduct: FIXED },
+        ])
+        await productRawMaterialImportService.bulkImportProductRawMaterials(await buildWorkbookBuffer([
+            fixedRow(PINA.code, 60), fixedRow(AGUA.code, 40, { "SKU de una variante del producto": "SECOND" }),
+        ]))
+        expect(mockRecipeBulkCreate.mock.calls[0][0].map((line: { productId: number }) => line.productId)).toEqual([1, 1])
+        expect(ProductVariant.findAll).toHaveBeenCalledWith(expect.objectContaining({ where: { isActive: true }, include: [expect.objectContaining({ required: true, where: { isActive: true } })] }))
+    })
+    it("rechaza la receta repetida usando otro SKU del mismo producto", async () => {
+        (ProductVariant.findAll as jest.Mock).mockResolvedValue([
+            { skuCode: FIXED.skuCode, parentProduct: FIXED }, { skuCode: "SECOND", parentProduct: FIXED },
+        ])
+        await expectRowIssues(await buildWorkbookBuffer([fixedRow(PINA.code, 100), fixedRow(PINA.code, 100, { "SKU de una variante del producto": "SECOND" })]), [{ row: 3, key: "errors.bulk_import_duplicate_raw_material_in_product" }])
     })
 
     describe("receta fija", () => {
@@ -102,7 +122,7 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 80), fixedRow(AGUA.code, 10)])
 
             await expectRowIssues(buffer, [
-                { row: 2, key: "errors.bulk_import_fixed_recipe_total_invalid", params: { productCodigo: FIXED.codigo, total: 90 } },
+                { row: 2, key: "errors.bulk_import_fixed_recipe_total_invalid", params: { productSku: FIXED.skuCode, total: 90 } },
             ])
         })
 
@@ -174,7 +194,7 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             ])
 
             await expectRowIssues(buffer, [
-                { row: 2, key: "errors.bulk_import_customizable_pool_cannot_reach_100", params: { productCodigo: MIX.codigo, minTotal: 110, maxTotal: 200 } },
+                { row: 2, key: "errors.bulk_import_customizable_pool_cannot_reach_100", params: { productSku: MIX.skuCode, minTotal: 110, maxTotal: 200 } },
             ])
         })
 
@@ -185,15 +205,15 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             ])
 
             await expectRowIssues(buffer, [
-                { row: 2, key: "errors.bulk_import_customizable_pool_cannot_reach_100", params: { productCodigo: MIX.codigo, minTotal: 0, maxTotal: 80 } },
+                { row: 2, key: "errors.bulk_import_customizable_pool_cannot_reach_100", params: { productSku: MIX.skuCode, minTotal: 0, maxTotal: 80 } },
             ])
         })
     })
 
     it("rechaza una materia prima no orgánica (y no de tipo \"otro\") en un producto orgánico; \"otro\" sí se permite", async () => {
         const buffer = await buildWorkbookBuffer([
-            { "Código Producto": ORGANIC_FIXED.codigo, "Código Materia Prima": PINA.code, "Porcentaje": 50 },
-            { "Código Producto": ORGANIC_FIXED.codigo, "Código Materia Prima": AGUA.code, "Porcentaje": 50 },
+            { "SKU de una variante del producto": ORGANIC_FIXED.skuCode, "Código Materia Prima": PINA.code, "Porcentaje": 50 },
+            { "SKU de una variante del producto": ORGANIC_FIXED.skuCode, "Código Materia Prima": AGUA.code, "Porcentaje": 50 },
         ])
 
         const error = await expectRowIssues(buffer, [
@@ -215,19 +235,19 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
         const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 100)])
 
         await expectRowIssues(buffer, [
-            { row: 2, field: "productId", key: "errors.bulk_import_product_recipe_already_exists", params: { productCodigo: FIXED.codigo } },
+            { row: 2, field: "productId", key: "errors.bulk_import_product_recipe_already_exists", params: { productSku: FIXED.skuCode } },
         ])
         expect(mockRecipeFindAll).toHaveBeenCalledWith({ where: { isActive: true }, attributes: ["productId"] })
     })
 
     it("rechaza un código de producto o de materia prima inexistente", async () => {
         const buffer = await buildWorkbookBuffer([
-            fixedRow(PINA.code, 100, { "Código Producto": "NO-EXISTE" }),
+            fixedRow(PINA.code, 100, { "SKU de una variante del producto": "NO-EXISTE" }),
             fixedRow("MP-NADA", 100),
         ])
 
         await expectRowIssues(buffer, [
-            { row: 2, field: "productId", key: "errors.bulk_import_unknown_product_codigo" },
+            { row: 2, field: "productId", key: "errors.bulk_import_unknown_product_sku" },
             { row: 3, field: "rawMaterialId", key: "errors.bulk_import_unknown_raw_material_code" },
         ])
     })
@@ -242,7 +262,7 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
     })
 
     it("rechaza un archivo sin las columnas obligatorias", async () => {
-        const buffer = await buildWorkbookBuffer([{ "Código Producto": FIXED.codigo }], ["Código Producto"])
+        const buffer = await buildWorkbookBuffer([{ "SKU de una variante del producto": FIXED.skuCode }], ["SKU de una variante del producto"])
 
         await expect(productRawMaterialImportService.bulkImportProductRawMaterials(buffer)).rejects.toMatchObject({
             key: "errors.bulk_import_missing_columns",

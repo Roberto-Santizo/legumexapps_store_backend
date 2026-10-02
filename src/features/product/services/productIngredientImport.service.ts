@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
+import { loadProductsByVariantSku, skuCodeKey } from "./productSkuReference"
 import ProductIngredient from "../models/ProductIngredient.model"
 import Ingredient from "../../ingredient/models/Ingredient.model"
 import { AppError, BulkImportError, RowIssue } from "../../../shared/errors/AppError"
@@ -21,15 +22,15 @@ import {
     REQUIRED_PRODUCT_INGREDIENT_IMPORT_FIELDS,
 } from "../constants/productIngredientImport.constant"
 
-// Carga masiva de Ingredientes por producto -- paso 3 (opcional) de 4 (Productos → Recetas →
-// Ingredientes → SKUs). Una fila por (Producto, Ingrediente), agrupadas por
+// Carga masiva de Ingredientes por producto -- paso 3 (opcional) de 3 (Productos → Recetas →
+// Ingredientes (opcional)). Una fila por (Producto, Ingrediente), agrupadas por
 // producto igual que productRawMaterialImport.service.ts. Sin regla de 100% (los ingredientes van
 // encima de la receta base) y mismas reglas para receta fija y personalizable:
 //   - producto e ingrediente existen y están activos;
 //   - Gramos ≤ Peso de referencia (mismo guard que productIngredient.service.ts);
 //   - el mismo ingrediente no se repite dentro de un producto;
 //   - create-only: un producto que ya tiene algún ingrediente activo se rechaza.
-// Todo o nada, en una sola transacción. Los SKUs (paso 4) no dependen de este paso.
+// Todo o nada, en una sola transacción. Las variantes ya existen desde el paso 1.
 
 type RowValidation = {
     rowNumber: number
@@ -41,7 +42,7 @@ interface ResolvedIngredientRow {
     rowNumber: number
     product: Product
     ingredient: Ingredient
-    productCodigo: string
+    productSku: string
     ingredientCode: string
     grams: number
     referenceNetWeightGrams: number
@@ -52,13 +53,13 @@ function parseOptionalNumber(value: ImportCellValue): number | undefined {
     return Number(value)
 }
 
-function resolveProductField(rawCodigo: ImportCellValue, productsByNormalizedCodigo: Map<string, Product>, ctx: RowValidation): Product | undefined {
-    if (rawCodigo === null) return undefined
+function resolveProductField(rawSku: ImportCellValue, productsByVariantSku: Map<string, Product>, ctx: RowValidation): Product | undefined {
+    if (rawSku === null) return undefined
     ctx.manuallyValidatedFields.add("productId")
-    const codigo = String(rawCodigo).trim()
-    const product = productsByNormalizedCodigo.get(normalizeImportText(codigo))
+    const skuCode = String(rawSku).trim()
+    const product = productsByVariantSku.get(skuCodeKey(skuCode))
     if (!product) {
-        ctx.rowIssues.push({ row: ctx.rowNumber, field: "productId", key: "errors.bulk_import_unknown_product_codigo", params: { codigo } })
+        ctx.rowIssues.push({ row: ctx.rowNumber, field: "productId", key: "errors.bulk_import_unknown_product_sku", params: { skuCode } })
         return undefined
     }
     return product
@@ -93,16 +94,16 @@ function processIngredientImportRow(
     row: ExcelJS.Row,
     rowNumber: number,
     columnIndexByField: Map<ProductIngredientImportField, number>,
-    productsByNormalizedCodigo: Map<string, Product>,
+    productsByVariantSku: Map<string, Product>,
     ingredientsByNormalizedCode: Map<string, Ingredient>,
     rowIssues: RowIssue[]
 ): ResolvedIngredientRow | null {
     const read = (field: ProductIngredientImportField) => readImportCell(row, columnIndexByField.get(field))
-    const rawProductCodigo = read("productCodigo")
+    const rawProductSku = read("productSku")
     const rawIngredientCode = read("ingredientCode")
 
     const ctx: RowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
-    const product = resolveProductField(rawProductCodigo, productsByNormalizedCodigo, ctx)
+    const product = resolveProductField(rawProductSku, productsByVariantSku, ctx)
     const ingredient = resolveIngredientField(rawIngredientCode, ingredientsByNormalizedCode, ctx)
     const grams = parseOptionalNumber(read("grams"))
     const referenceNetWeightGrams = parseOptionalNumber(read("referenceNetWeightGrams"))
@@ -127,7 +128,7 @@ function processIngredientImportRow(
             rowNumber,
             product,
             ingredient,
-            productCodigo: String(rawProductCodigo).trim(),
+            productSku: String(rawProductSku).trim(),
             ingredientCode: String(rawIngredientCode).trim(),
             grams: grams as number,
             referenceNetWeightGrams: referenceNetWeightGrams as number,
@@ -140,7 +141,7 @@ function processIngredientImportRow(
 
 function finalizeProductGroup(rows: ResolvedIngredientRow[], productIdsWithExistingIngredients: Set<number>, rowIssues: RowIssue[]): boolean {
     const firstRow = rows[0]
-    const params = { productCodigo: firstRow.productCodigo }
+    const params = { productSku: firstRow.productSku }
 
     if (productIdsWithExistingIngredients.has(firstRow.product.id)) {
         rowIssues.push({ row: firstRow.rowNumber, field: "productId", key: "errors.bulk_import_product_ingredients_already_exist", params })
@@ -164,10 +165,7 @@ function finalizeProductGroup(rows: ResolvedIngredientRow[], productIdsWithExist
     return isValid
 }
 
-async function loadProductsByNormalizedCodigo(): Promise<Map<string, Product>> {
-    const products = await Product.findAll({ where: { isActive: true } })
-    return new Map(products.map(product => [normalizeImportText(product.codigo), product]))
-}
+
 
 async function loadIngredientsByNormalizedCode(): Promise<Map<string, Ingredient>> {
     const ingredients = await Ingredient.findAll({ where: { isActive: true } })
@@ -203,8 +201,8 @@ async function bulkImportProductIngredients(buffer: Buffer): Promise<ProductIngr
         throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PRODUCT_INGREDIENT_IMPORT_ROWS })
     }
 
-    const [productsByNormalizedCodigo, ingredientsByNormalizedCode, productIdsWithExistingIngredients] = await Promise.all([
-        loadProductsByNormalizedCodigo(),
+    const [productsByVariantSku, ingredientsByNormalizedCode, productIdsWithExistingIngredients] = await Promise.all([
+        loadProductsByVariantSku(),
         loadIngredientsByNormalizedCode(),
         loadProductIdsWithExistingIngredients(),
     ])
@@ -217,7 +215,7 @@ async function bulkImportProductIngredients(buffer: Buffer): Promise<ProductIngr
         if (isImportRowBlank(row, columnIndexByField)) continue
 
         const resolved = processIngredientImportRow(
-            row, rowNumber, columnIndexByField, productsByNormalizedCodigo, ingredientsByNormalizedCode, rowIssues
+            row, rowNumber, columnIndexByField, productsByVariantSku, ingredientsByNormalizedCode, rowIssues
         )
         if (!resolved) continue
         const bucket = rowsByProductId.get(resolved.product.id) ?? []
@@ -253,25 +251,26 @@ async function buildProductIngredientImportTemplate(): Promise<Buffer> {
 
     const sheet = workbook.addWorksheet("Ingredientes")
     sheet.columns = [
-        { header: PRODUCT_INGREDIENT_IMPORT_COLUMNS.productCodigo.header, key: "productCodigo", width: 18 },
+        { header: PRODUCT_INGREDIENT_IMPORT_COLUMNS.productSku.header, key: "productSku", width: 18 },
         { header: PRODUCT_INGREDIENT_IMPORT_COLUMNS.ingredientCode.header, key: "ingredientCode", width: 22 },
         { header: PRODUCT_INGREDIENT_IMPORT_COLUMNS.grams.header, key: "grams", width: 12 },
         { header: PRODUCT_INGREDIENT_IMPORT_COLUMNS.referenceNetWeightGrams.header, key: "referenceNetWeightGrams", width: 24 },
     ]
     sheet.getRow(1).font = { bold: true }
-    sheet.addRow({ productCodigo: "MANGO-DESH", ingredientCode: "SAL-001", grams: 40, referenceNetWeightGrams: 2000 })
-    sheet.addRow({ productCodigo: "MANGO-DESH", ingredientCode: "AZU-001", grams: 100, referenceNetWeightGrams: 2000 })
-    sheet.addRow({ productCodigo: "SMOOTHIE-MIX", ingredientCode: "AZU-001", grams: 12.5, referenceNetWeightGrams: 500 })
+    sheet.addRow({ productSku: "MANGO-DESH", ingredientCode: "SAL-001", grams: 40, referenceNetWeightGrams: 2000 })
+    sheet.addRow({ productSku: "MANGO-DESH", ingredientCode: "AZU-001", grams: 100, referenceNetWeightGrams: 2000 })
+    sheet.addRow({ productSku: "SMOOTHIE-MIX", ingredientCode: "AZU-001", grams: 12.5, referenceNetWeightGrams: 500 })
 
     const helpSheet = workbook.addWorksheet("Instrucciones")
     helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
     helpSheet.getRow(1).font = { bold: true }
     const helpLines = [
-        "PASO 3 de 4 (OPCIONAL): Productos → Recetas → Ingredientes → SKUs. Una fila por cada ingrediente agregado a un producto (sal, azúcar, pimienta...). Los productos sin ingredientes simplemente no aparecen en este archivo.",
-        "\"Código Producto\" debe ser el código de un Producto ya creado (paso 1). \"Código Ingrediente\" debe ser el código EXACTO de un ingrediente activo del catálogo de Ingredientes.",
+        "PASO 3 de 3 (OPCIONAL): Productos y SKUs → Recetas → Ingredientes (opcional). Una fila por cada ingrediente agregado a un producto (sal, azúcar, pimienta...). Los productos sin ingredientes simplemente no aparecen en este archivo.",
+        "\"SKU de una variante del producto\" debe ser el SKU de una variante activa de un producto activo ya creado (paso 1). \"Código Ingrediente\" debe ser el código EXACTO de un ingrediente activo del catálogo de Ingredientes.",
         "\"Gramos\" son los gramos del ingrediente en una presentación de \"Peso de referencia (g)\" -- ej. 40 g de sal en una presentación de 2000 g. El costo escala solo con cada presentación que se cotice (en una de 500 g serían 10 g).",
         "Los gramos no pueden ser mayores que el peso de referencia. Los ingredientes NO forman parte del 100% de la receta: se cobran aparte, encima de la receta base.",
         "Solo CREA ingredientes: un producto que ya tiene ingredientes se rechaza -- edítalos desde la pantalla del producto. El archivo se valida COMPLETO antes de importar nada: si una sola fila tiene un error, no se crea ninguno.",
+        "Los SKUs distintos del mismo producto se agrupan por producto. No repitas una receta completa ni el mismo material/ingrediente usando otro SKU: se rechaza como duplicado del producto.",
     ]
     helpLines.forEach(help => helpSheet.addRow({ help }))
 

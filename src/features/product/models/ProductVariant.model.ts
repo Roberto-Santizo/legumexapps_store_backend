@@ -1,4 +1,5 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany } from "sequelize-typescript";
+import { col, fn } from "sequelize";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Product from "./Product.model";
 import Presentation from "../../presentation/models/Presentation.model";
@@ -8,8 +9,13 @@ import ProductVariantIntermediateMaterial from "./ProductVariantIntermediateMate
 
 @Table({
     tableName: "productVariants",
+    indexes: [{ name: "productVariants_skuCode_unique", unique: true, fields: [fn("lower", col("skuCode"))] }],
 })
 class ProductVariant extends BaseCatalogModel {
+    // SKU comercial global por presentación; reservado incluso si la variante está inactiva.
+    @Column({ type: DataType.STRING(60), allowNull: false, validate: { notEmpty: true } })
+    declare skuCode: string
+
     @ForeignKey(() => Product)
     @Column({
         type: DataType.INTEGER,
@@ -20,9 +26,7 @@ class ProductVariant extends BaseCatalogModel {
     // Requerido: cada SKU (variante) debe estar atado a exactamente una Presentación
     // -- ya no hay variantes "sin presentación". Además es inmutable una vez creada (ver
     // productVariant.service.ts::assertPresentationNotChanged): cambiar de presentación exige
-    // crear un SKU nuevo, no reasignar este. Junto con Product.codigo, (productId, presentationId)
-    // ES la identidad del SKU (ver assertPresentationNotAlreadyUsed) -- ya no hay un
-    // skuCode propio de la variante.
+    // crear un SKU nuevo, no reasignar este. Se conserva un SKU por producto/presentación.
     @ForeignKey(() => Presentation)
     @Column({
         type: DataType.INTEGER,

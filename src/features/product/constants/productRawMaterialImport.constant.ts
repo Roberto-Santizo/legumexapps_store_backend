@@ -3,7 +3,7 @@
 // Ingredientes → SKUs. Una fila por (Producto, Materia Prima). El tipo de receta
 // NUNCA se re-declara acá: sale del Product.isCustomizable ya creado en el paso 1.
 export type ProductRawMaterialImportField =
-    | "productCodigo"
+    | "productSku"
     | "rawMaterialCode"
     | "percentage"
     | "minPercentage"
@@ -16,7 +16,7 @@ interface ImportColumnDef {
 
 // Aliases ya normalizados con normalizeImportText (minúsculas, sin acentos).
 export const PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS: Record<ProductRawMaterialImportField, ImportColumnDef> = {
-    productCodigo: { header: "Código Producto", aliases: ["codigo producto", "producto"] },
+    productSku: { header: "SKU de una variante del producto", aliases: ["sku de una variante del producto", "sku", "codigo sku"] },
     rawMaterialCode: { header: "Código Materia Prima", aliases: ["codigo materia prima", "materia prima", "codigo mp"] },
     percentage: { header: "Porcentaje", aliases: ["porcentaje", "%", "percentage"] },
     minPercentage: { header: "% mínimo", aliases: ["% minimo", "porcentaje minimo", "minimo", "min %"] },
@@ -24,7 +24,7 @@ export const PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS: Record<ProductRawMaterialImpor
 }
 
 export const REQUIRED_PRODUCT_RAW_MATERIAL_IMPORT_FIELDS: ProductRawMaterialImportField[] = [
-    "productCodigo",
+    "productSku",
     "rawMaterialCode",
 ]
 

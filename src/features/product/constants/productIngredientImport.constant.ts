@@ -2,7 +2,7 @@
 // Carga masiva de Ingredientes por producto -- paso 3 (opcional) de 4 del pipeline Productos →
 // Recetas → Ingredientes → SKUs. Una fila por (Producto, Ingrediente).
 export type ProductIngredientImportField =
-    | "productCodigo"
+    | "productSku"
     | "ingredientCode"
     | "grams"
     | "referenceNetWeightGrams"
@@ -14,7 +14,7 @@ interface ImportColumnDef {
 
 // Aliases ya normalizados con normalizeImportText (minúsculas, sin acentos).
 export const PRODUCT_INGREDIENT_IMPORT_COLUMNS: Record<ProductIngredientImportField, ImportColumnDef> = {
-    productCodigo: { header: "Código Producto", aliases: ["codigo producto", "producto"] },
+    productSku: { header: "SKU de una variante del producto", aliases: ["sku de una variante del producto", "sku", "codigo sku"] },
     ingredientCode: { header: "Código Ingrediente", aliases: ["codigo ingrediente", "ingrediente"] },
     grams: { header: "Gramos", aliases: ["gramos", "g", "grams"] },
     referenceNetWeightGrams: {
@@ -24,7 +24,7 @@ export const PRODUCT_INGREDIENT_IMPORT_COLUMNS: Record<ProductIngredientImportFi
 }
 
 export const REQUIRED_PRODUCT_INGREDIENT_IMPORT_FIELDS: ProductIngredientImportField[] = [
-    "productCodigo",
+    "productSku",
     "ingredientCode",
     "grams",
     "referenceNetWeightGrams",

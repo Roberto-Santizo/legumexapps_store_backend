@@ -1,6 +1,10 @@
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
+import ProductVariant from "../models/ProductVariant.model"
+import Presentation from "../../presentation/models/Presentation.model"
+import { createProductVariantSchema, CreateProductVariantInput } from "../schemas/productVariant.schema"
+import { skuCodeKey } from "./productSkuReference"
 import ProductTranslation from "../models/ProductTranslation.model"
 import SubCategory from "../../category/models/SubCategory.model"
 import Category from "../../category/models/Category.model"
@@ -27,11 +31,7 @@ import {
     REQUIRED_PRODUCT_IMPORT_FIELDS,
 } from "../constants/productImport.constant"
 
-// Carga masiva de Productos base -- paso 1 de 4 (Productos → Recetas → Ingredientes → SKUs).
-// Solo CREA productos (create-only), todo-o-nada por archivo. Cada fila se valida
-// con el mismo createProductSchema que el formulario manual, sin imagen: el producto se crea con
-// imageUrl null y la imagen se sube después en su pantalla de edición.
-
+// Importación unificada: una fila por variante, producto agrupado por clave explícita.
 type RowValidation = {
     rowNumber: number
     rowIssues: RowIssue[]
@@ -41,6 +41,9 @@ type RowValidation = {
 interface ProductImportCandidate {
     rowNumber: number
     input: CreateProductInput
+    productGroup: string
+    categoryId: number | null
+    variant: Omit<CreateProductVariantInput, "productId">
 }
 
 interface NamedCatalogs {
@@ -49,7 +52,7 @@ interface NamedCatalogs {
     clientsByNormalizedName: Map<string, Client[]>
 }
 
-// Mismo patrón que loadPresentationsByNormalizedLabel en productVariantImport.service.ts: el
+// Resolución por buckets de nombres: el
 // nombre no es único a nivel de columna (Subcategoría solo es única por (categoryId, urlSlug);
 // Cliente no tiene ninguna restricción), así que cada nombre normalizado apunta a una LISTA -- 0
 // coincidencias = no encontrado, >1 = ambiguo, cada uno como error de fila.
@@ -158,28 +161,6 @@ function resolveIsOrganicField(rawIsOrganic: ImportCellValue, ctx: RowValidation
     return isOrganic
 }
 
-// Código único sin importar mayúsculas contra TODOS los productos (activos o no, igual que
-// product.service.ts::assertCodigoIsUnique) y dentro del mismo archivo.
-function checkCodigoUniqueness(
-    codigo: string,
-    existingNormalizedCodigos: Set<string>,
-    firstRowByNormalizedCodigo: Map<string, number>,
-    ctx: RowValidation
-): void {
-    const normalized = normalizeImportText(codigo)
-    if (normalized === "") return
-    if (existingNormalizedCodigos.has(normalized)) {
-        ctx.rowIssues.push({ row: ctx.rowNumber, field: "codigo", key: "errors.product_codigo_already_exists", params: { codigo } })
-        return
-    }
-    const firstRow = firstRowByNormalizedCodigo.get(normalized)
-    if (firstRow !== undefined) {
-        ctx.rowIssues.push({ row: ctx.rowNumber, field: "codigo", key: "errors.bulk_import_duplicate_code_in_file", params: { code: codigo, firstRow } })
-        return
-    }
-    firstRowByNormalizedCodigo.set(normalized, ctx.rowNumber)
-}
-
 function collectRowZodIssues(
     candidate: unknown,
     manuallyValidatedFields: Set<string>,
@@ -203,51 +184,52 @@ function readTrimmedText(value: ImportCellValue): string | undefined {
 }
 
 function processProductImportRow(
-    row: ExcelJS.Row,
-    rowNumber: number,
-    columnIndexByField: Map<ProductImportField, number>,
-    catalogs: NamedCatalogs,
-    existingNormalizedCodigos: Set<string>,
-    firstRowByNormalizedCodigo: Map<string, number>,
-    rowIssues: RowIssue[]
+    row: ExcelJS.Row, rowNumber: number, columns: Map<ProductImportField, number>,
+    catalogs: NamedCatalogs, presentations: Map<string, Presentation[]>,
+    existingSkus: Set<string>, firstSkuRows: Map<string, number>, rowIssues: RowIssue[]
 ): ProductImportCandidate | null {
-    const read = (field: ProductImportField) => readImportCell(row, columnIndexByField.get(field))
-    const rawCategory = read("category")
-    const rawAdditionalCost = read("additionalCostPerUnit")
-
-    const ctx: RowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
-
-    const codigo = readTrimmedText(read("codigo"))
-    if (codigo) checkCodigoUniqueness(codigo, existingNormalizedCodigos, firstRowByNormalizedCodigo, ctx)
-
-    const categoryId = resolveCategoryField(rawCategory, catalogs, ctx)
-    const subCategoryId = resolveSubCategoryField(read("subCategory"), categoryId, readTrimmedText(rawCategory) ?? "", catalogs, ctx)
+    const read = (field: ProductImportField) => readImportCell(row, columns.get(field))
+    const ctx: RowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set() }
+    const productGroup = readTrimmedText(read("productGroup"))
+    if (!productGroup) ctx.rowIssues.push({ row: rowNumber, field: "productGroup", key: "errors.bulk_import_product_group_required" })
+    const category = readTrimmedText(read("category")) ?? ""
+    const categoryId = resolveCategoryField(read("category"), catalogs, ctx)
+    const subCategoryId = resolveSubCategoryField(read("subCategory"), categoryId, category, catalogs, ctx)
     const clientId = resolveClientField(read("client"), catalogs, ctx)
     const isCustomizable = resolveRecipeTypeField(read("recipeType"), ctx)
     const isOrganic = resolveIsOrganicField(read("isOrganic"), ctx)
-    const displayNameEn = readTrimmedText(read("displayNameEn"))
-
-    const candidate = {
-        codigo,
-        subCategoryId,
-        clientId,
-        displayName: readTrimmedText(read("displayName")),
-        isOrganic,
-        isCustomizable,
-        additionalCostPerUnit: isBlankCell(rawAdditionalCost) ? undefined : Number(rawAdditionalCost),
-        ...(displayNameEn ? { translations: { en: { displayName: displayNameEn } } } : {}),
+    const en = readTrimmedText(read("displayNameEn"))
+    const { validated, issues } = collectRowZodIssues({
+        subCategoryId, clientId, displayName: readTrimmedText(read("displayName")), isCustomizable, isOrganic,
+        additionalCostPerUnit: isBlankCell(read("additionalCostPerUnit")) ? null : Number(read("additionalCostPerUnit")),
+        ...(en ? { translations: { en: { displayName: en } } } : {}),
+    }, ctx.manuallyValidatedFields, rowNumber)
+    ctx.rowIssues.push(...issues)
+    const label = readTrimmedText(read("presentationLabel")) ?? ""
+    const matches = presentations.get(normalizeImportText(label)) ?? []
+    if (matches.length !== 1) ctx.rowIssues.push({ row: rowNumber, field: "presentationLabel",
+        key: matches.length ? "errors.bulk_import_presentation_ambiguous" : "errors.bulk_import_presentation_not_found", params: { value: label } })
+    const number = (field: ProductImportField) => isBlankCell(read(field)) ? undefined : Number(read(field))
+    const parsed = createProductVariantSchema.omit({ productId: true }).safeParse({
+        skuCode: readTrimmedText(read("skuCode")), presentationId: matches[0]?.id,
+        boxesPerPallet: number("boxesPerPallet"), bagsPerBox: number("bagsPerBox"),
+        unitsPerIntermediatePackage: number("unitsPerIntermediatePackage"),
+    })
+    if (!parsed.success) for (const issue of parsed.error.issues) {
+        if (issue.path[0] === "presentationId" && matches.length !== 1) continue
+        ctx.rowIssues.push({ row: rowNumber, field: issue.path.join("."), key: `errors.zod.${issue.code}`, params: { defaultValue: issue.message } })
     }
-
-    const { validated, issues: zodIssues } = collectRowZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
-    ctx.rowIssues.push(...zodIssues)
-
-    if (ctx.rowIssues.length > 0) {
-        rowIssues.push(...ctx.rowIssues)
-        return null
+    const sku = readTrimmedText(read("skuCode"))
+    if (sku) {
+        const key = skuCodeKey(sku)
+        if (existingSkus.has(key)) ctx.rowIssues.push({ row: rowNumber, field: "skuCode", key: "errors.product_variant_skucode_already_exists", params: { skuCode: sku } })
+        const firstRow = firstSkuRows.get(key)
+        if (firstRow !== undefined) ctx.rowIssues.push({ row: rowNumber, field: "skuCode", key: "errors.bulk_import_duplicate_code_in_file", params: { code: sku, firstRow } })
+        else firstSkuRows.set(key, rowNumber)
     }
-
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- rowIssues vacío arriba garantiza que zod sí validó
-    return { rowNumber, input: validated! }
+    rowIssues.push(...ctx.rowIssues)
+    if (!validated || !parsed.success || !productGroup || ctx.rowIssues.length) return null
+    return { rowNumber, input: validated, productGroup, categoryId: categoryId ?? null, variant: parsed.data }
 }
 
 async function loadNamedCatalogs(): Promise<NamedCatalogs> {
@@ -263,15 +245,6 @@ async function loadNamedCatalogs(): Promise<NamedCatalogs> {
     }
 }
 
-// Todos los productos (activos o no): el código y el slug son únicos en toda la tabla.
-async function loadExistingCodigosAndSlugs(): Promise<{ codigos: Set<string>; slugs: Set<string> }> {
-    const products = await Product.findAll({ attributes: ["codigo", "urlSlug"] })
-    return {
-        codigos: new Set(products.map(product => normalizeImportText(product.codigo))),
-        slugs: new Set(products.map(product => product.urlSlug)),
-    }
-}
-
 function validateProductImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), PRODUCT_IMPORT_COLUMNS)
     const missingFields = REQUIRED_PRODUCT_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
@@ -283,111 +256,96 @@ function validateProductImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductImpo
     return columnIndexByField
 }
 
-async function bulkImportProducts(buffer: Buffer): Promise<Product[]> {
+async function bulkImportProducts(buffer: Buffer): Promise<{ products: number; variants: number }> {
     const workbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
-    if (!sheet || sheet.rowCount <= 1) {
-        throw new AppError(422, "errors.bulk_import_empty_file")
-    }
-
-    const columnIndexByField = validateProductImportHeaders(sheet)
-
-    if (sheet.rowCount - 1 > MAX_PRODUCT_IMPORT_ROWS) {
-        throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PRODUCT_IMPORT_ROWS })
-    }
-
-    const [catalogs, existing] = await Promise.all([loadNamedCatalogs(), loadExistingCodigosAndSlugs()])
-
+    if (!sheet || sheet.rowCount <= 1) throw new AppError(422, "errors.bulk_import_empty_file")
+    const columns = validateProductImportHeaders(sheet)
+    if (sheet.rowCount - 1 > MAX_PRODUCT_IMPORT_ROWS) throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PRODUCT_IMPORT_ROWS })
+    const [catalogs, variants, products, presentationRows] = await Promise.all([
+        loadNamedCatalogs(), ProductVariant.findAll({ attributes: ["skuCode"] }),
+        Product.findAll({ attributes: ["urlSlug"] }), Presentation.findAll({ where: { isActive: true } }),
+    ])
+    const presentations = bucketByNormalizedText(presentationRows, p => p.displayLabel)
+    const existingSkus = new Set(variants.map(v => skuCodeKey(v.skuCode)))
+    const firstSkuRows = new Map<string, number>()
+    const groups = new Map<string, ProductImportCandidate[]>()
     const rowIssues: RowIssue[] = []
-    const candidates: ProductImportCandidate[] = []
-    const firstRowByNormalizedCodigo = new Map<string, number>()
-
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
         const row = sheet.getRow(rowNumber)
-        if (isImportRowBlank(row, columnIndexByField)) continue
-
-        const candidate = processProductImportRow(
-            row, rowNumber, columnIndexByField, catalogs, existing.codigos, firstRowByNormalizedCodigo, rowIssues
-        )
-        if (candidate) candidates.push(candidate)
+        if (isImportRowBlank(row, columns)) continue
+        const candidate = processProductImportRow(row, rowNumber, columns, catalogs, presentations, existingSkus, firstSkuRows, rowIssues)
+        if (!candidate) continue
+        // La clave se compara literalmente después de trim; nombres no intervienen.
+        const rows = groups.get(candidate.productGroup) ?? []
+        rows.push(candidate)
+        groups.set(candidate.productGroup, rows)
     }
-
-    if (rowIssues.length > 0) {
-        throw new BulkImportError(rowIssues)
-    }
-    if (candidates.length === 0) {
-        throw new AppError(422, "errors.bulk_import_empty_file")
-    }
-
-    // Slugs resueltos en memoria antes de escribir: el set arranca con los slugs de la BD y va
-    // sumando los de filas anteriores del MISMO archivo, así dos productos con el mismo nombre
-    // reciben "nombre" y "nombre-2" en vez de chocar contra el índice único al insertar.
-    const takenSlugs = existing.slugs
-    const slugByRow = new Map<number, string>()
-    for (const candidate of candidates) {
-        const urlSlug = await generateUniqueSlug(candidate.input.displayName, async (slugCandidate) => takenSlugs.has(slugCandidate))
-        takenSlugs.add(urlSlug)
-        slugByRow.set(candidate.rowNumber, urlSlug)
-    }
-
-    return sequelize.transaction(async (transaction) => {
-        const createdProducts: Product[] = []
-        for (const candidate of candidates) {
-            const { translations, ...rest } = candidate.input
-            const product = await Product.create(
-                { ...rest, urlSlug: slugByRow.get(candidate.rowNumber), imageUrl: null },
-                { transaction }
-            )
-            if (translations?.en?.displayName) {
-                await ProductTranslation.create(
-                    { productId: product.id, language: "en", displayName: translations.en.displayName },
-                    { transaction }
-                )
+    for (const [group, rows] of groups) {
+        const first = rows[0]
+        const presentationsSeen = new Set<number>()
+        for (const row of rows) {
+            if (row.categoryId !== first.categoryId) rowIssues.push({ row: row.rowNumber, field: "category", key: "errors.bulk_import_product_group_inconsistent", params: { group, field: "category", firstRow: first.rowNumber } })
+            for (const field of ["displayName", "clientId", "subCategoryId", "isOrganic", "isCustomizable", "additionalCostPerUnit", "translations"] as const) {
+                if (JSON.stringify(row.input[field]) !== JSON.stringify(first.input[field])) {
+                    rowIssues.push({ row: row.rowNumber, field, key: "errors.bulk_import_product_group_inconsistent", params: { group, field, firstRow: first.rowNumber } })
+                }
             }
-            createdProducts.push(product)
+            if (presentationsSeen.has(row.variant.presentationId)) rowIssues.push({ row: row.rowNumber, field: "presentationId", key: "errors.product_variant_presentation_already_used" })
+            presentationsSeen.add(row.variant.presentationId)
         }
-        return createdProducts
+    }
+    if (rowIssues.length) throw new BulkImportError(rowIssues)
+    if (!groups.size) throw new AppError(422, "errors.bulk_import_empty_file")
+    const takenSlugs = new Set(products.map(p => p.urlSlug))
+    const slugs = new Map<string, string>()
+    for (const [group, rows] of groups) {
+        const slug = await generateUniqueSlug(rows[0].input.displayName, async candidate => takenSlugs.has(candidate))
+        takenSlugs.add(slug)
+        slugs.set(group, slug)
+    }
+    return sequelize.transaction(async transaction => {
+        let variantCount = 0
+        for (const [group, rows] of groups) {
+            const { translations, ...input } = rows[0].input
+            const product = await Product.create({ ...input, urlSlug: slugs.get(group), imageUrl: null }, { transaction })
+            if (translations?.en?.displayName) await ProductTranslation.create({ productId: product.id, language: "en", displayName: translations.en.displayName }, { transaction })
+            for (const row of rows) {
+                await ProductVariant.create({ ...row.variant, productId: product.id, unitsPerIntermediatePackage: row.variant.unitsPerIntermediatePackage ?? null }, { transaction })
+                variantCount++
+            }
+        }
+        return { products: groups.size, variants: variantCount }
     })
 }
 
 async function buildProductImportTemplate(): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
-
-    const sheet = workbook.addWorksheet("Productos")
-    sheet.columns = [
-        { header: PRODUCT_IMPORT_COLUMNS.codigo.header, key: "codigo", width: 18 },
-        { header: PRODUCT_IMPORT_COLUMNS.subCategory.header, key: "subCategory", width: 22 },
-        { header: PRODUCT_IMPORT_COLUMNS.category.header, key: "category", width: 20 },
-        { header: PRODUCT_IMPORT_COLUMNS.client.header, key: "client", width: 22 },
-        { header: PRODUCT_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 32 },
-        { header: PRODUCT_IMPORT_COLUMNS.displayNameEn.header, key: "displayNameEn", width: 32 },
-        { header: PRODUCT_IMPORT_COLUMNS.isOrganic.header, key: "isOrganic", width: 12 },
-        { header: PRODUCT_IMPORT_COLUMNS.recipeType.header, key: "recipeType", width: 18 },
-        { header: PRODUCT_IMPORT_COLUMNS.additionalCostPerUnit.header, key: "additionalCostPerUnit", width: 26 },
-    ]
+    const sheet = workbook.addWorksheet("Productos y SKUs")
+    sheet.columns = Object.entries(PRODUCT_IMPORT_COLUMNS).map(([key, column]) => ({ header: column.header, key, width: 28 }))
+    sheet.getColumn("skuCode").numFmt = "@"
+    sheet.getColumn("productGroup").numFmt = "@"
     sheet.getRow(1).font = { bold: true }
-    sheet.addRow({ codigo: "JUGO-PINA-WM", subCategory: "Jugos", client: "Walmart", displayName: "Jugo de piña", displayNameEn: "Pineapple juice", isOrganic: "No", recipeType: "Fija" })
-    sheet.addRow({ codigo: "SMOOTHIE-MIX", subCategory: "Congelados", category: "Frutas", client: "Walmart", displayName: "Smoothie mix a la medida", isOrganic: "Sí", recipeType: "Personalizable", additionalCostPerUnit: 0.05 })
-
-    const helpSheet = workbook.addWorksheet("Instrucciones")
-    helpSheet.columns = [{ header: "Instrucciones", key: "help", width: 110 }]
-    helpSheet.getRow(1).font = { bold: true }
-    const helpLines = [
-        "PASO 1 de 4: Productos → Recetas → Ingredientes (opcional) → SKUs. Una fila por Producto. Después carga su receta de materias primas (paso 2), sus ingredientes agregados si los lleva (paso 3, opcional) y luego sus SKUs con empaque (paso 4).",
-        `"${PRODUCT_IMPORT_COLUMNS.codigo.header}" es el SKU / número de artículo del producto: único (sin importar mayúsculas), no puede existir ya en el catálogo ni repetirse en este archivo.`,
-        `"${PRODUCT_IMPORT_COLUMNS.subCategory.header}" debe ser el nombre EXACTO de una Subcategoría activa. Si hay dos Subcategorías con el mismo nombre en Categorías distintas, escribe también "${PRODUCT_IMPORT_COLUMNS.category.header}" para indicar cuál (si no, puedes dejarla vacía).`,
-        `"${PRODUCT_IMPORT_COLUMNS.client.header}" debe ser el nombre EXACTO de un Cliente activo del catálogo de Clientes. Si dos Clientes activos se llaman igual, el archivo se rechaza: corrige el catálogo de Clientes primero.`,
-        `"${PRODUCT_IMPORT_COLUMNS.recipeType.header}" es obligatorio: Fija (el porcentaje de cada materia prima lo fija el admin) o Personalizable (el representante arma la mezcla al cotizar).`,
-        `"${PRODUCT_IMPORT_COLUMNS.isOrganic.header}": Sí o No (vacío = No). "${PRODUCT_IMPORT_COLUMNS.displayNameEn.header}" y "${PRODUCT_IMPORT_COLUMNS.additionalCostPerUnit.header}" son opcionales.`,
-        "La imagen del producto NO se carga por Excel: el producto se crea sin imagen y la subes después desde su pantalla de edición.",
-        "El archivo se valida COMPLETO antes de importar nada: si una sola fila tiene un error, no se crea ningún producto -- corrige el archivo y vuelve a subirlo. Este importador solo CREA productos nuevos, no actualiza los existentes.",
-    ]
-    helpLines.forEach(help => helpSheet.addRow({ help }))
-
+    const product = { productGroup: "ASIAN-1", displayName: "Asian Blend", displayNameEn: "Asian Blend", client: "Walmart", subCategory: "Congelados", isOrganic: "No", recipeType: "Fija" }
+    sheet.addRow({ ...product, skuCode: "AB-816", presentationLabel: "Bolsa 16 oz", boxesPerPallet: 60, bagsPerBox: 8 })
+    sheet.addRow({ ...product, skuCode: "AB-2KG", presentationLabel: "Bolsa 2 kg", boxesPerPallet: 40, bagsPerBox: 6 })
+    const help = workbook.addWorksheet("Instrucciones")
+    help.columns = [{ header: "Instrucciones", key: "help", width: 120 }]
+    for (const line of [
+        "PASO 1 de 3: Productos y SKUs → Recetas → Ingredientes (opcional). Una fila por variante, no por material de empaque.",
+        "Grupo de producto es obligatorio y solo agrupa dentro de este archivo: se compara exactamente, quitando espacios al inicio/final. Grupos distintos crean productos distintos aunque sus nombres sean iguales. No se guarda como código del producto.",
+        "Repite TODOS los campos del producto de forma consistente: nombre ES/EN, Cliente, Subcategoría, Categoría si aplica, Orgánico, Tipo de receta y Costo adicional. Categoría solo desambigua la Subcategoría.",
+        "Cliente, Subcategoría y Presentación deben resolver a un único registro activo por nombre. Cliente es el catálogo de Clientes, no Representantes Legumex.",
+        "SKU / Número de artículo es obligatorio, máximo 60 caracteres y único en toda la base (incluye inactivos) y el archivo, sin importar mayúsculas. Usa formato TEXTO para conservar ceros iniciales.",
+        "Tipo de receta obligatorio: Fija/fixed o Personalizable/customizable. Orgánico: Sí/No, vacío = No. Nombre inglés y Costo adicional son opcionales; costo vacío = sin ajuste.",
+        "Cajas por palet y Bolsas por caja: enteros positivos. Unidades por empaque intermedio: entero positivo opcional. Una variante por producto y Presentación.",
+        "El tamaño pertenece a la Presentación; evita repetirlo en el nombre del producto (convención de captura).",
+        "Este archivo solo CREA productos y variantes nuevos, nunca actualiza ni busca productos por nombre. Reimportar SKUs existentes rechaza todo el archivo. Una sola fila inválida implica que no se importa nada.",
+        "Recetas e ingredientes se cargan después en archivos separados, referenciando el SKU de una variante del producto. La receta y los ingredientes aplican a todas sus variantes.",
+        "La imagen se sube después en la edición del producto. Los materiales de empaque individual/intermedio/paletizado y sus grupos se configuran en esa pantalla; este archivo no carga empaques.",
+        "El producto necesita receta y empaques configurados para cotizar correctamente; esta importación no garantiza que ya esté listo para cotizar.",
+    ]) help.addRow({ help: line })
     return writeWorkbookToBuffer(workbook)
 }
 
-export const productImportService = {
-    bulkImportProducts,
-    buildProductImportTemplate,
-}
+export const productImportService = { bulkImportProducts, buildProductImportTemplate }

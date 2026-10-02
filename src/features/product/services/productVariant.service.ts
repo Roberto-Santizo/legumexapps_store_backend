@@ -1,4 +1,4 @@
-import { Op, WhereOptions } from "sequelize"
+import { Op, WhereOptions, col, fn, where, UniqueConstraintError } from "sequelize"
 import ProductVariant from "../models/ProductVariant.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductVariantInput, UpdateProductVariantInput } from "../schemas/productVariant.schema"
@@ -13,11 +13,7 @@ async function getProductVariantById(id: number): Promise<ProductVariant> {
     return productVariant
 }
 
-// Cada Producto solo puede tener un SKU por Presentación -- sin skuCode, esta ES la única regla
-// de unicidad de una variante: (productId,
-// presentationId) es su identidad completa, junto con Product.codigo como "cabeza" del SKU. Se
-// enforce a nivel de aplicación, no con un índice de BD, a propósito: así no puede quedar
-// bloqueado por filas preexistentes, mismo criterio que el resto de "assert*" de este archivo.
+// Se conserva una variante por producto/presentación, además del SKU global.
 async function assertPresentationNotAlreadyUsed(productId: number, presentationId: number, excludeId?: number): Promise<void> {
     const where: WhereOptions = excludeId
         ? { productId, presentationId, id: { [Op.ne]: excludeId } }
@@ -38,9 +34,27 @@ function assertPresentationNotChanged(existingPresentationId: number, incomingPr
     }
 }
 
+async function assertSkuCodeIsUnique(skuCode: string, excludeId?: number): Promise<void> {
+    const existing = await ProductVariant.findOne({ where: {
+        [Op.and]: [where(fn("lower", col("skuCode")), skuCode.toLowerCase())],
+        ...(excludeId !== undefined ? { id: { [Op.ne]: excludeId } } : {}),
+    } })
+    if (existing) throw new AppError(409, "errors.product_variant_skucode_already_exists", { skuCode })
+}
+
+async function writeVariant<T>(skuCode: string, write: () => Promise<T>): Promise<T> {
+    try { return await write() } catch (error) {
+        if (error instanceof UniqueConstraintError) {
+            throw new AppError(409, "errors.product_variant_skucode_already_exists", { skuCode })
+        }
+        throw error
+    }
+}
+
 async function createProductVariant(input: CreateProductVariantInput): Promise<ProductVariant> {
+    await assertSkuCodeIsUnique(input.skuCode)
     await assertPresentationNotAlreadyUsed(input.productId, input.presentationId)
-    return ProductVariant.create(input)
+    return writeVariant(input.skuCode, () => ProductVariant.create(input))
 }
 
 async function updateProductVariant(id: number, input: UpdateProductVariantInput): Promise<ProductVariant> {
@@ -58,7 +72,8 @@ async function updateProductVariant(id: number, input: UpdateProductVariantInput
     const effectiveProductId = input.productId !== undefined ? input.productId : productVariant.productId
     await assertPresentationNotAlreadyUsed(effectiveProductId, productVariant.presentationId, id)
 
-    return productVariant.update(input)
+    await assertSkuCodeIsUnique(input.skuCode, id)
+    return writeVariant(input.skuCode, () => productVariant.update(input))
 }
 
 async function deleteProductVariant(id: number): Promise<void> {

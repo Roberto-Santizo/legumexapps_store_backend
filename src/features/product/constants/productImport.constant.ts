@@ -1,9 +1,11 @@
-
-// Carga masiva de Productos base -- paso 1 de 4 del pipeline Productos → Recetas → Ingredientes →
-// SKUs. Una fila por Producto; la imagen NUNCA viene por
-// Excel (el producto se crea sin imagen y se sube después en su pantalla de edición).
+// Productos y variantes: una fila por SKU; grupo explícito, no por nombre.
 export type ProductImportField =
-    | "codigo"
+    | "productGroup"
+    | "skuCode"
+    | "presentationLabel"
+    | "boxesPerPallet"
+    | "bagsPerBox"
+    | "unitsPerIntermediatePackage"
     | "subCategory"
     | "category"
     | "client"
@@ -20,7 +22,12 @@ interface ImportColumnDef {
 
 // Aliases ya normalizados con normalizeImportText (minúsculas, sin acentos).
 export const PRODUCT_IMPORT_COLUMNS: Record<ProductImportField, ImportColumnDef> = {
-    codigo: { header: "Código Producto", aliases: ["codigo producto", "codigo", "sku / numero de articulo", "sku", "numero de articulo"] },
+    productGroup: { header: "Grupo de producto", aliases: ["grupo de producto", "product group"] },
+    skuCode: { header: "SKU / Número de artículo", aliases: ["sku / numero de articulo", "sku", "sku code", "codigo sku"] },
+    presentationLabel: { header: "Presentación", aliases: ["presentacion", "presentation"] },
+    boxesPerPallet: { header: "Cajas por palet", aliases: ["cajas por palet", "cajas por pallet"] },
+    bagsPerBox: { header: "Bolsas por caja", aliases: ["bolsas por caja", "unidades por caja"] },
+    unitsPerIntermediatePackage: { header: "Unidades por empaque intermedio", aliases: ["unidades por empaque intermedio"] },
     subCategory: { header: "Subcategoría", aliases: ["subcategoria", "sub categoria", "subcategory"] },
     category: { header: "Categoría", aliases: ["categoria", "category"] },
     client: { header: "Cliente", aliases: ["cliente", "client"] },
@@ -32,7 +39,11 @@ export const PRODUCT_IMPORT_COLUMNS: Record<ProductImportField, ImportColumnDef>
 }
 
 export const REQUIRED_PRODUCT_IMPORT_FIELDS: ProductImportField[] = [
-    "codigo",
+    "productGroup",
+    "skuCode",
+    "presentationLabel",
+    "boxesPerPallet",
+    "bagsPerBox",
     "subCategory",
     "client",
     "displayName",
@@ -43,4 +54,4 @@ export const REQUIRED_PRODUCT_IMPORT_FIELDS: ProductImportField[] = [
 export const FIXED_RECIPE_TOKENS = ["fija", "receta fija", "fixed", "fijo"]
 export const CUSTOMIZABLE_RECIPE_TOKENS = ["personalizable", "customizable", "mezcla", "mix", "receta personalizable"]
 
-export const MAX_PRODUCT_IMPORT_ROWS = 1000
+export const MAX_PRODUCT_IMPORT_ROWS = 5000

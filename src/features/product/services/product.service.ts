@@ -2,7 +2,7 @@ import { Op, WhereOptions } from "sequelize"
 import Product from "../models/Product.model"
 import ProductTranslation from "../models/ProductTranslation.model"
 import Client from "../../client/models/Client.model"
-import { AppError, NotFoundError } from "../../../shared/errors/AppError"
+import { NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductInput, UpdateProductInput, ProductTranslationInput } from "../schemas/product.schema"
 import { generateUniqueSlug } from "../../../shared/utils/slug.util"
 import { resolveCatalogImage } from "../../../shared/utils/catalogImage.util"
@@ -52,19 +52,6 @@ async function syncEnglishTranslation(productId: number, en: ProductTranslationI
     await translation.update({ displayName: en.displayName })
 }
 
-// Case-insensitive (Op.iLike) a propósito -- a diferencia de Packaging.code/RawMaterial.code
-// (cuyo chequeo de negocio es exacto), acá el negocio pidió explícitamente que "MP-001" y
-// "mp-001" cuenten como el mismo código. El índice físico (products_codigo_unique, ver
-// Product.model.ts) sigue siendo case-sensitive -- queda como defensa en profundidad para la
-// ventana de carrera entre este chequeo y el INSERT/UPDATE real, no como la regla de negocio.
-async function assertCodigoIsUnique(codigo: string, excludeId?: number): Promise<void> {
-    const where: WhereOptions = excludeId
-        ? { codigo: { [Op.iLike]: codigo }, id: { [Op.ne]: excludeId } }
-        : { codigo: { [Op.iLike]: codigo } }
-    const existing = await Product.findOne({ where })
-    if (existing) throw new AppError(409, "errors.product_codigo_already_exists", { codigo })
-}
-
 // Mismo criterio que resolveQuoteDestination en quote.service.ts: un clientId que no resuelve a
 // un Client real y activo se trata como "no encontrado", no como un 422 aparte -- un Cliente
 // desactivado tampoco es una referencia válida para un Producto nuevo/editado.
@@ -75,7 +62,6 @@ async function assertClientExists(clientId: number): Promise<void> {
 
 async function createProduct(input: CreateProductInput): Promise<Product> {
     const { image, translations, ...rest } = input
-    await assertCodigoIsUnique(rest.codigo)
     await assertClientExists(rest.clientId)
     const urlSlug = await generateUniqueSlug(rest.displayName, async (candidate) => {
         const existing = await Product.findOne({ where: { urlSlug: candidate } })
@@ -90,7 +76,6 @@ async function createProduct(input: CreateProductInput): Promise<Product> {
 async function updateProduct(id: number, input: UpdateProductInput): Promise<Product> {
     const product = await findActiveProduct(id)
     const { image, translations, ...rest } = input
-    if (rest.codigo) await assertCodigoIsUnique(rest.codigo, id)
     if (rest.clientId) await assertClientExists(rest.clientId)
     const imageUrl = await resolveCatalogImage(product.imageUrl, image, IMAGE_FOLDER)
     await product.update({ ...rest, ...(imageUrl !== undefined ? { imageUrl } : {}) })

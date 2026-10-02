@@ -2,7 +2,7 @@ import { createProductSchema, updateProductSchema } from "./product.schema"
 
 function validCreateInput() {
     return {
-        codigo: "MP-001",
+
         subCategoryId: 1,
         clientId: 1,
         displayName: "Piña en Trozos",
@@ -40,16 +40,16 @@ describe("createProductSchema", () => {
 
 describe("updateProductSchema -- clientId recuperado como requerido dentro del .partial() (mismo criterio que codigo)", () => {
     it("rechaza un update que no manda clientId, aunque el resto de campos sean opcionales", () => {
-        const result = updateProductSchema.safeParse({ codigo: "MP-001" })
+        const result = updateProductSchema.safeParse({})
         expect(result.success).toBe(false)
     })
 
     it("acepta un update que sí manda clientId junto con codigo", () => {
-        const result = updateProductSchema.safeParse({ codigo: "MP-001", clientId: 2 })
+        const result = updateProductSchema.safeParse({ clientId: 2 })
         expect(result.success).toBe(true)
     })
 
     it("rechaza clientId = 0 igual que en creación", () => {
-        expect(updateProductSchema.safeParse({ codigo: "MP-001", clientId: 0 }).success).toBe(false)
+        expect(updateProductSchema.safeParse({ clientId: 0 }).success).toBe(false)
     })
 })

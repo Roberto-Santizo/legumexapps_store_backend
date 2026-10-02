@@ -1,7 +1,7 @@
 import "reflect-metadata"
 import ExcelJS from "exceljs"
 
-// Mismo patrón que productVariantImport.service.test.ts: modelos mockeados, archivos .xlsx reales
+// Modelos mockeados, archivos .xlsx reales
 // armados en memoria, y sequelize.transaction invocando el callback con una transacción falsa.
 jest.mock("../../../database/connection", () => ({
     __esModule: true,
@@ -14,6 +14,11 @@ jest.mock("../../category/models/Category.model", () => ({ __esModule: true, def
 jest.mock("../../client/models/Client.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 
 import sequelize from "../../../database/connection"
+jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
+jest.mock("../../presentation/models/Presentation.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
+import ProductVariant from "../models/ProductVariant.model"
+import Presentation from "../../presentation/models/Presentation.model"
+import { PRODUCT_IMPORT_COLUMNS } from "../constants/productImport.constant"
 import Product from "../models/Product.model"
 import ProductTranslation from "../models/ProductTranslation.model"
 import SubCategory from "../../category/models/SubCategory.model"
@@ -32,17 +37,7 @@ const mockClientFindAll = Client.findAll as unknown as jest.Mock
 
 type SheetRow = Record<string, string | number | undefined>
 
-const HEADERS = [
-    "Código Producto",
-    "Subcategoría",
-    "Categoría",
-    "Cliente",
-    "Nombre del producto",
-    "Nombre del producto (inglés)",
-    "Orgánico",
-    "Tipo de receta",
-    "Costo adicional por unidad",
-]
+const HEADERS = Object.values(PRODUCT_IMPORT_COLUMNS).map(column => column.header)
 
 async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
@@ -64,7 +59,11 @@ const WALMART = { id: 20, name: "Walmart" }
 
 function baseRow(overrides: Partial<SheetRow> = {}): SheetRow {
     return {
-        "Código Producto": "JUGO-PINA",
+        "SKU / Número de artículo": "JUGO-PINA",
+        "Grupo de producto": overrides["SKU / Número de artículo"] ?? "G-1",
+        "Presentación": "Bolsa 500 g",
+        "Cajas por palet": 40,
+        "Bolsas por caja": 12,
         "Subcategoría": "Jugos",
         "Cliente": "Walmart",
         "Nombre del producto": "Jugo de piña",
@@ -85,6 +84,9 @@ describe("productImportService.bulkImportProducts", () => {
     let nextProductId = 100
 
     beforeEach(() => {
+        (ProductVariant.findAll as jest.Mock).mockReset().mockResolvedValue([])
+        ;(ProductVariant.create as jest.Mock).mockReset().mockImplementation(async data => ({ id: 200, ...data }))
+        ;(Presentation.findAll as jest.Mock).mockReset().mockResolvedValue([{ id: 30, displayLabel: "Bolsa 500 g" }, { id: 31, displayLabel: "Bolsa 2 kg" }])
         nextProductId = 100
         mockTransaction.mockClear()
         mockProductFindAll.mockReset().mockResolvedValue([])
@@ -102,11 +104,11 @@ describe("productImportService.bulkImportProducts", () => {
 
         const result = await productImportService.bulkImportProducts(buffer)
 
-        expect(result).toHaveLength(1)
+        expect(result).toEqual({ products: 1, variants: 1 })
         expect(mockTransaction).toHaveBeenCalledTimes(1)
         expect(mockProductCreate).toHaveBeenCalledWith(
             expect.objectContaining({
-                codigo: "JUGO-PINA",
+                
                 subCategoryId: JUGOS.id,
                 clientId: WALMART.id,
                 displayName: "Jugo de piña",
@@ -149,8 +151,8 @@ describe("productImportService.bulkImportProducts", () => {
 
     it("rechaza un Tipo de receta no reconocido o vacío", async () => {
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Producto": "A", "Tipo de receta": "Mixta" }),
-            baseRow({ "Código Producto": "B", "Tipo de receta": undefined }),
+            baseRow({ "SKU / Número de artículo": "A", "Tipo de receta": "Mixta" }),
+            baseRow({ "SKU / Número de artículo": "B", "Tipo de receta": undefined }),
         ])
 
         await expectRowIssues(buffer, [
@@ -194,8 +196,8 @@ describe("productImportService.bulkImportProducts", () => {
     it("rechaza una Categoría inexistente o ambigua", async () => {
         mockCategoryFindAll.mockResolvedValue([FRUTAS, VEGETALES, { id: 3, displayName: "Vegetales" }])
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Producto": "A", "Categoría": "Lácteos" }),
-            baseRow({ "Código Producto": "B", "Categoría": "Vegetales" }),
+            baseRow({ "SKU / Número de artículo": "A", "Categoría": "Lácteos" }),
+            baseRow({ "SKU / Número de artículo": "B", "Categoría": "Vegetales" }),
         ])
 
         await expectRowIssues(buffer, [
@@ -228,27 +230,27 @@ describe("productImportService.bulkImportProducts", () => {
     })
 
     it("rechaza un código que ya existe en el catálogo (sin importar mayúsculas)", async () => {
-        mockProductFindAll.mockResolvedValue([{ codigo: "jugo-pina", urlSlug: "otro" }])
+        (ProductVariant.findAll as jest.Mock).mockResolvedValue([{ skuCode: "jugo-pina", isActive: false }])
         const buffer = await buildWorkbookBuffer([baseRow()])
 
-        await expectRowIssues(buffer, [{ row: 2, field: "codigo", key: "errors.product_codigo_already_exists" }])
+        await expectRowIssues(buffer, [{ row: 2, field: "skuCode", key: "errors.product_variant_skucode_already_exists" }])
     })
 
     it("rechaza un código repetido dentro del mismo archivo", async () => {
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Producto": "JUGO-PINA" }),
-            baseRow({ "Código Producto": "jugo-pina" }),
+            baseRow({ "SKU / Número de artículo": "JUGO-PINA" }),
+            baseRow({ "SKU / Número de artículo": "jugo-pina" }),
         ])
 
         await expectRowIssues(buffer, [
-            { row: 3, field: "codigo", key: "errors.bulk_import_duplicate_code_in_file", params: { code: "jugo-pina", firstRow: 2 } },
+            { row: 3, field: "skuCode", key: "errors.bulk_import_duplicate_code_in_file", params: { code: "jugo-pina", firstRow: 2 } },
         ])
     })
 
     it("valida con createProductSchema: nombre vacío y costo adicional negativo son errores de fila", async () => {
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Producto": "A", "Nombre del producto": undefined }),
-            baseRow({ "Código Producto": "B", "Costo adicional por unidad": -1 }),
+            baseRow({ "SKU / Número de artículo": "A", "Nombre del producto": undefined }),
+            baseRow({ "SKU / Número de artículo": "B", "Costo adicional por unidad": -1 }),
         ])
 
         await expectRowIssues(buffer, [
@@ -260,8 +262,8 @@ describe("productImportService.bulkImportProducts", () => {
     it("dos productos con el mismo nombre (y uno ya en la BD) reciben slugs distintos", async () => {
         mockProductFindAll.mockResolvedValue([{ codigo: "OTRO", urlSlug: "jugo-de-pina" }])
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Producto": "A" }),
-            baseRow({ "Código Producto": "B" }),
+            baseRow({ "SKU / Número de artículo": "A" }),
+            baseRow({ "SKU / Número de artículo": "B" }),
         ])
 
         await productImportService.bulkImportProducts(buffer)
@@ -272,8 +274,8 @@ describe("productImportService.bulkImportProducts", () => {
 
     it("todo-o-nada: una fila mala junto a una buena no crea ningún producto, y reporta todos los errores", async () => {
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Código Producto": "BUENO" }),
-            baseRow({ "Código Producto": "MALO", "Cliente": "Costco", "Subcategoría": "Snacks" }),
+            baseRow({ "SKU / Número de artículo": "BUENO" }),
+            baseRow({ "SKU / Número de artículo": "MALO", "Cliente": "Costco", "Subcategoría": "Snacks" }),
         ])
 
         await expectRowIssues(buffer, [
@@ -282,8 +284,59 @@ describe("productImportService.bulkImportProducts", () => {
         ])
     })
 
+    it("crea un producto una vez con dos SKUs del mismo grupo", async () => {
+        const result = await productImportService.bulkImportProducts(await buildWorkbookBuffer([
+            baseRow(), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1", "Presentación": "Bolsa 2 kg", "Unidades por empaque intermedio": 6 }),
+        ]))
+        expect(result).toEqual({ products: 1, variants: 2 })
+        expect(mockProductCreate).toHaveBeenCalledTimes(1)
+        expect(ProductVariant.create).toHaveBeenCalledTimes(2)
+        expect(ProductVariant.create).toHaveBeenLastCalledWith(expect.objectContaining({ productId: 100, skuCode: "SECOND", unitsPerIntermediatePackage: 6 }), expect.anything())
+        expect(mockProductCreate.mock.calls[0][0]).not.toHaveProperty("codigo")
+    })
+
+    it.each([
+        ["Nombre del producto", "Otro nombre", "displayName"],
+        ["Nombre del producto (inglés)", "Different", "translations"],
+        ["Orgánico", "Sí", "isOrganic"],
+        ["Tipo de receta", "Personalizable", "isCustomizable"],
+        ["Costo adicional por unidad", 1, "additionalCostPerUnit"],
+        ["Subcategoría", "Congelados", "subCategoryId"],
+        ["Cliente", "Costco", "clientId"],
+    ])("rechaza inconsistencia de %s dentro del grupo", async (column, value, field) => {
+        mockClientFindAll.mockResolvedValue([WALMART, { id: 21, name: "Costco" }])
+        await expectRowIssues(await buildWorkbookBuffer([
+            baseRow(), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1", "Presentación": "Bolsa 2 kg", [column]: value, ...(column === "Subcategoría" ? { "Categoría": "Frutas" } : {}) }),
+        ]), [{ row: 3, field, key: "errors.bulk_import_product_group_inconsistent" }])
+        expect(ProductVariant.create).not.toHaveBeenCalled()
+    })
+
+    it("Categoría debe repetirse consistentemente dentro del grupo", async () => {
+        await expectRowIssues(await buildWorkbookBuffer([baseRow(), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1", "Presentación": "Bolsa 2 kg", "Categoría": "Frutas" })]), [{ row: 3, field: "category", key: "errors.bulk_import_product_group_inconsistent" }])
+    })
+    it("rechaza grupo vacío y conteos inválidos sin escribir", async () => {
+        await expectRowIssues(await buildWorkbookBuffer([baseRow({ "Grupo de producto": " ", "Cajas por palet": 0 })]), [{ field: "productGroup" }, { field: "boxesPerPallet" }])
+    })
+
+    it("rechaza presentación inexistente o ambigua", async () => {
+        (Presentation.findAll as jest.Mock).mockResolvedValue([{ id: 30, displayLabel: "Duplicada" }, { id: 31, displayLabel: "Duplicada" }])
+        await expectRowIssues(await buildWorkbookBuffer([baseRow({ "Presentación": "Duplicada" })]), [{ key: "errors.bulk_import_presentation_ambiguous" }])
+        await expectRowIssues(await buildWorkbookBuffer([baseRow({ "Presentación": "Nada" })]), [{ key: "errors.bulk_import_presentation_not_found" }])
+    })
+
+    it("rechaza dos variantes de la misma presentación en un producto", async () => {
+        await expectRowIssues(await buildWorkbookBuffer([baseRow(), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1" })]), [{ row: 3, key: "errors.product_variant_presentation_already_used" }])
+    })
+
+    it("propaga un fallo de escritura desde la única transacción", async () => {
+        (ProductVariant.create as jest.Mock).mockRejectedValueOnce(new Error("write failed"))
+        await expect(productImportService.bulkImportProducts(await buildWorkbookBuffer([baseRow()]))).rejects.toThrow("write failed")
+        expect(mockTransaction).toHaveBeenCalledTimes(1)
+        expect(ProductVariant.create).toHaveBeenCalledWith(expect.anything(), { transaction: { __fakeTransaction: true } })
+    })
+
     it("rechaza un archivo sin las columnas obligatorias", async () => {
-        const buffer = await buildWorkbookBuffer([{ "Código Producto": "A" }], ["Código Producto"])
+        const buffer = await buildWorkbookBuffer([{ "SKU / Número de artículo": "A" }], ["SKU / Número de artículo"])
 
         await expect(productImportService.bulkImportProducts(buffer)).rejects.toMatchObject({
             key: "errors.bulk_import_missing_columns",
@@ -291,12 +344,12 @@ describe("productImportService.bulkImportProducts", () => {
     })
 
     it("acepta un archivo sin las columnas opcionales (Categoría, inglés, Orgánico, Costo adicional)", async () => {
-        const headers = ["Código Producto", "Subcategoría", "Cliente", "Nombre del producto", "Tipo de receta"]
+        const headers = ["Grupo de producto", "SKU / Número de artículo", "Presentación", "Cajas por palet", "Bolsas por caja", "Subcategoría", "Cliente", "Nombre del producto", "Tipo de receta"]
         const buffer = await buildWorkbookBuffer([baseRow()], headers)
 
         const result = await productImportService.bulkImportProducts(buffer)
 
-        expect(result).toHaveLength(1)
+        expect(result).toEqual({ products: 1, variants: 1 })
     })
 })
 

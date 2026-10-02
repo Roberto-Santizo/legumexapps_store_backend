@@ -12,6 +12,8 @@ jest.mock("../models/ProductIngredient.model", () => ({ __esModule: true, defaul
 jest.mock("../../ingredient/models/Ingredient.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 
 import sequelize from "../../../database/connection"
+jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
+import ProductVariant from "../models/ProductVariant.model"
 import Product from "../models/Product.model"
 import ProductIngredient from "../models/ProductIngredient.model"
 import Ingredient from "../../ingredient/models/Ingredient.model"
@@ -26,7 +28,7 @@ const mockIngredientFindAll = Ingredient.findAll as unknown as jest.Mock
 
 type SheetRow = Record<string, string | number | undefined>
 
-const HEADERS = ["Código Producto", "Código Ingrediente", "Gramos", "Peso de referencia (g)"]
+const HEADERS = ["SKU de una variante del producto", "Código Ingrediente", "Gramos", "Peso de referencia (g)"]
 
 async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
@@ -39,13 +41,13 @@ async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS
     return arrayBuffer as unknown as Buffer
 }
 
-const FIXED = { id: 1, codigo: "MANGO-DESH", isCustomizable: false }
-const MIX = { id: 2, codigo: "SMOOTHIE-MIX", isCustomizable: true }
+const FIXED = { id: 1, skuCode: "MANGO-DESH", isCustomizable: false }
+const MIX = { id: 2, skuCode: "SMOOTHIE-MIX", isCustomizable: true }
 const SAL = { id: 10, code: "SAL-001" }
 const AZUCAR = { id: 11, code: "AZU-001" }
 
-function row(productCodigo: string, ingredientCode: string, grams: number | undefined, reference: number | undefined): SheetRow {
-    return { "Código Producto": productCodigo, "Código Ingrediente": ingredientCode, "Gramos": grams, "Peso de referencia (g)": reference }
+function row(productSku: string, ingredientCode: string, grams: number | undefined, reference: number | undefined): SheetRow {
+    return { "SKU de una variante del producto": productSku, "Código Ingrediente": ingredientCode, "Gramos": grams, "Peso de referencia (g)": reference }
 }
 
 async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<void> {
@@ -58,6 +60,7 @@ async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<void
 
 describe("productIngredientImportService.bulkImportProductIngredients", () => {
     beforeEach(() => {
+        (ProductVariant.findAll as jest.Mock).mockImplementation(async () => (await mockProductFindAll()).map((product: { id: number; skuCode: string }) => ({ skuCode: product.skuCode, productId: product.id, parentProduct: product })))
         mockTransaction.mockClear()
         mockProductFindAll.mockReset().mockResolvedValue([FIXED, MIX])
         mockIngredientFindAll.mockReset().mockResolvedValue([SAL, AZUCAR])
@@ -86,9 +89,20 @@ describe("productIngredientImportService.bulkImportProductIngredients", () => {
         )
     })
 
+    it("dos SKUs del mismo producto comparten ingredientes y detectan duplicados", async () => {
+        (ProductVariant.findAll as jest.Mock).mockResolvedValue([
+            { skuCode: FIXED.skuCode, parentProduct: FIXED }, { skuCode: "SECOND", parentProduct: FIXED },
+        ])
+        await productIngredientImportService.bulkImportProductIngredients(await buildWorkbookBuffer([row(FIXED.skuCode, SAL.code, 10, 500), row("SECOND", AZUCAR.code, 20, 500)]))
+        expect(mockRowBulkCreate.mock.calls[0][0].map((line: { productId: number }) => line.productId)).toEqual([1, 1])
+        mockTransaction.mockClear()
+        mockRowBulkCreate.mockClear()
+        await expectRowIssues(await buildWorkbookBuffer([row(FIXED.skuCode, SAL.code, 10, 500), row("SECOND", SAL.code, 10, 500)]), [{ row: 3, key: "errors.bulk_import_duplicate_ingredient_in_product" }])
+    })
+
     it("rechaza un código de producto desconocido", async () => {
         await expectRowIssues(await buildWorkbookBuffer([row("NOPE", "SAL-001", 40, 2000)]), [
-            { row: 2, field: "productId", key: "errors.bulk_import_unknown_product_codigo" }
+            { row: 2, field: "productId", key: "errors.bulk_import_unknown_product_sku" }
         ])
     })
 
@@ -115,7 +129,7 @@ describe("productIngredientImportService.bulkImportProductIngredients", () => {
     it("rechaza el mismo ingrediente repetido dentro de un producto", async () => {
         await expectRowIssues(
             await buildWorkbookBuffer([row("MANGO-DESH", "SAL-001", 40, 2000), row("MANGO-DESH", "SAL-001", 20, 2000)]),
-            [{ row: 3, field: "ingredientId", key: "errors.bulk_import_duplicate_ingredient_in_product", params: { productCodigo: "MANGO-DESH", code: "SAL-001" } }]
+            [{ row: 3, field: "ingredientId", key: "errors.bulk_import_duplicate_ingredient_in_product", params: { productSku: "MANGO-DESH", code: "SAL-001" } }]
         )
     })
 
@@ -135,7 +149,7 @@ describe("productIngredientImportService.bulkImportProductIngredients", () => {
     })
 
     it("rechaza el archivo si le falta una columna requerida", async () => {
-        const buffer = await buildWorkbookBuffer([{ "Código Producto": "MANGO-DESH", "Código Ingrediente": "SAL-001", "Gramos": 40 }], HEADERS.slice(0, 3))
+        const buffer = await buildWorkbookBuffer([{ "SKU de una variante del producto": "MANGO-DESH", "Código Ingrediente": "SAL-001", "Gramos": 40 }], HEADERS.slice(0, 3))
 
         await expect(productIngredientImportService.bulkImportProductIngredients(buffer)).rejects.toMatchObject({
             key: "errors.bulk_import_missing_columns",

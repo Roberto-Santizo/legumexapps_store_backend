@@ -9,7 +9,6 @@ const productTranslationInputSchema = z.object({
 })
 
 export const createProductSchema = z.object({
-    codigo: z.string().trim().min(1).max(60),
     subCategoryId: z.number().int().positive(),
     // Requerido: cada Producto pertenece a exactamente un Cliente real (ver
     // features/client/ -- no confundir con salesperson/, la cuenta que cotiza).
@@ -24,7 +23,6 @@ export const createProductSchema = z.object({
 
 
 export const updateProductSchema = createProductSchema.partial().extend({
-    codigo: createProductSchema.shape.codigo,
     clientId: createProductSchema.shape.clientId,
 })
 

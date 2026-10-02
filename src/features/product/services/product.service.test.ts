@@ -25,7 +25,6 @@ const mockClientFindOne = Client.findOne as unknown as jest.Mock
 // quote.service.test.ts.
 function stubProductFindOneHappyPath(finalProduct: Record<string, unknown>): void {
     mockProductFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
-        if ("codigo" in where) return Promise.resolve(null) // c√≥digo libre
         if ("urlSlug" in where) return Promise.resolve(null) // slug libre
         if ("id" in where) return Promise.resolve(finalProduct) // findActiveProduct
         return Promise.resolve(null)
@@ -33,7 +32,7 @@ function stubProductFindOneHappyPath(finalProduct: Record<string, unknown>): voi
 }
 
 const validCreateInput = {
-    codigo: "MP-001",
+
     subCategoryId: 1,
     clientId: 7,
     displayName: "Pi√±a en Trozos",
@@ -96,14 +95,13 @@ describe("productService.updateProduct -- clientId (2026-09-16, requerido tambi√
     function stubExistingProduct(overrides: Record<string, unknown> = {}) {
         const existing = {
             id: 5,
-            codigo: "MP-001",
+
             clientId: 7,
             imageUrl: null,
             update: jest.fn().mockResolvedValue(undefined),
             ...overrides,
         }
         mockProductFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
-            if ("codigo" in where) return Promise.resolve(null)
             if ("id" in where) return Promise.resolve(existing)
             return Promise.resolve(null)
         })
@@ -115,7 +113,7 @@ describe("productService.updateProduct -- clientId (2026-09-16, requerido tambi√
         mockClientFindOne.mockResolvedValue(null)
 
         await expect(
-            productService.updateProduct(5, { codigo: "MP-001", clientId: 999 } as never)
+            productService.updateProduct(5, { clientId: 999 } as never)
         ).rejects.toMatchObject({ statusCode: 404, key: "errors.not_found", params: expect.objectContaining({ resource: "Client", id: 999 }) })
     })
 
@@ -123,7 +121,7 @@ describe("productService.updateProduct -- clientId (2026-09-16, requerido tambi√
         const existing = stubExistingProduct()
         mockClientFindOne.mockResolvedValue({ id: 9, name: "Otro Cliente", isActive: true })
 
-        await productService.updateProduct(5, { codigo: "MP-001", clientId: 9 } as never)
+        await productService.updateProduct(5, { clientId: 9 } as never)
 
         expect(existing.update).toHaveBeenCalledWith(expect.objectContaining({ clientId: 9 }))
     })

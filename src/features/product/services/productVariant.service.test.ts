@@ -14,6 +14,7 @@ const mockVariantFindOne = ProductVariant.findOne as unknown as jest.Mock
 const mockVariantCreate = ProductVariant.create as unknown as jest.Mock
 
 const BASE_CREATE_INPUT = {
+    skuCode: "SKU-001",
     productId: 1,
     presentationId: 3,
     boxesPerPallet: 385,
@@ -111,7 +112,7 @@ describe("productVariantService.updateProductVariant", () => {
                 existing: { id: 1, productId: 1, presentationId: 3, update: mockUpdate },
             })
 
-            await productVariantService.updateProductVariant(1, { boxesPerPallet: 385, bagsPerBox: 6, presentationId: 3 })
+            await productVariantService.updateProductVariant(1, { skuCode: "SKU-001", boxesPerPallet: 385, bagsPerBox: 6, presentationId: 3 })
 
             expect(mockUpdate).toHaveBeenCalledTimes(1)
         })
@@ -137,5 +138,28 @@ describe("productVariantService.updateProductVariant", () => {
             )
             expect(mockUpdate).not.toHaveBeenCalled()
         })
+    })
+})
+
+describe("SKU global", () => {
+    beforeEach(() => { mockVariantFindOne.mockReset(); mockVariantCreate.mockReset() })
+    it("rechaza SKU de otra variante incluso inactiva", async () => {
+        mockVariantFindOne.mockResolvedValue({ id: 99, isActive: false })
+        await expect(productVariantService.createProductVariant(BASE_CREATE_INPUT)).rejects.toMatchObject({ statusCode: 409, key: "errors.product_variant_skucode_already_exists" })
+        expect(mockVariantCreate).not.toHaveBeenCalled()
+        expect(mockVariantFindOne.mock.calls[0][0].where).not.toHaveProperty("isActive")
+    })
+    it("excluye la variante editada del chequeo global", async () => {
+        const update = jest.fn()
+        stubVariantFindOne({ existing: { id: 1, productId: 1, presentationId: 3, update } })
+        await productVariantService.updateProductVariant(1, BASE_CREATE_INPUT)
+        const checks = mockVariantFindOne.mock.calls.map(([arg]) => arg.where)
+        expect(checks.some(check => check[Op.and] && check.id[Op.ne] === 1)).toBe(true)
+    })
+    it("rechaza cambiar el SKU a uno ocupado", async () => {
+        const update = jest.fn()
+        mockVariantFindOne.mockImplementation(({ where }) => Promise.resolve(where.isActive ? { id: 1, productId: 1, presentationId: 3, update } : where[Op.and] ? { id: 99 } : null))
+        await expect(productVariantService.updateProductVariant(1, BASE_CREATE_INPUT)).rejects.toMatchObject({ key: "errors.product_variant_skucode_already_exists" })
+        expect(update).not.toHaveBeenCalled()
     })
 })

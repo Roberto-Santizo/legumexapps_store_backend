@@ -40,6 +40,15 @@ import ProcessingCostTranslation from "../features/processingCost/models/Process
 import Lead from "../features/lead/models/Lead.model"
 import SiteImage from "../features/siteImage/models/SiteImage.model"
 
+import JuiceRawMaterial from "../features/juice/models/JuiceRawMaterial.model"
+import Juice from "../features/juice/models/Juice.model"
+import JuicePresentation from "../features/juice/models/JuicePresentation.model"
+import JuiceMix from "../features/juice/models/JuiceMix.model"
+import JuiceSpiceMaterial from "../features/juice/models/JuiceSpiceMaterial.model"
+import JuiceSpice from "../features/juice/models/JuiceSpice.model"
+import JuiceCostConstants from "../features/juice/models/JuiceCostConstants.model"
+import JuiceClientConstantOverride from "../features/juice/models/JuiceClientConstantOverride.model"
+
 const sequelize = new Sequelize(env.databaseUrl, {
     logging: env.nodeEnv === "development" ? console.log : false,
     minifyAliases: true,
@@ -86,7 +95,15 @@ const sequelize = new Sequelize(env.databaseUrl, {
         ProcessingCost,
         ProcessingCostTranslation,
         Lead,
-        SiteImage
+        SiteImage,
+        JuiceRawMaterial,
+        Juice,
+        JuicePresentation,
+        JuiceMix,
+        JuiceSpiceMaterial,
+        JuiceSpice,
+        JuiceCostConstants,
+        JuiceClientConstantOverride,
     ]
 })
 

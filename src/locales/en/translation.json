@@ -124,7 +124,28 @@
         "custom_quote_unit_packaging_not_configured": "No unit packaging is configured for custom quotes yet. Contact the administrator.",
         "custom_quote_pallet_packaging_not_configured": "No palletizing materials are configured for custom quotes yet. Contact the administrator.",
         "custom_quote_presentation_has_no_intermediate": "The chosen presentation has no intermediate packaging: a material of that level cannot be chosen.",
-        "custom_quote_packaging_quantity_missing": "Material {{packagingId}} has no quantity configured for custom quotes. Contact the administrator."
+        "custom_quote_packaging_quantity_missing": "Material {{packagingId}} has no quantity configured for custom quotes. Contact the administrator.",
+        "juice_duplicate": "This juice catalog record already exists (including inactive records).",
+        "juice_mix_ceiling": "The juice mix would exceed 100% ({{total}}%).",
+        "juice_config_already_exists": "Global juice configuration already exists; edit it.",
+        "juice_config_required": "Configure global juice constants before resolving costs.",
+        "juice_config_conflict": "Another session changed the juice constants. Reload and try again.",
+        "juice_cost_out_of_range": "The calculated cost per liter exceeds the allowed range.",
+        "juice_invalid_recipe": "The juice recipe contains invalid, duplicate or inactive materials or spices.",
+        "juice_mix_incomplete": "The active juice mix must total exactly 100% before quoting.",
+        "juice_invalid_cost_input": "Juice costs, rates and physical values must be valid before quoting.",
+        "juice_import_sheet": "The workbook must contain exactly one {{sheet}} worksheet.",
+        "juice_import_duplicate_header": "Worksheet {{sheet}} repeats column {{field}}.",
+        "juice_import_workbook": "The file could not be read. Use a valid .xlsx workbook based on the juice template.",
+        "juice_import_columns": "The matrix accepts at most {{max}} juice columns.",
+        "juice_import_matrix_layout": "The % MP sheet must follow the template: Tipo/Referencia in row 1, Cliente/SKU/Nombre in rows 2/3/4.",
+        "juice_import_reference": "Reference {{value}} is missing, inactive or ambiguous. Use a unique code or name.",
+        "juice_import_spice_unit": "Spices require GRAMO units and an empty pounds/liter cell; unit cost is USD/gram.",
+        "juice_import_material_type": "Type must be MATERIA PRIMA or ESPECIA.",
+        "juice_import_fraction": "Raw materials require a fraction from 0 to 1; spices require nonnegative grams/liter.",
+        "juice_import_duplicate_component": "Material {{value}} is repeated in this juice formula.",
+        "juice_import_price_mismatch": "PRICE LB must match across all juice presentations and the existing juice price.",
+        "juice_import_presentation_required": "Each new juice requires at least one valid presentation with PRICE LB."
     },
     "success": {
         "created": "{{resource}} created successfully",
@@ -165,7 +186,15 @@
         "CustomQuoteIngredientOption": "Custom-quote ingredient",
         "CustomQuotePresentationOption": "Custom-quote presentation",
         "CustomQuotePackagingOption": "Custom-quote packaging material",
-        "CustomQuote": "Custom quote"
+        "CustomQuote": "Custom quote",
+        "Juice": "Juice",
+        "JuiceRawMaterial": "Juice raw material",
+        "JuicePresentation": "Juice presentation",
+        "JuiceMix": "Juice mix",
+        "JuiceSpiceMaterial": "Juice spice material",
+        "JuiceSpice": "Juice spice",
+        "JuiceCostConstants": "Juice constants",
+        "JuiceClientConstantOverride": "Client constant override"
     },
     "permissionActions": {
         "view": "View",
@@ -196,6 +225,8 @@
         "leads": "leads",
         "siteContent": "site content",
         "customQuoteConfig": "custom-quote configuration",
-        "customQuotes": "custom quotes"
+        "customQuotes": "custom quotes",
+        "juices": "juices",
+        "juiceConfig": "juice configuration"
     }
 }

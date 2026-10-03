@@ -124,7 +124,28 @@
         "custom_quote_unit_packaging_not_configured": "Todavía no hay empaque individual configurado para cotizaciones a la medida. Contacta al administrador.",
         "custom_quote_pallet_packaging_not_configured": "Todavía no hay materiales de paletización configurados para cotizaciones a la medida. Contacta al administrador.",
         "custom_quote_presentation_has_no_intermediate": "La presentación elegida no lleva empaque intermedio: no se puede elegir un material de ese nivel.",
-        "custom_quote_packaging_quantity_missing": "El material {{packagingId}} no tiene cantidad configurada para cotizaciones a la medida. Contacta al administrador."
+        "custom_quote_packaging_quantity_missing": "El material {{packagingId}} no tiene cantidad configurada para cotizaciones a la medida. Contacta al administrador.",
+        "juice_duplicate": "El registro de jugos ya existe (incluye registros inactivos).",
+        "juice_mix_ceiling": "La mezcla de jugo superaría 100% ({{total}}%).",
+        "juice_config_already_exists": "La configuración global de jugos ya existe; edítala.",
+        "juice_config_required": "Configura las constantes globales de jugos antes de resolver sus costos.",
+        "juice_config_conflict": "Otra sesión modificó las constantes de jugos. Recarga e intenta de nuevo.",
+        "juice_cost_out_of_range": "El costo por litro calculado supera el rango permitido.",
+        "juice_invalid_recipe": "La receta del jugo contiene materiales o especias inválidos, duplicados o inactivos.",
+        "juice_mix_incomplete": "La mezcla activa del jugo debe sumar exactamente 100% antes de cotizar.",
+        "juice_invalid_cost_input": "Los costos, tasas y valores físicos del jugo deben ser válidos para cotizar.",
+        "juice_import_sheet": "El archivo debe contener exactamente una hoja {{sheet}}.",
+        "juice_import_duplicate_header": "La hoja {{sheet}} repite la columna {{field}}.",
+        "juice_import_workbook": "No se pudo leer el archivo. Usa un libro .xlsx válido con la plantilla de jugos.",
+        "juice_import_columns": "La matriz admite como máximo {{max}} columnas de jugos.",
+        "juice_import_matrix_layout": "La hoja % MP debe seguir la plantilla: Tipo/Referencia en fila 1, Cliente/SKU/Nombre en filas 2/3/4.",
+        "juice_import_reference": "La referencia {{value}} no existe, está inactiva o es ambigua. Usa un código o nombre único.",
+        "juice_import_spice_unit": "Las especias requieren Unidad GRAMO y Libras por litro vacías; su costo unitario es USD/gramo.",
+        "juice_import_material_type": "Tipo debe ser MATERIA PRIMA o ESPECIA.",
+        "juice_import_fraction": "La materia prima requiere una fracción entre 0 y 1; la especia requiere gramos por litro no negativos.",
+        "juice_import_duplicate_component": "El material {{value}} se repite en la fórmula del jugo.",
+        "juice_import_price_mismatch": "PRICE LB debe coincidir en todas las presentaciones del jugo y con el precio existente.",
+        "juice_import_presentation_required": "Cada jugo nuevo necesita al menos una presentación válida con PRICE LB."
     },
     "success": {
         "created": "Creación de {{resource}} exitosa",
@@ -165,7 +186,15 @@
         "CustomQuoteIngredientOption": "Ingrediente de cotización a la medida",
         "CustomQuotePresentationOption": "Presentación de cotización a la medida",
         "CustomQuotePackagingOption": "Material de empaque de cotización a la medida",
-        "CustomQuote": "Cotización a la medida"
+        "CustomQuote": "Cotización a la medida",
+        "Juice": "Jugo",
+        "JuiceRawMaterial": "Materia prima de jugo",
+        "JuicePresentation": "Presentación de jugo",
+        "JuiceMix": "Mezcla de jugo",
+        "JuiceSpiceMaterial": "Especia de jugo",
+        "JuiceSpice": "Especia en jugo",
+        "JuiceCostConstants": "Constantes de jugos",
+        "JuiceClientConstantOverride": "Override de constantes del cliente"
     },
     "permissionActions": {
         "view": "Ver",
@@ -196,6 +225,8 @@
         "leads": "prospectos",
         "siteContent": "contenido del sitio",
         "customQuoteConfig": "configuración de cotizaciones a la medida",
-        "customQuotes": "cotizaciones a la medida"
+        "customQuotes": "cotizaciones a la medida",
+        "juices": "jugos",
+        "juiceConfig": "configuración de jugos"
     }
 }

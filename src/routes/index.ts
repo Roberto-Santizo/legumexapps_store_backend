@@ -35,6 +35,9 @@ import adminLeadRouter from "../features/lead/routes/adminLead.routes"
 import siteImageRouter from "../features/siteImage/routes/siteImage.routes"
 import adminSiteImageRouter from "../features/siteImage/routes/adminSiteImage.routes"
 
+import juiceRouter from "../features/juice/routes/juice.routes"
+import juiceConfigRouter from "../features/juice/routes/juiceConfig.routes"
+
 const appRouter = Router()
 
 appRouter.use("/login", loginRouter)
@@ -56,6 +59,9 @@ appRouter.use("/leads", leadRouter)
 appRouter.use("/admin/leads", adminLeadRouter)
 appRouter.use("/site-images", siteImageRouter)
 appRouter.use("/admin/site-images", adminSiteImageRouter)
+
+appRouter.use("/admin/juices", juiceRouter)
+appRouter.use("/admin/juice-config", juiceConfigRouter)
 
 appRouter.use("/categories", categoryRouter)
 appRouter.use("/sub-categories", subCategoryRouter)

@@ -13,6 +13,7 @@ const RESOURCE_KEYS = [
     "categories",
     "subCategories",
     "products",
+    "juices",
     "units",
     "presentations",
     "packagings",
@@ -35,6 +36,7 @@ const EXTRA_PERMISSIONS = [
     // Configuración de cotizaciones a la medida: un solo permiso (lectura + escritura), aparte de
     // quotes:* porque decide qué se puede cotizar y con qué cantidades.
     { name: "customQuoteConfig:edit" },
+    { name: "juiceConfig:edit" },
     // Seguimiento de cotizaciones a la medida guardadas: ver (lista + detalle) y editar (estado).
     { name: "customQuotes:view" },
     { name: "customQuotes:edit" },

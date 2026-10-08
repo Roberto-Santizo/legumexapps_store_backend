@@ -1,3 +1,4 @@
+import type { ParsedWorksheet, ParsedWorkbook } from "../../../shared/utils/parsedWorkbook"
 import ExcelJS from "exceljs"
 import { UniqueConstraintError } from "sequelize"
 import { z } from "zod"
@@ -29,14 +30,14 @@ const codeKey = (value: string) => value.trim().toLowerCase()
 const text = (value: unknown) => value === null || value === undefined ? "" : String(value).trim()
 const numeric = (value: unknown) => value === null || value === undefined || text(value) === "" ? undefined : Number(value)
 
-function sheet(workbook: ExcelJS.Workbook, name: string): ExcelJS.Worksheet {
+function sheet(workbook: ParsedWorkbook, name: string): ParsedWorksheet {
     const matches = workbook.worksheets.filter(row => normalizeImportText(row.name) === normalizeImportText(name))
     if (matches.length !== 1) throw new AppError(422, "errors.juice_import_sheet", { sheet: name })
     if (matches[0].rowCount > MAX_JUICE_IMPORT_ROWS + 1) throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_JUICE_IMPORT_ROWS })
     return matches[0]
 }
 
-function headers<T extends string>(worksheet: ExcelJS.Worksheet, definitions: Record<T, string>) {
+function headers<T extends string>(worksheet: ParsedWorksheet, definitions: Record<T, string>) {
     const columns = juiceImportColumns(definitions)
     const mapped = mapImportHeaders(worksheet.getRow(1), columns)
     const missing = (Object.keys(definitions) as T[]).filter(key => !mapped.has(key))
@@ -52,7 +53,7 @@ function headers<T extends string>(worksheet: ExcelJS.Worksheet, definitions: Re
 }
 
 export async function bulkImportJuices(buffer: Buffer) {
-    let workbook: ExcelJS.Workbook
+    let workbook: ParsedWorkbook
     try { workbook = await loadWorkbookFromBuffer(buffer) }
     catch { throw new AppError(422, "errors.juice_import_workbook") }
     const materialSheet = sheet(workbook, names.materials)
@@ -182,8 +183,8 @@ export async function bulkImportJuices(buffer: Buffer) {
                 const previousPrice = formula?.price ?? existingJuice?.pricePerPound
                 if (previousPrice !== undefined && !toDecimal(previousPrice).equals(price.pricePerPound)) issue(names.presentations, rowNumber, "pricePerPound", "errors.juice_import_price_mismatch")
                 if (formula) formula.price = price.pricePerPound
-                // J1 has one global singleton plus active overrides by external client. Imports
-                // never create/edit config or invent a per-presentation config selector.
+                // One global singleton plus active overrides by external client. Imports never create or edit
+                // config.
                 if (!global) issue(names.presentations, rowNumber, "constants", "errors.juice_config_required")
                 const clientId = formula?.clientId ?? existingJuice?.clientId
                 if (!clients.some(client => client.id === clientId && client.isActive)) issue(names.presentations, rowNumber, "client", "errors.juice_import_reference", { value: String(clientId) })

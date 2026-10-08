@@ -1,5 +1,6 @@
-import { Op, WhereOptions } from "sequelize"
+import { literal, Op, WhereOptions } from "sequelize"
 import Product from "../models/Product.model"
+import ProductVariant from "../models/ProductVariant.model"
 import ProductTranslation from "../models/ProductTranslation.model"
 import Client from "../../client/models/Client.model"
 import { NotFoundError } from "../../../shared/errors/AppError"
@@ -10,10 +11,8 @@ import { paginate, PaginatedResult, PaginationParams } from "../../../shared/uti
 
 const IMAGE_FOLDER = "products"
 
-// Incluido en todo lugar donde se lee/devuelve un Product (get/list/status) -- así el form de
-// edición puede preseleccionar el Cliente actual y cualquier listado/detalle puede mostrar su
-// nombre sin un segundo round-trip. attributes acotado a lo que realmente se necesita, mismo
-// criterio que quotingSalesperson en quote.service.ts.
+// Incluido donde se lee/devuelve un Product, para que el form de edición preseleccione el Cliente y
+// los listados muestren su nombre sin un segundo round-trip.
 const CLIENT_INCLUDE = { model: Client, as: "client" as const, attributes: ["id", "name"] }
 
 async function findActiveProduct(id: number): Promise<Product> {
@@ -26,13 +25,23 @@ async function findActiveProduct(id: number): Promise<Product> {
 }
 
 async function listProducts(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Product>> {
-    const where: WhereOptions = search ? { displayName: { [Op.iLike]: `%${search}%` } } : {}
+    // EXISTS filters parent rows before pagination without multiplying rows by matching SKUs.
+    const where: WhereOptions = search ? {
+        [Op.or]: [
+            { displayName: { [Op.iLike]: `%${search}%` } },
+            literal(`EXISTS (SELECT 1 FROM "productVariants" AS "skuVariant" WHERE "skuVariant"."productId" = "Product"."id" AND "skuVariant"."skuCode" ILIKE ${Product.sequelize!.escape(`%${search.replace(/[\\%_]/g, "\\$&")}%`)})`),
+        ],
+    } : {}
     return paginate(
         Product,
         {
             where,
-            order: [["isActive", "DESC"], ["displayName", "ASC"]],
-            include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE]
+            order: [["createdAt", "DESC"], ["id", "DESC"]],
+            include: [
+                { model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE,
+                // One batch for the page, including inactive SKUs; never a request per product.
+                { model: ProductVariant, as: "productVariants", attributes: ["id", "productId", "skuCode"], separate: true, order: [["id", "ASC"]] },
+            ]
         },
         pagination
     )
@@ -52,9 +61,8 @@ async function syncEnglishTranslation(productId: number, en: ProductTranslationI
     await translation.update({ displayName: en.displayName })
 }
 
-// Mismo criterio que resolveQuoteDestination en quote.service.ts: un clientId que no resuelve a
-// un Client real y activo se trata como "no encontrado", no como un 422 aparte -- un Cliente
-// desactivado tampoco es una referencia válida para un Producto nuevo/editado.
+// Un clientId que no resuelve a un Client activo se trata como "no encontrado": un Cliente
+// desactivado no es una referencia válida para un Producto.
 async function assertClientExists(clientId: number): Promise<void> {
     const client = await Client.findOne({ where: { id: clientId, isActive: true } })
     if (!client) throw new NotFoundError("Client", clientId)

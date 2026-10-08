@@ -2,8 +2,8 @@
 export const JUICE_POUNDS_PER_LITER = "2.2046"
 export const JUICE_PACKAGING_RECOVERY_FACTOR = "0.97"
 
-// Rates are fractions: 0.02 = 2%, 0.00125 = 0.125%. Costs are nonnegative
-// input magnitudes; spreadsheet signs and subtotal order belong to J2.
+// Rates are fractions: 0.02 = 2%, 0.00125 = 0.125%. Costs are nonnegative input magnitudes; the
+// calculation applies the spreadsheet signs.
 export const JUICE_CONSTANT_FIELDS = [
     "directLaborPerPound",
     "indirectLaborPerPound",

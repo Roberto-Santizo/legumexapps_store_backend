@@ -1,5 +1,4 @@
-// Mismo criterio que login.service.test.ts: no se mockea accountLockout.service, corre
-// integrado con la lógica real de bloqueo (que ya tiene su propia suite exhaustiva aparte).
+// No se mockea accountLockout.service: corre integrado con la lógica real de bloqueo.
 jest.mock("../models/Salesperson.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn() }

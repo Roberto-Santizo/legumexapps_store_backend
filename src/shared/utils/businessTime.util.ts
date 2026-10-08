@@ -1,12 +1,11 @@
 import { Op } from "sequelize"
 
-// Zona horaria del negocio: TODO límite de día ("hoy", "del 1 al 7") y todo bucket de fecha se
-// interpreta en hora de Guatemala, nunca en UTC. El frontend usa la misma zona para sus presets
-// (feature/dashboard/util/presetRange.ts). No volver a UTC: después de las 18:00 locales el día UTC
-// ya es "mañana" y las cotizaciones de la tarde caían fuera del rango / en el día siguiente.
+// Zona horaria del negocio: cada límite de día ("hoy", "del 1 al 7") y cada bucket de fecha se
+// interpreta en hora de Guatemala, nunca en UTC. El frontend usa la misma zona para sus presets.
+// No volver a UTC: después de las 18:00 locales el día UTC ya es "mañana".
 export const BUSINESS_TIME_ZONE = "America/Guatemala"
 
-// Guatemala no usa horario de verano: UTC-6 fijo todo el año (verificado contra Intl en
+// Guatemala no usa horario de verano: UTC-6 fijo durante el año (verificado contra Intl en
 // businessTime.util.test.ts). Un offset fijo permite convertir en ambos sentidos sin Intl.
 const BUSINESS_UTC_OFFSET_MS = -6 * 60 * 60 * 1000
 const MS_PER_DAY = 24 * 60 * 60 * 1000

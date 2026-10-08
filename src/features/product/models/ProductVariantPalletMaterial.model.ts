@@ -1,6 +1,7 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import ProductVariant from "./ProductVariant.model";
+import PackagingGroup from "../../packagingGroup/models/PackagingGroup.model";
 import Packaging from "../../packaging/models/Packaging.model";
 
 @Table({
@@ -34,8 +35,18 @@ class ProductVariantPalletMaterial extends BaseCatalogModel {
     })
     declare quantityValue: number
 
-    // Grupos de opciones -- mismo criterio que ProductVariantUnitMaterial.optionGroup,
-    // ver el comentario ahí (ej. grupo "Caja" + grupo "Esquinero" en un mismo SKU).
+    // Explicit consumption rule; labels never determine quantities.
+    @Column({ type: DataType.ENUM("per_box", "per_pallet"), allowNull: false, defaultValue: "per_pallet" })
+    declare quantityBasis: "per_box" | "per_pallet"
+
+    @ForeignKey(() => PackagingGroup)
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    declare optionGroupId: number | null
+
+    @BelongsTo(() => PackagingGroup, "optionGroupId")
+    declare packagingGroup: PackagingGroup | null
+
+    // Grupos de opciones (ej. grupo "Caja" + grupo "Esquinero" en un mismo SKU).
     @Column({
         type: DataType.STRING(60),
         allowNull: true

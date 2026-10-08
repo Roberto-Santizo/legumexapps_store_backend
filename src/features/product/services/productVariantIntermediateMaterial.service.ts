@@ -18,8 +18,6 @@ async function getProductVariantIntermediateMaterialById(id: number): Promise<Pr
     return productVariantIntermediateMaterial
 }
 
-// Grupos de opciones -- mismo criterio que productVariantUnitMaterial.service.ts, ver
-// el comentario ahí (defaults, auto-democión y normalización del nombre, todo POR GRUPO).
 async function findActiveGroupedRows(productVariantId: number, excludeId: number | null): Promise<ProductVariantIntermediateMaterial[]> {
     const rows = await ProductVariantIntermediateMaterial.findAll({
         where: { productVariantId, optionGroup: { [Op.ne]: null }, isActive: true }
@@ -67,8 +65,7 @@ async function countOtherGroupSiblings(productVariantIntermediateMaterial: Produ
     return groupedRows.filter(row => isSameOptionGroup(row.optionGroup, productVariantIntermediateMaterial.optionGroup)).length
 }
 
-// Bloquea (no auto-promueve) eliminar/desactivar el default de un grupo -- mismo criterio que
-// productVariantUnitMaterial.service.ts::assertDeletionNotBlockedByDefault.
+// Bloquea (no auto-promueve) eliminar/desactivar el default de un grupo con otras alternativas activas.
 async function assertDeletionNotBlockedByDefault(productVariantIntermediateMaterial: ProductVariantIntermediateMaterial): Promise<void> {
     if (productVariantIntermediateMaterial.optionGroup === null || !productVariantIntermediateMaterial.isDefault) return
 
@@ -77,8 +74,7 @@ async function assertDeletionNotBlockedByDefault(productVariantIntermediateMater
     }
 }
 
-// Vía UPDATE del mismo bloqueo (incluye mover el default a otro grupo) -- ver
-// productVariantUnitMaterial.service.ts::assertUpdateKeepsADefault.
+// Mismo bloqueo por la vía de UPDATE (incluye mover el default a otro grupo).
 async function assertUpdateKeepsADefault(
     productVariantIntermediateMaterial: ProductVariantIntermediateMaterial,
     willBeProductVariantId: number,

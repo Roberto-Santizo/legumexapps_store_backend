@@ -1,7 +1,9 @@
 import { Router } from "express"
+import packagingGroupRouter from "../features/packagingGroup/routes/packagingGroup.routes"
 import categoryRouter from "../features/category/routes/category.routes"
 import subCategoryRouter from "../features/category/routes/subCategory.routes"
 import productRouter from "../features/product/routes/product.routes"
+import productPackagingImportRouter from "../features/product/routes/productPackagingImport.routes"
 import unitRouter from "../features/unit/routes/unit.routes"
 import packagingRouter from "../features/packaging/routes/packaging.routes"
 import presentationRouter from "../features/presentation/routes/presentation.routes"
@@ -21,11 +23,11 @@ import permissionRouter from "../features/accessControl/permissions/routes/permi
 import rolePermissionRouter from "../features/accessControl/rolePermissions/routes/rolePermission.routes"
 import salespersonRouter from "../features/salesperson/routes/salesperson.routes"
 import clientRouter from "../features/client/routes/client.routes"
+import clientImportRouter from "../features/client/routes/clientImport.routes"
 import salespersonLoginRouter from "../features/salesperson/routes/salespersonLogin.routes"
 import quoteRouter from "../features/quote/routes/quote.routes"
 import adminQuoteRouter from "../features/quote/routes/adminQuote.routes"
 import adminQuoteDraftRouter from "../features/quoteDraft/routes/adminQuoteDraft.routes"
-import customQuoteConfigRouter from "../features/customQuote/routes/customQuoteConfig.routes"
 import customQuoteRouter from "../features/customQuote/routes/customQuote.routes"
 import adminCustomQuoteRouter from "../features/customQuote/routes/adminCustomQuote.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
@@ -47,13 +49,13 @@ appRouter.use("/roles", rolePermissionRouter)
 appRouter.use("/permissions", permissionRouter)
 appRouter.use("/salespeople", salespersonRouter)
 appRouter.use("/clients", clientRouter)
+appRouter.use("/admin/clients", clientImportRouter)
 appRouter.use("/salesperson-login", salespersonLoginRouter)
 appRouter.use("/quotes", quoteRouter)
 appRouter.use("/admin/quotes", adminQuoteRouter)
 appRouter.use("/admin/quote-drafts", adminQuoteDraftRouter)
 appRouter.use("/custom-quotes", customQuoteRouter)
 appRouter.use("/admin/custom-quotes", adminCustomQuoteRouter)
-appRouter.use("/admin/custom-quote-config", customQuoteConfigRouter)
 appRouter.use("/admin/dashboard", dashboardRouter)
 appRouter.use("/leads", leadRouter)
 appRouter.use("/admin/leads", adminLeadRouter)
@@ -66,8 +68,10 @@ appRouter.use("/admin/juice-config", juiceConfigRouter)
 appRouter.use("/categories", categoryRouter)
 appRouter.use("/sub-categories", subCategoryRouter)
 appRouter.use("/products", productRouter)
+appRouter.use("/product-packaging-materials", productPackagingImportRouter)
 appRouter.use("/units", unitRouter)
 appRouter.use("/packagings", packagingRouter)
+appRouter.use("/packaging-groups", packagingGroupRouter)
 appRouter.use("/presentations", presentationRouter)
 appRouter.use("/raw-materials", rawMaterialRouter)
 appRouter.use("/ingredients", ingredientRouter)

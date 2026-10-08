@@ -1,11 +1,8 @@
 import "reflect-metadata"
 import { Op } from "sequelize"
 
-// Mock manual: dashboard.service.ts solo llama a Quote.findAll -- no hace falta una base de
-// datos real. Cada "quote" de prueba es un objeto plano con exactamente la forma que el
-// servicio lee (ver dashboard.service.ts), más un .get("createdAt") porque createdAt no es un
-// campo declarado en Quote.model.ts (timestamp automático de Sequelize) y el servicio lo lee
-// con quote.get("createdAt"), igual que quoteService.saveQuote ya hacía.
+// Mock manual a nivel de modelo: cada "quote" de prueba es un objeto plano con la forma que lee el
+// servicio, más .get("createdAt") (timestamp automático de Sequelize).
 jest.mock("../../quote/models/Quote.model", () => ({
     __esModule: true,
     default: { findAll: jest.fn() }
@@ -429,7 +426,7 @@ describe("dashboardService.getSummary", () => {
         expect(trendRevenue).toBe(summary.overview.totalRevenue)
     })
 
-    // El bug que dejó pasar el rango sin aplicar: ningún test miraba el `where` que llega a findAll.
+    // Verifica el `where` que llega a findAll: el rango de fechas debe aplicarse.
     describe("filtro de fechas enviado a Quote.findAll (límites de día en hora de Guatemala)", () => {
         beforeEach(() => {
             mockQuoteFindAll.mockResolvedValue([])

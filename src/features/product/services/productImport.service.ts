@@ -1,3 +1,11 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
+import { createHash } from "node:crypto"
+import { Transaction } from "sequelize"
+import { buildPackagingAssociationPlan, writePackagingAssociationPlan } from "./productPackagingImport.service"
+import { parseInitialPackagingSheet } from "./initialPackagingImport.service"
+import PackagingGroup from "../../packagingGroup/models/PackagingGroup.model"
+import { MAX_PRODUCT_PACKAGING_IMPORT_ROWS } from "../constants/productPackagingImport.constant"
+import { INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, INITIAL_PACKAGING_COLUMNS, INITIAL_MATERIAL_TYPES } from "../constants/initialPackagingImport.constant"
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
@@ -184,7 +192,7 @@ function readTrimmedText(value: ImportCellValue): string | undefined {
 }
 
 function processProductImportRow(
-    row: ExcelJS.Row, rowNumber: number, columns: Map<ProductImportField, number>,
+    row: ParsedRow, rowNumber: number, columns: Map<ProductImportField, number>,
     catalogs: NamedCatalogs, presentations: Map<string, Presentation[]>,
     existingSkus: Set<string>, firstSkuRows: Map<string, number>, rowIssues: RowIssue[]
 ): ProductImportCandidate | null {
@@ -232,11 +240,12 @@ function processProductImportRow(
     return { rowNumber, input: validated, productGroup, categoryId: categoryId ?? null, variant: parsed.data }
 }
 
-async function loadNamedCatalogs(): Promise<NamedCatalogs> {
+async function loadNamedCatalogs(transaction?: Transaction): Promise<NamedCatalogs> {
+    const options = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {}
     const [subCategories, categories, clients] = await Promise.all([
-        SubCategory.findAll({ where: { isActive: true } }),
-        Category.findAll({ where: { isActive: true } }),
-        Client.findAll({ where: { isActive: true } }),
+        SubCategory.findAll({ ...options, where: { isActive: true } }),
+        Category.findAll({ ...options, where: { isActive: true } }),
+        Client.findAll({ ...options, where: { isActive: true } }),
     ])
     return {
         subCategoriesByNormalizedName: bucketByNormalizedText(subCategories, subCategory => subCategory.displayName),
@@ -245,7 +254,7 @@ async function loadNamedCatalogs(): Promise<NamedCatalogs> {
     }
 }
 
-function validateProductImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductImportField, number> {
+function validateProductImportHeaders(sheet: ParsedWorksheet): Map<ProductImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), PRODUCT_IMPORT_COLUMNS)
     const missingFields = REQUIRED_PRODUCT_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -256,15 +265,19 @@ function validateProductImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductImpo
     return columnIndexByField
 }
 
-async function bulkImportProducts(buffer: Buffer): Promise<{ products: number; variants: number }> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
-    const sheet = workbook.worksheets[0]
+async function buildProductImportPlan(buffer: Buffer, transaction?: Transaction) {
+    if (!buffer.length) throw new AppError(422, "errors.bulk_import_empty_file")
+    if (buffer.length > 5 * 1024 * 1024) throw new AppError(422, "errors.packaging_association_import.file_size")
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
+    const sheet = workbook.worksheets.find(row => normalizeImportText(row.name) === normalizeImportText(INITIAL_PRODUCT_SHEET)) ?? workbook.worksheets[0]
+    const materialSheet = workbook.worksheets.find(row => normalizeImportText(row.name) === normalizeImportText(INITIAL_PACKAGING_SHEET))
     if (!sheet || sheet.rowCount <= 1) throw new AppError(422, "errors.bulk_import_empty_file")
     const columns = validateProductImportHeaders(sheet)
     if (sheet.rowCount - 1 > MAX_PRODUCT_IMPORT_ROWS) throw new AppError(422, "errors.bulk_import_too_many_rows", { max: MAX_PRODUCT_IMPORT_ROWS })
+    const options = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {}
     const [catalogs, variants, products, presentationRows] = await Promise.all([
-        loadNamedCatalogs(), ProductVariant.findAll({ attributes: ["skuCode"] }),
-        Product.findAll({ attributes: ["urlSlug"] }), Presentation.findAll({ where: { isActive: true } }),
+        loadNamedCatalogs(transaction), ProductVariant.findAll({ ...options, attributes: ["skuCode"] }),
+        Product.findAll({ ...options, attributes: ["urlSlug"] }), Presentation.findAll({ ...options, where: { isActive: true } }),
     ])
     const presentations = bucketByNormalizedText(presentationRows, p => p.displayLabel)
     const existingSkus = new Set(variants.map(v => skuCodeKey(v.skuCode)))
@@ -273,6 +286,11 @@ async function bulkImportProducts(buffer: Buffer): Promise<{ products: number; v
     const rowIssues: RowIssue[] = []
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber++) {
         const row = sheet.getRow(rowNumber)
+        let formula = false
+        row.eachCell(cell => {
+            if (typeof cell.value === "object" && cell.value && ("formula" in cell.value || "sharedFormula" in cell.value)) formula = true
+        })
+        if (formula) { rowIssues.push({ row: rowNumber, field: "row", key: "errors.packaging_association_import.formula" }); continue }
         if (isImportRowBlank(row, columns)) continue
         const candidate = processProductImportRow(row, rowNumber, columns, catalogs, presentations, existingSkus, firstSkuRows, rowIssues)
         if (!candidate) continue
@@ -295,8 +313,7 @@ async function bulkImportProducts(buffer: Buffer): Promise<{ products: number; v
             presentationsSeen.add(row.variant.presentationId)
         }
     }
-    if (rowIssues.length) throw new BulkImportError(rowIssues)
-    if (!groups.size) throw new AppError(422, "errors.bulk_import_empty_file")
+    if (!groups.size && !rowIssues.length) throw new AppError(422, "errors.bulk_import_empty_file")
     const takenSlugs = new Set(products.map(p => p.urlSlug))
     const slugs = new Map<string, string>()
     for (const [group, rows] of groups) {
@@ -304,48 +321,106 @@ async function bulkImportProducts(buffer: Buffer): Promise<{ products: number; v
         takenSlugs.add(slug)
         slugs.set(group, slug)
     }
-    return sequelize.transaction(async transaction => {
-        let variantCount = 0
-        for (const [group, rows] of groups) {
-            const { translations, ...input } = rows[0].input
-            const product = await Product.create({ ...input, urlSlug: slugs.get(group), imageUrl: null }, { transaction })
-            if (translations?.en?.displayName) await ProductTranslation.create({ productId: product.id, language: "en", displayName: translations.en.displayName }, { transaction })
-            for (const row of rows) {
-                await ProductVariant.create({ ...row.variant, productId: product.id, unitsPerIntermediatePackage: row.variant.unitsPerIntermediatePackage ?? null }, { transaction })
-                variantCount++
-            }
+    const initialVariants = [...groups.values()].flat().map(row => ({ ...row.variant, id: row.rowNumber, productId: row.rowNumber, isActive: true }))
+    const materialRows = parseInitialPackagingSheet(materialSheet)
+    const materials = materialSheet ? await buildPackagingAssociationPlan(materialRows, transaction, {
+        variants: initialVariants,
+        products: initialVariants.map(row => ({ id: row.productId, isActive: true })),
+    }) : null
+    const materialIssues = materials?.plan.flatMap(row => row.preview.issues) ?? []
+    const issues = [...rowIssues.map(issue => ({ ...issue, sheet: INITIAL_PRODUCT_SHEET })), ...materialIssues.map(issue => ({ ...issue, sheet: INITIAL_PACKAGING_SHEET }))]
+    const summary = {
+        products: groups.size, variants: initialVariants.length,
+        unit: materials?.plan.filter(row => row.preview.level === "unit").length ?? 0,
+        intermediate: materials?.plan.filter(row => row.preview.level === "intermediate").length ?? 0,
+        pallet: materials?.plan.filter(row => row.preview.level === "pallet").length ?? 0,
+        errors: issues.length, warnings: materials?.plan.reduce((total, row) => total + row.preview.warnings.length, 0) ?? 0,
+    }
+    const productRows = [...groups.values()].flat().map(row => ({ row: row.rowNumber, productGroup: row.productGroup,
+        skuCode: row.variant.skuCode, displayName: row.input.displayName, presentationId: row.variant.presentationId,
+        presentation: presentationRows.find(presentation => presentation.id === row.variant.presentationId)?.displayLabel ?? "",
+        boxesPerPallet: row.variant.boxesPerPallet, bagsPerBox: row.variant.bagsPerBox, unitsPerIntermediatePackage: row.variant.unitsPerIntermediatePackage ?? null }))
+    const previewHash = createHash("sha256").update(JSON.stringify({ file: createHash("sha256").update(buffer).digest("hex"), productRows,
+        inputs: [...groups.entries()], slugs: [...slugs.entries()], existingSkus: [...existingSkus].sort(), takenSlugs: [...takenSlugs].sort(),
+        catalogs: Object.fromEntries(Object.entries(catalogs).map(([key, value]) => [key, [...value.entries()]])),
+        presentations: presentationRows, packagingHash: materials?.previewHash ?? null,
+    })).digest("hex")
+    return { groups, slugs, materials, issues, summary, productRows, previewHash }
+}
+
+type ProductImportPlan = Awaited<ReturnType<typeof buildProductImportPlan>>
+async function writeProductImportPlan(plan: ProductImportPlan, transaction: Transaction) {
+    if (plan.issues.length) throw new BulkImportError(plan.issues)
+    const variantIds = new Map<number, number>()
+    for (const [group, rows] of plan.groups) {
+        const { translations, ...input } = rows[0].input
+        const product = await Product.create({ ...input, urlSlug: plan.slugs.get(group), imageUrl: null }, { transaction })
+        if (translations?.en?.displayName) await ProductTranslation.create({ productId: product.id, language: "en", displayName: translations.en.displayName }, { transaction })
+        for (const row of rows) {
+            const variant = await ProductVariant.create({ ...row.variant, productId: product.id, unitsPerIntermediatePackage: row.variant.unitsPerIntermediatePackage ?? null }, { transaction })
+            variantIds.set(row.rowNumber, variant.id)
         }
-        return { products: groups.size, variants: variantCount }
+    }
+    if (plan.materials) await writePackagingAssociationPlan(plan.materials.plan, transaction, variantIds)
+    return { products: plan.summary.products, variants: plan.summary.variants }
+}
+
+async function bulkImportProducts(buffer: Buffer): Promise<{ products: number; variants: number }> {
+    const plan = await buildProductImportPlan(buffer)
+    if (plan.issues.length) throw new BulkImportError(plan.issues)
+    return sequelize.transaction(transaction => writeProductImportPlan(plan, transaction))
+}
+
+async function previewProductImport(buffer: Buffer) {
+    const plan = await buildProductImportPlan(buffer)
+    return { previewHash: plan.previewHash, summary: plan.summary, products: plan.productRows,
+        materials: plan.materials?.plan.map(row => row.preview) ?? [], issues: plan.issues }
+}
+
+async function confirmProductImport(buffer: Buffer, previewHash: string) {
+    if (!/^[a-f0-9]{64}$/.test(previewHash)) throw new AppError(422, "errors.packaging_association_import.preview_required")
+    return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async transaction => {
+        const plan = await buildProductImportPlan(buffer, transaction)
+        if (plan.issues.length) throw new BulkImportError(plan.issues)
+        if (plan.previewHash !== previewHash) throw new AppError(409, "errors.packaging_association_import.stale_preview")
+        await writeProductImportPlan(plan, transaction)
+        return plan.summary
     })
 }
 
-async function buildProductImportTemplate(): Promise<Buffer> {
+async function buildProductImportTemplate(instructions: string[] = []): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
-    const sheet = workbook.addWorksheet("Productos y SKUs")
-    sheet.columns = Object.entries(PRODUCT_IMPORT_COLUMNS).map(([key, column]) => ({ header: column.header, key, width: 28 }))
-    sheet.getColumn("skuCode").numFmt = "@"
-    sheet.getColumn("productGroup").numFmt = "@"
-    sheet.getRow(1).font = { bold: true }
-    const product = { productGroup: "ASIAN-1", displayName: "Asian Blend", displayNameEn: "Asian Blend", client: "Walmart", subCategory: "Congelados", isOrganic: "No", recipeType: "Fija" }
-    sheet.addRow({ ...product, skuCode: "AB-816", presentationLabel: "Bolsa 16 oz", boxesPerPallet: 60, bagsPerBox: 8 })
-    sheet.addRow({ ...product, skuCode: "AB-2KG", presentationLabel: "Bolsa 2 kg", boxesPerPallet: 40, bagsPerBox: 6 })
-    const help = workbook.addWorksheet("Instrucciones")
-    help.columns = [{ header: "Instrucciones", key: "help", width: 120 }]
-    for (const line of [
-        "PASO 1 de 3: Productos y SKUs → Recetas → Ingredientes (opcional). Una fila por variante, no por material de empaque.",
-        "Grupo de producto es obligatorio y solo agrupa dentro de este archivo: se compara exactamente, quitando espacios al inicio/final. Grupos distintos crean productos distintos aunque sus nombres sean iguales. No se guarda como código del producto.",
-        "Repite TODOS los campos del producto de forma consistente: nombre ES/EN, Cliente, Subcategoría, Categoría si aplica, Orgánico, Tipo de receta y Costo adicional. Categoría solo desambigua la Subcategoría.",
-        "Cliente, Subcategoría y Presentación deben resolver a un único registro activo por nombre. Cliente es el catálogo de Clientes, no Representantes Legumex.",
-        "SKU / Número de artículo es obligatorio, máximo 60 caracteres y único en toda la base (incluye inactivos) y el archivo, sin importar mayúsculas. Usa formato TEXTO para conservar ceros iniciales.",
-        "Tipo de receta obligatorio: Fija/fixed o Personalizable/customizable. Orgánico: Sí/No, vacío = No. Nombre inglés y Costo adicional son opcionales; costo vacío = sin ajuste.",
-        "Cajas por palet y Bolsas por caja: enteros positivos. Unidades por empaque intermedio: entero positivo opcional. Una variante por producto y Presentación.",
-        "El tamaño pertenece a la Presentación; evita repetirlo en el nombre del producto (convención de captura).",
-        "Este archivo solo CREA productos y variantes nuevos, nunca actualiza ni busca productos por nombre. Reimportar SKUs existentes rechaza todo el archivo. Una sola fila inválida implica que no se importa nada.",
-        "Recetas e ingredientes se cargan después en archivos separados, referenciando el SKU de una variante del producto. La receta y los ingredientes aplican a todas sus variantes.",
-        "La imagen se sube después en la edición del producto. Los materiales de empaque individual/intermedio/paletizado y sus grupos se configuran en esa pantalla; este archivo no carga empaques.",
-        "El producto necesita receta y empaques configurados para cotizar correctamente; esta importación no garantiza que ya esté listo para cotizar.",
-    ]) help.addRow({ help: line })
+    const sheet = workbook.addWorksheet(INITIAL_PRODUCT_SHEET)
+    sheet.columns = Object.entries(PRODUCT_IMPORT_COLUMNS).map(([key, column]) => ({ header: column.header.toUpperCase(), key, width: 28 }))
+    sheet.getColumn("skuCode").numFmt = "@"; sheet.getColumn("productGroup").numFmt = "@"
+    const materials = workbook.addWorksheet(INITIAL_PACKAGING_SHEET)
+    materials.columns = Object.entries(INITIAL_PACKAGING_COLUMNS).map(([key, column]) => ({ header: column.header, key, width: 28 }))
+    materials.getColumn("skuCode").numFmt = "@"; materials.getColumn("packagingCode").numFmt = "@"
+    for (const tab of [sheet, materials]) {
+        tab.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }
+        tab.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF24543B" } }
+        tab.getRow(1).height = 32
+        tab.views = [{ state: "frozen", ySplit: 1 }]
+        tab.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: tab.columnCount } }
+    }
+    const help = workbook.addWorksheet("INSTRUCCIONES")
+    help.columns = [{ header: "Instrucciones / Instructions", key: "help", width: 130 }]
+    help.getRow(1).font = { bold: true }
+    for (const line of instructions) help.addRow({ help: line })
+    help.addRow({ help: "Productos y Variantes: ASIAN-1 | AB-816 | Bolsa 16 oz | 60 | 8 | 6 | Congelados | [vacío] | Walmart | Asian Blend | Asian Blend | NO | Fija | [vacío]" })
+    for (const type of Object.keys(INITIAL_MATERIAL_TYPES)) help.addRow({ help: `Materiales de Empaque: AB-816 | CODIGO-MP-REAL | ${type} | [grupo real o vacío] | [SI/NO con grupo] | ${type === "OTRO PALETIZACIÓN" ? "POR PALLET | 2.5" : "[vacío] | [vacío]"}` })
+    const groups = await PackagingGroup.findAll({ where: { isActive: true }, order: [["displayName", "ASC"]] })
+    const firstGroupRow = help.rowCount + 2
+    help.addRow({ help: "PackagingGroup" })
+    for (const group of groups) help.addRow({ help: group.displayName })
+    if (groups.length) workbook.definedNames.add(`'INSTRUCCIONES'!$A$${firstGroupRow}:$A$${firstGroupRow + groups.length - 1}`, "InitialPackagingGroups")
+    for (let row = 2; row <= MAX_PRODUCT_PACKAGING_IMPORT_ROWS + 1; row++) {
+        materials.getCell(row, 3).dataValidation = { type: "list", allowBlank: false, formulae: [`"${Object.keys(INITIAL_MATERIAL_TYPES).join(",")}"`] }
+        materials.getCell(row, 5).dataValidation = { type: "list", allowBlank: true, formulae: ['"SI,NO"'] }
+        materials.getCell(row, 6).dataValidation = { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] }
+        if (groups.length) materials.getCell(row, 4).dataValidation = { type: "list", allowBlank: true, formulae: ["InitialPackagingGroups"] }
+    }
     return writeWorkbookToBuffer(workbook)
 }
 
-export const productImportService = { bulkImportProducts, buildProductImportTemplate }
+export const productImportService = { bulkImportProducts, previewProductImport, confirmProductImport, buildProductImportTemplate }

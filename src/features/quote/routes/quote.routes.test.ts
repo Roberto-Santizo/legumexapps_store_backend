@@ -32,7 +32,8 @@ import { AppError } from "../../../shared/errors/AppError"
 
 const app = buildTestApp("/api/quotes", quoteRouter)
 
-// type se queda literal "customer" a propósito (rename customer -> salesperson) -- ver authenticateSalesperson.ts
+// type se queda literal "customer" a propósito para no invalidar sesiones existentes (ver
+// authenticateSalesperson.ts).
 const salespersonToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const staffToken = jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions: ["*"] }, "test-secret")
 

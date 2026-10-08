@@ -2,6 +2,7 @@ import { Table, Column, DataType, ForeignKey, BelongsTo } from "sequelize-typesc
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import ProductVariant from "./ProductVariant.model";
 import Packaging from "../../packaging/models/Packaging.model";
+import PackagingGroup from "../../packagingGroup/models/PackagingGroup.model";
 
 @Table({
     tableName: "productVariantUnitMaterials",
@@ -36,17 +37,20 @@ class ProductVariantUnitMaterial extends BaseCatalogModel {
     })
     declare quantityPerUnit: number
 
-    // Grupos de opciones (reemplaza el viejo isSwappable): null
-    // (default) es una fila de receta incondicional, siempre se costea. Un nombre de grupo (texto
-    // libre del admin, ej. "Bolsa", "Etiqueta") marca la fila como alternativa dentro de ESE grupo:
-    // el cliente elige una por grupo, y los grupos distintos de un mismo nivel se suman. Dentro de
-    // cada grupo exactamente una fila es isDefault (ver productVariantUnitMaterial.service.ts); la
-    // comparación de nombres es insensible a mayúsculas/espacios (shared/utils/optionGroup.util.ts).
+    // Etiqueta compatible de grupos anteriores, conservada para snapshots y lectores existentes.
+    // Nuevas asociaciones se identifican por optionGroupId, no por esta etiqueta mutable.
     @Column({
         type: DataType.STRING(60),
         allowNull: true
     })
     declare optionGroup: string | null
+
+    @ForeignKey(() => PackagingGroup)
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    declare optionGroupId: number | null
+
+    @BelongsTo(() => PackagingGroup, "optionGroupId")
+    declare optionGroupCatalog: PackagingGroup
 
     @Column({
         type: DataType.BOOLEAN,

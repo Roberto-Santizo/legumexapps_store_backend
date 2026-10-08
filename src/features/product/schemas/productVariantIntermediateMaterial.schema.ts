@@ -14,8 +14,7 @@ export const productVariantIntermediateMaterialIdParamSchema = z.object({
     id: z.string().regex(/^\d+$/),
 })
 
-// optionGroup/isDefault recuperados con su default -- mismo criterio que
-// productVariantUnitMaterial.schema.ts, ver el comentario ahí.
+// optionGroup/isDefault recuperados con su default dentro del .partial().
 export const updateProductVariantIntermediateMaterialSchema = createProductVariantIntermediateMaterialSchema.partial().extend({
     optionGroup: createProductVariantIntermediateMaterialSchema.shape.optionGroup,
     isDefault: createProductVariantIntermediateMaterialSchema.shape.isDefault,

@@ -7,10 +7,8 @@ import Destination from "../../destination/models/Destination.model";
     tableName: "quotes"
 })
 class Quote extends Model {
-    // Columna física sigue llamándose "customerId" (rename customer -> salesperson: esta FK apuntaba a la
-    // feature que se llamaba "customer") -- field explícito para que sequelize-typescript NO
-    // infiera "salespersonId" como nombre de columna a partir de la propiedad renombrada. No es
-    // una migración de datos, solo el nombre en código.
+    // La columna física sigue llamándose "customerId": field explícito para que sequelize-typescript no
+    // infiera "salespersonId" como nombre de columna.
     @ForeignKey(() => Salesperson)
     @Column({
         type: DataType.INTEGER,
@@ -26,11 +24,8 @@ class Quote extends Model {
     })
     declare productVariantId: number
 
-    // allowNull: true -- transporte "apagado" temporalmente para el cliente: ya no
-    // elige destino, así que una Quote puede quedar sin destinationId. Solo se relaja la
-    // restricción NOT NULL (sequelize.sync({alter}) altera la columna en Postgres, no borra
-    // datos existentes) -- las cotizaciones viejas guardadas con destino siguen intactas.
-    // Trivialmente reversible: volver a allowNull:false cuando se reactive transporte.
+    // allowNull: transporte apagado temporalmente, así que una Quote puede quedar sin destino.
+    // Reversible: volver a allowNull:false cuando se reactive el transporte.
     @ForeignKey(() => Destination)
     @Column({
         type: DataType.INTEGER,
@@ -68,9 +63,8 @@ class Quote extends Model {
     })
     declare rawMaterialCost: number
 
-    // Ingredientes agregados (sal, azúcar...) -- línea aparte de rawMaterialCost, ver
-    // quoteService.buildIngredientLines. defaultValue: 0, mismo criterio que los demás costos que se
-    // agregaron después (una cotización sin ingredientes vale 0, nunca NULL).
+    // Ingredientes agregados (sal, azúcar...): línea aparte de rawMaterialCost. defaultValue 0: una
+    // cotización sin ingredientes vale 0, nunca NULL.
     @Column({
         type: DataType.DECIMAL(12, 4),
         allowNull: false,
@@ -91,9 +85,8 @@ class Quote extends Model {
     })
     declare intermediatePackagingCost: number
 
-    // defaultValue: 0 -- se agregó con cotizaciones ya existentes en la BD, mismo motivo que
-    // intermediatePackagingCost/adjustmentCost arriba: sin default, sync({alter:true}) dejaría
-    // esas filas viejas con NULL en una columna NOT NULL.
+    // defaultValue 0: sin default, sync({ alter: true }) dejaría las filas existentes con NULL en una
+    // columna NOT NULL.
     @Column({
         type: DataType.DECIMAL(12, 4),
         allowNull: false,
@@ -101,9 +94,8 @@ class Quote extends Model {
     })
     declare processingCostTotal: number
 
-    // defaultValue: 0 -- mismo motivo que processingCostTotal arriba: se agrega con cotizaciones
-    // ya existentes en la BD, sin default sync({alter:true}) dejaría esas filas viejas con NULL
-    // en una columna NOT NULL.
+    // defaultValue 0: sin default, sync({ alter: true }) dejaría las filas existentes con NULL en una
+    // columna NOT NULL.
     @Column({
         type: DataType.DECIMAL(12, 4),
         allowNull: false,

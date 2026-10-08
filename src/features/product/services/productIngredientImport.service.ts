@@ -1,3 +1,4 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
@@ -22,15 +23,14 @@ import {
     REQUIRED_PRODUCT_INGREDIENT_IMPORT_FIELDS,
 } from "../constants/productIngredientImport.constant"
 
-// Carga masiva de Ingredientes por producto -- paso 3 (opcional) de 3 (Productos → Recetas →
-// Ingredientes (opcional)). Una fila por (Producto, Ingrediente), agrupadas por
-// producto igual que productRawMaterialImport.service.ts. Sin regla de 100% (los ingredientes van
-// encima de la receta base) y mismas reglas para receta fija y personalizable:
+// Carga masiva de Ingredientes por producto (opcional). Una fila por (Producto, Ingrediente),
+// agrupadas por producto. Sin regla de 100% (los ingredientes van encima de la receta base) y mismas
+// reglas para receta fija y personalizable:
 //   - producto e ingrediente existen y están activos;
 //   - Gramos ≤ Peso de referencia (mismo guard que productIngredient.service.ts);
 //   - el mismo ingrediente no se repite dentro de un producto;
 //   - create-only: un producto que ya tiene algún ingrediente activo se rechaza.
-// Todo o nada, en una sola transacción. Las variantes ya existen desde el paso 1.
+// Se importa completo o nada, en una sola transacción.
 
 type RowValidation = {
     rowNumber: number
@@ -91,7 +91,7 @@ function collectRowZodIssues(candidate: unknown, manuallyValidatedFields: Set<st
 }
 
 function processIngredientImportRow(
-    row: ExcelJS.Row,
+    row: ParsedRow,
     rowNumber: number,
     columnIndexByField: Map<ProductIngredientImportField, number>,
     productsByVariantSku: Map<string, Product>,
@@ -177,7 +177,7 @@ async function loadProductIdsWithExistingIngredients(): Promise<Set<number>> {
     return new Set(ingredientRows.map(ingredientRow => ingredientRow.productId))
 }
 
-function validateIngredientImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductIngredientImportField, number> {
+function validateIngredientImportHeaders(sheet: ParsedWorksheet): Map<ProductIngredientImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), PRODUCT_INGREDIENT_IMPORT_COLUMNS)
     const missingFields = REQUIRED_PRODUCT_INGREDIENT_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -189,7 +189,7 @@ function validateIngredientImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductI
 }
 
 async function bulkImportProductIngredients(buffer: Buffer): Promise<ProductIngredient[]> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
     if (!sheet || sheet.rowCount <= 1) {
         throw new AppError(422, "errors.bulk_import_empty_file")

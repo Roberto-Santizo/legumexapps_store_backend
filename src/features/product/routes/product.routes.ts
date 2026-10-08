@@ -19,6 +19,8 @@ productRouter.get("/", authorize("products:view"), validate(productQuerySchema, 
 // Carga masiva de Productos base -- ANTES de /:id para que "bulk-import" no se lea
 // como un id. Mismo permiso que el formulario de crear producto (products:create).
 productRouter.get("/bulk-import/template", authorize("products:create"), productController.downloadTemplate)
+productRouter.post("/bulk-import/preview", authorize("products:create"), upload.single("file"), productController.previewImport)
+productRouter.post("/bulk-import/confirm", authorize("products:create"), upload.single("file"), productController.confirmImport)
 productRouter.post("/bulk-import", authorize("products:create"), upload.single("file"), productController.bulkImport)
 
 productRouter.get("/:id", authorize("products:view"), validate(productIdParamSchema, "params"), productController.show)

@@ -1,4 +1,5 @@
 import Decimal from "decimal.js"
+import type { Transaction } from "sequelize"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import Ingredient from "../../ingredient/models/Ingredient.model"
 import Unit from "../../unit/models/Unit.model"
@@ -14,10 +15,8 @@ import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
 import { RawMaterialMixLineInput } from "../schemas/quote.schema"
 
 // Matemática por línea del cotizador, COMPARTIDA: cada builder recibe valores planos (costos,
-// cantidades, peso neto, unidades) y nunca un ProductVariant, así el motor de productos definidos
-// (quote.service.ts::calculateQuote, que los lee de la variante) y cualquier otro motor que obtenga
-// esos mismos valores de otra fuente costean exactamente igual. Extraído de quote.service.ts sin
-// cambiar ningún número (la suite de quote.service.test.ts pasa sin editar).
+// cantidades, peso neto, unidades) y nunca un ProductVariant, así el motor de productos definidos y
+// cualquier otro motor que obtenga esos mismos valores de otra fuente costean exactamente igual.
 
 const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
 
@@ -117,7 +116,7 @@ interface NetWeightShareErrorKeys {
     params: Record<string, unknown>
 }
 
-// Matemática pura "% del peso neto -> costo", compartida por TODO lo que se costea como una
+// Matemática pura "% del peso neto -> costo", compartida por cada cosa que se costea como una
 // porción del peso neto de la presentación: la receta fija, la mezcla personalizable y los
 // ingredientes agregados (buildIngredientLine). % -> gramos por unidad (sobre el peso neto) ->
 // cantidad en la unidad de costeo (÷ costUnit.baseFactor) -> costo × unidades totales. Solo cambia
@@ -378,9 +377,11 @@ export function buildPalletMaterialLine(
 export async function buildPerWeightProcessingCostLines(
     netWeightGrams: number,
     totalUnits: number,
-    language: ContentLanguage
+    language: ContentLanguage,
+    transaction?: Transaction
 ): Promise<ProcessingCostLine[]> {
     const activeProcessingCosts = await ProcessingCost.findAll({
+        transaction,
         where: { isActive: true, calculationType: "per_weight" },
         include: [{ model: ProcessingCostTranslation, as: "translations" }]
     })
@@ -408,8 +409,9 @@ export async function buildPerWeightProcessingCostLines(
     })
 }
 
-async function buildPercentageCostLines(percentageBase: number, language: ContentLanguage): Promise<PercentageCostLine[]> {
+async function buildPercentageCostLines(percentageBase: number, language: ContentLanguage, transaction?: Transaction): Promise<PercentageCostLine[]> {
     const activePercentageCosts = await ProcessingCost.findAll({
+        transaction,
         where: { isActive: true, calculationType: "percentage" },
         include: [{ model: ProcessingCostTranslation, as: "translations" }]
     })
@@ -467,7 +469,8 @@ export interface QuoteCostSubtotals {
 // suman sobre la misma base (no se componen).
 export async function assembleQuoteTotals(
     subtotals: QuoteCostSubtotals,
-    language: ContentLanguage
+    language: ContentLanguage,
+    transaction?: Transaction
 ): Promise<{ percentageCosts: PercentageCostLine[]; percentageCostTotal: number; totalCost: number }> {
     const percentageBase = sumMoney([
         subtotals.rawMaterialCost,
@@ -477,7 +480,7 @@ export async function assembleQuoteTotals(
         subtotals.intermediatePackagingCost,
         subtotals.palletMaterialCost
     ])
-    const percentageCosts = await buildPercentageCostLines(percentageBase, language)
+    const percentageCosts = await buildPercentageCostLines(percentageBase, language, transaction)
     const percentageCostTotal = sumMoney(percentageCosts.map(line => line.lineTotal))
 
     const totalCost = sumMoney([

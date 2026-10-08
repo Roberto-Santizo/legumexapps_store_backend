@@ -5,9 +5,8 @@ const rawMaterialTranslationInputSchema = z.object({
     displayName: z.string().trim().min(1).max(120).optional(),
 })
 
-// costUnitId NO es parte del input -- la unidad de costeo se fuerza server-side a la Libra en
-// cada create/update (ver rawMaterial.service.ts::findOrCreatePoundUnit), el usuario nunca la
-// elige. costPerUnit sigue siendo obligatorio: es "costo por libra".
+// costUnitId no es parte del input: la libra se fija en el servidor. costPerUnit (costo por libra)
+// es obligatorio.
 export const createRawMaterialSchema = z.object({
     code: z.string().trim().min(1).max(60),
     displayName: z.string().trim().min(1).max(120),

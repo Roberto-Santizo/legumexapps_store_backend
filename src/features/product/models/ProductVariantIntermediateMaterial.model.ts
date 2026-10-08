@@ -3,13 +3,9 @@ import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import ProductVariant from "./ProductVariant.model";
 import Packaging from "../../packaging/models/Packaging.model";
 
-// Empaque intermedio -- reemplaza el viejo FK único ProductVariant.intermediatePackagingId. Mismo
-// join N-filas que ProductVariantUnitMaterial/ProductVariantPalletMaterial, con default + opcional
-// (optionGroup/isDefault, ver el comentario en ProductVariantUnitMaterial.model.ts) -- pero sin
-// cantidad propia: el motor sigue leyendo ProductVariant.unitsPerIntermediatePackage (compartido
-// entre cualquier alternativa elegida, no varía por material -- decisión de negocio).
-// No es "0-o-1": es un nivel normal como unit/pallet (N filas fijas + N grupos de opciones, todas
-// las filas resueltas se costean).
+// Empaque intermedio: join N-filas con default + opcional (optionGroup/isDefault), igual que los
+// niveles unit/pallet, pero sin cantidad propia: el motor usa
+// ProductVariant.unitsPerIntermediatePackage (compartido entre cualquier alternativa elegida).
 @Table({
     tableName: "productVariantIntermediateMaterials",
     indexes: [

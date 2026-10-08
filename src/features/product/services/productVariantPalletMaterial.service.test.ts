@@ -1,3 +1,8 @@
+jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findOne: jest.fn(async () => ({ boxesPerPallet: 198 })) } }))
+import ProductVariant from "../models/ProductVariant.model"
+jest.mock("../../packagingGroup/services/packagingGroup.service", () => ({
+    resolveUnitMaterialGroup: jest.fn(async (id, name) => ({ optionGroupId: id ?? null, optionGroup: id != null ? `Group ${id}` : name }))
+}))
 import "reflect-metadata"
 import { Op } from "sequelize"
 
@@ -23,6 +28,8 @@ const BASE_INPUT = {
     productVariantId: 10,
     packagingId: 5,
     quantityValue: 2,
+    quantityBasis: "per_pallet" as const,
+    optionGroupId: null,
     optionGroup: null as string | null,
     isDefault: false,
 }
@@ -30,11 +37,11 @@ const BASE_INPUT = {
 // Filas "hermanas" agrupadas que devuelve findAll (el servicio ya pide optionGroup != null a la BD
 // y filtra por grupo en memoria, así que acá solo se simulan filas agrupadas).
 function groupedRow(id: number, optionGroup: string, isDefault: boolean) {
-    return { id, productVariantId: 10, optionGroup, isDefault }
+    return { id, productVariantId: 10, optionGroup, isDefault, quantityBasis: "per_pallet", quantityValue: 2 }
 }
 
 function existingRow(id: number, optionGroup: string | null, isDefault: boolean, rowUpdate: jest.Mock) {
-    return { id, productVariantId: 10, optionGroup, isDefault, update: rowUpdate }
+    return { id, productVariantId: 10, optionGroup, isDefault, quantityBasis: "per_pallet", quantityValue: 2, update: rowUpdate }
 }
 
 describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)", () => {
@@ -221,5 +228,82 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
             expect(mockFindAll).not.toHaveBeenCalled()
             expect(rowUpdate).toHaveBeenCalledWith({ isActive: false })
         })
+    })
+})
+
+
+describe("explicit pallet alternative consumption rules", () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockFindAll.mockResolvedValue([])
+        mockCreate.mockImplementation(async input => input)
+    })
+    it.each([[4, "per_box", 1], [5, "per_pallet", 4]] as const)("supports group %s without interpreting its label", async (optionGroupId, quantityBasis, quantityValue) => {
+        mockFindAll.mockResolvedValue([{ id: 1, productVariantId: 10, optionGroupId, optionGroup: "Renamed", quantityBasis, quantityValue, isDefault: true }])
+        await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroupId, quantityBasis, quantityValue })
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroupId, quantityBasis, quantityValue, isDefault: false }))
+    })
+    it.each([["per_pallet", 1], ["per_box", 2]] as const)("rejects changing a box alternative to %s=%s before demoting defaults", async (quantityBasis, quantityValue) => {
+        mockFindAll.mockResolvedValue([{ id: 1, productVariantId: 10, optionGroupId: 4, optionGroup: "Anything", quantityBasis: "per_box", quantityValue: "1.00", isDefault: true }])
+        await expect(productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroupId: 4, quantityBasis, quantityValue, isDefault: true })).rejects.toMatchObject({ statusCode: 422, key: "errors.pallet_material_group_quantity_mismatch" })
+        expect(mockCreate).not.toHaveBeenCalled()
+        expect(mockUpdate).not.toHaveBeenCalled()
+    })
+    it("rejects editing the quantity of one grouped association", async () => {
+        const update = jest.fn()
+        mockFindOne.mockResolvedValue({ id: 2, productVariantId: 10, optionGroupId: 4, optionGroup: "Anything", isDefault: false, update })
+        mockFindAll.mockResolvedValue([{ id: 1, optionGroupId: 4, optionGroup: "Anything", quantityBasis: "per_box", quantityValue: 1, isDefault: true }])
+        await expect(productVariantPalletMaterialService.updateProductVariantPalletMaterial(2, { ...BASE_INPUT, optionGroupId: 4, quantityBasis: "per_box", quantityValue: 2 })).rejects.toMatchObject({ statusCode: 422 })
+        expect(update).not.toHaveBeenCalled()
+    })
+})
+
+
+describe("simplified manual pallet consumption", () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockFindAll.mockResolvedValue([])
+        mockCreate.mockImplementation(async values => values)
+        mockAssertRole.mockResolvedValue({ code: "MP-X", packagingRole: "pallet", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 })
+        ;(ProductVariant.findOne as jest.Mock).mockResolvedValue({ boxesPerPallet: 198 })
+    })
+    const simplified = { productVariantId: 10, packagingId: 5, optionGroupId: null, optionGroup: null, isDefault: false }
+    it.each([["per_box", 1], ["per_pallet", 4], ["per_pallet", 1], ["per_pallet", 93.3]] as const)("copies catalog rule %s/%s to new associations", async (basis, quantity) => {
+        mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: basis, defaultQuantityValue: String(quantity) })
+        await productVariantPalletMaterialService.createProductVariantPalletMaterial(simplified)
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: basis, quantityValue: quantity, optionGroupId: null, isDefault: false }))
+    })
+    it("blocks creation when the catalog default is missing", async () => {
+        mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: null, defaultQuantityValue: null })
+        await expect(productVariantPalletMaterialService.createProductVariantPalletMaterial(simplified)).rejects.toMatchObject({ key: "errors.packaging_consumption_missing" })
+        expect(mockCreate).not.toHaveBeenCalled()
+    })
+    it("preserves an existing override when updating without an explicit rule", async () => {
+        const update = jest.fn()
+        mockFindOne.mockResolvedValue({ ...simplified, id: 100, quantityBasis: "per_pallet", quantityValue: "7.00", update })
+        await productVariantPalletMaterialService.updateProductVariantPalletMaterial(100, simplified)
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: "per_pallet", quantityValue: 7 }))
+        mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 5 })
+        await productVariantPalletMaterialService.updateProductVariantPalletMaterial(100, simplified)
+        expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ quantityValue: 7 }))
+    })
+    it("uses the new material default when changing material identity", async () => {
+        const update = jest.fn()
+        mockFindOne.mockResolvedValue({ ...simplified, id: 100, quantityBasis: "per_pallet", quantityValue: 7, update })
+        await productVariantPalletMaterialService.updateProductVariantPalletMaterial(100, { ...simplified, packagingId: 6 })
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ packagingId: 6, quantityValue: 4 }))
+    })
+    it("permits an explicit override without changing the global catalog", async () => {
+        const material = { code: "MP-X", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 }
+        mockAssertRole.mockResolvedValue(material)
+        await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...simplified, quantityBasis: "per_pallet", quantityValue: 9 })
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ quantityValue: 9 }))
+        expect(material.defaultQuantityValue).toBe(4)
+    })
+    it.each([null, 0, -1, Infinity])("rejects per_box with invalid boxesPerPallet %s", async boxesPerPallet => {
+        mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: "per_box", defaultQuantityValue: 1 })
+        ;(ProductVariant.findOne as jest.Mock).mockResolvedValue({ boxesPerPallet })
+        await expect(productVariantPalletMaterialService.createProductVariantPalletMaterial(simplified)).rejects.toMatchObject({ key: "errors.pallet_boxes_required" })
+        expect(mockCreate).not.toHaveBeenCalled()
     })
 })

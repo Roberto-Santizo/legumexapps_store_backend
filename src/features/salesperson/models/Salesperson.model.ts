@@ -1,9 +1,8 @@
 import { Table, Column, DataType } from "sequelize-typescript"
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel"
 
-// tableName explícito y sin cambios (esta feature se llamaba "customer"): la tabla física sigue
-// siendo "customers" en Postgres a propósito -- es un rename de nombres/código únicamente, no una
-// migración de datos.
+// tableName explícito: la tabla física sigue siendo "customers" (la feature se renombró solo en
+// código, sin migración de datos).
 @Table({
     tableName: "customers"
 })

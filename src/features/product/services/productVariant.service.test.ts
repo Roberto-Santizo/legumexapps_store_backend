@@ -21,11 +21,8 @@ const BASE_CREATE_INPUT = {
     bagsPerBox: 6,
 }
 
-// ProductVariant.findOne se llama con dos shapes de `where` distintas dentro de un solo
-// create/update (chequeo de (productId, presentationId) único, y getProductVariantById) -- se
-// distingue por la clave presente en `where`. "presentationId" e "isActive" nunca coexisten en la
-// misma llamada, así que alcanza con mirar cuál de las dos está presente (mismo patrón que
-// mockProcessingCostFindAll en quote.service.test.ts).
+// ProductVariant.findOne se llama con dos formas de `where` dentro de un create/update ((productId,
+// presentationId) único y getProductVariantById): se distingue por la clave presente.
 function stubVariantFindOne(responses: {
     presentation?: unknown
     existing?: unknown

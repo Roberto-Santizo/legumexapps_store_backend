@@ -1,10 +1,9 @@
 import z from "zod"
 
-// Cotización a la medida (World 2): lo que el representante ARMA. Estricto a propósito -- a
-// diferencia de calculateQuoteSchema (que descarta claves desconocidas), acá una clave de más es un
-// 400: el cliente nunca manda cantidades, cuentas de palet ni costos (salen de las listas de
-// permitidos y de la presentación, en el servidor), y un payload que intente mandarlos se rechaza en
-// vez de ignorarse en silencio.
+// Cotización a la medida: lo que el representante ARMA. Estricto a propósito -- a diferencia de
+// calculateQuoteSchema (que descarta claves desconocidas), acá una clave de más es un 400: el cliente
+// nunca manda cantidades, cuentas de palet ni costos (salen de las listas de permitidos y de la
+// presentación, en el servidor), y un payload que intente mandarlos se rechaza en vez de ignorarse.
 
 export const MAX_CUSTOM_QUOTE_RAW_MATERIALS = 10
 export const MAX_CUSTOM_QUOTE_INGREDIENTS = 10

@@ -38,13 +38,13 @@ import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from ".
 import { CustomQuoteQuantityBasis } from "../constants/customQuoteConfig.constant"
 import { CustomQuoteCalculationInput } from "../schemas/customQuote.schema"
 
-// Motor de "Cotizaciones a la medida" (World 2): cotiza un producto que no existe (sin SKU) a partir
-// de lo que armó el representante + las listas de permitidos del admin. NO tiene matemática propia:
-// cada línea sale de los MISMOS builders que calculateQuote (quoteCostLines.ts), la receta del mismo
+// Motor de "Cotizaciones a la medida": cotiza un producto que no existe (sin SKU) a partir de lo que
+// armó el representante + las listas de permitidos del admin. NO tiene matemática propia: cada línea
+// sale de los MISMOS builders que calculateQuote (quoteCostLines.ts), la receta del mismo
 // buildCustomizableRawMaterials y la elección de empaques del mismo resolveMaterialsForQuote -- lo
 // único distinto es de dónde salen los valores (listas de permitidos en vez de un ProductVariant).
-// calculateCustomQuote solo calcula: nunca escribe en ninguna tabla (Quote, QuoteDraft, Product,
-// ProductVariant incluidas). saveCustomQuote recalcula y escribe SOLO en customQuotes.
+// calculateCustomQuote solo calcula: nunca escribe en ninguna tabla. saveCustomQuote recalcula y
+// escribe SOLO en customQuotes.
 
 const GRAMS_PER_KILOGRAM = new Decimal(1000)
 
@@ -80,7 +80,7 @@ export type CustomQuoteCalculation = Omit<QuoteCalculation, "productVariantId"> 
     configuration: CustomQuoteConfiguration
 }
 
-// ---- Carga de las listas de permitidos (solo filas activas cuyo elemento de catálogo sigue activo) ----
+// Carga de las listas de permitidos: solo filas activas cuyo elemento de catálogo sigue activo.
 
 async function loadPresentationOption(presentationId: number): Promise<CustomQuotePresentationOption> {
     const option = await CustomQuotePresentationOption.findOne({
@@ -143,8 +143,6 @@ async function resolveDestination(destinationId: number | undefined): Promise<De
     return destination
 }
 
-// ---- Validación de la receta (antes del builder compartido, con claves propias de este flujo) ----
-
 // buildCustomizableRawMaterials ya exige: mezcla no vacía, sin duplicados, solo materias primas del
 // pool, cada % dentro de su mínimo/máximo, total 100 ± 0.5 y unidad de costo por peso. Acá se suma lo
 // que en productos definidos se valida al configurar el producto: mezclable si hay más de una, y
@@ -172,8 +170,6 @@ function assertRecipeIsAllowed(
         }
     }
 }
-
-// ---- Ingredientes agregados ----
 
 // El representante manda gramos por UNIDAD de la presentación elegida; se costean con el MISMO
 // buildIngredientLine que productos definidos, usando el peso neto de la presentación como peso de
@@ -227,8 +223,6 @@ function buildCustomIngredientLines(
         )
     })
 }
-
-// ---- Empaques ----
 
 function requireQuantity(option: CustomQuotePackagingOption): Decimal {
     // El servicio de la lista no deja guardar una fila unit/pallet sin cantidad; esto solo protege
@@ -290,8 +284,6 @@ function resolvePackaging(
     return { unit, intermediate, pallet }
 }
 
-// ---- Etiquetas ----
-
 function buildDisplayName(rawMaterialLines: { displayName: string }[], mix: { percentage: number }[], language: ContentLanguage): string {
     const prefix = language === "en" ? "Custom" : "A la medida"
     const composition = rawMaterialLines.map((line, index) => `${mix[index].percentage}% ${line.displayName}`).join(" · ")
@@ -305,8 +297,6 @@ function buildVariantLabel(presentation: Presentation, boxesPerPallet: number, b
     const boxesPerPalletLabel = language === "en" ? `${boxesPerPallet} boxes/pallet` : `${boxesPerPallet} cajas/palet`
     return [sizePart, boxesPerPalletLabel].join(" · ")
 }
-
-// ---- Motor ----
 
 async function calculateCustomQuote(
     input: CustomQuoteCalculationInput,

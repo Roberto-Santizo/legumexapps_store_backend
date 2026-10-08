@@ -1,7 +1,6 @@
 import "reflect-metadata"
 
-// Mock manual del modelo -- mismo patrón que quote.service.test.ts/packaging.service.test.ts:
-// solo se mockean los métodos de Sequelize que la función realmente llama.
+// Mock manual del modelo: solo se mockean los métodos de Sequelize que la función realmente llama.
 jest.mock("../models/Lead.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn(), create: jest.fn() }
@@ -13,8 +12,8 @@ import { leadService } from "./lead.service"
 const mockLeadFindOne = Lead.findOne as unknown as jest.Mock
 const mockLeadCreate = Lead.create as unknown as jest.Mock
 
-// Los Leads nacen únicamente del formulario público de la landing (el cotizador ya no captura ni
-// vincula prospectos) -- estas pruebas cubren esa vía y el panel admin.
+// Los Leads nacen únicamente del formulario público de la landing; estas pruebas cubren esa vía y el
+// panel admin.
 describe("leadService (formulario público + panel admin)", () => {
     beforeEach(() => {
         mockLeadFindOne.mockReset()

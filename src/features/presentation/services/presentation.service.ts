@@ -1,3 +1,4 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Presentation from "../models/Presentation.model"
@@ -105,7 +106,7 @@ function finalizePresentationImportCandidate(
 }
 
 function processPresentationImportRow(
-    row: ExcelJS.Row,
+    row: ParsedRow,
     rowNumber: number,
     columnIndexByField: Map<PresentationImportField, number>,
     firstRowByNormalizedLabel: Map<string, number>,
@@ -130,7 +131,7 @@ function processPresentationImportRow(
     return finalizePresentationImportCandidate(validated!, rowNumber, firstRowByNormalizedLabel, rowIssues)
 }
 
-function validatePresentationImportHeaders(sheet: ExcelJS.Worksheet): Map<PresentationImportField, number> {
+function validatePresentationImportHeaders(sheet: ParsedWorksheet): Map<PresentationImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), PRESENTATION_IMPORT_COLUMNS)
     const missingFields = REQUIRED_PRESENTATION_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -142,7 +143,7 @@ function validatePresentationImportHeaders(sheet: ExcelJS.Worksheet): Map<Presen
 }
 
 async function bulkImportPresentations(buffer: Buffer): Promise<Presentation[]> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
     if (!sheet || sheet.rowCount <= 1) {
         throw new AppError(422, "errors.bulk_import_empty_file")

@@ -7,10 +7,8 @@ interface ImportColumnDef {
 
 export const PRESENTATION_IMPORT_COLUMNS: Record<PresentationImportField, ImportColumnDef> = {
     displayLabel: { header: "Nombre", aliases: ["nombre"] },
-    // El encabezado deja explícito "por unidad" -- NUNCA el peso del caso/caja (ver
-    // presentation.service.ts::bulkImportPresentations: copiar el peso
-    // del caso acá infla en silencio todos los costos por peso, exactamente el tipo de error que
-    // este campo requerido busca evitar).
+    // El encabezado deja explícito "por unidad": copiar acá el peso del caso/caja inflaría en silencio
+    // todos los costos por peso.
     netWeightGrams: { header: "Peso neto por unidad (g)", aliases: ["peso neto por unidad (g)", "peso neto por unidad", "peso neto (g)", "peso neto", "peso"] },
 }
 

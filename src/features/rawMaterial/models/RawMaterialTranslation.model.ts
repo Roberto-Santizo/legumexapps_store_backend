@@ -1,7 +1,6 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo, Model } from "sequelize-typescript";
 import RawMaterial from "./RawMaterial.model";
 
-// Mismo patrón que CategoryTranslation -- ver shared/utils/translation.util.ts.
 @Table({
     tableName: "rawMaterialTranslations",
     indexes: [

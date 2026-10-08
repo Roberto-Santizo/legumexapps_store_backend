@@ -9,7 +9,7 @@ import { calculateJuiceQuoteSchema } from "../schemas/juiceQuote.schema"
 import { juiceConfigService } from "./juiceConfig.service"
 import { buildJuiceCostLines } from "./juiceCostLines"
 
-// Calculate-only: no quote/catalog writes. J3 imports and later persistence/UI are separate phases.
+// Calculate-only: no quote/catalog writes.
 export async function calculateJuiceQuote(juiceId: number, presentationId: number, quantity: number) {
     calculateJuiceQuoteSchema.parse({ juiceId, presentationId, quantity })
     const juice = await Juice.findOne({ where: { id: juiceId, isActive: true } })

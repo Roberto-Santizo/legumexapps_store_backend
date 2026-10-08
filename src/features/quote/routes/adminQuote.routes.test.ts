@@ -2,6 +2,8 @@
 jest.mock("../../../config/env", () => ({
     env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" }
 }))
+jest.mock("../../customQuote/services/catalogQuoteDiscovery.service", () => ({ discoverCatalog: jest.fn() }))
+jest.mock("../../customQuote/services/catalogQuote.service", () => ({ previewAdminCatalogQuote: jest.fn(), confirmCatalogQuote: jest.fn() }))
 jest.mock("../services/quote.service", () => ({
     quoteService: {
         calculateQuote: jest.fn(),
@@ -25,6 +27,38 @@ import adminQuoteRouter from "./adminQuote.routes"
 import { quoteService } from "../services/quote.service"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { emailService } from "../../../shared/services/email.service"
+import { discoverCatalog } from "../../customQuote/services/catalogQuoteDiscovery.service"
+import { previewAdminCatalogQuote, confirmCatalogQuote } from "../../customQuote/services/catalogQuote.service"
+
+describe("admin customizable calculator", () => {
+    const input = { categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", isOrganic: false, requestedPallets: 2, rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }
+    const preview = "/api/admin/quotes/catalog-preview"
+    const catalog = "/api/admin/quotes/catalog-configurations"
+    it("requires staff and quotes:calculate for both catalog and calculation", async () => {
+        for (const [token, status] of [["", 401], [salespersonToken, 401], [staffToken(["quotes:view"]), 403]] as const) {
+            expect((await request(app).get(catalog).set("Authorization", `Bearer ${token}`)).status).toBe(status)
+            expect((await request(app).post(preview).set("Authorization", `Bearer ${token}`).send(input)).status).toBe(status)
+        }
+        expect(previewAdminCatalogQuote).not.toHaveBeenCalled()
+        expect(discoverCatalog).not.toHaveBeenCalled()
+    })
+    it("discovers and calculates without customer confirmation or quote/draft writes", async () => {
+        const auth = `Bearer ${staffToken(["quotes:calculate"])}`
+        ;(discoverCatalog as jest.Mock).mockResolvedValue({ categories: [] })
+        ;(previewAdminCatalogQuote as jest.Mock).mockResolvedValue({ totalCost: 284, requestedPallets: 2 })
+        expect((await request(app).get(catalog).set("Authorization", auth)).body.data).toEqual({ categories: [] })
+        const response = await request(app).post(preview).set("Authorization", auth).set("Accept-Language", "en").send(input)
+        expect(response.status).toBe(200)
+        expect(response.body.data.totalCost).toBe(284)
+        expect(previewAdminCatalogQuote).toHaveBeenCalledWith(expect.objectContaining(input), "en")
+        expect(confirmCatalogQuote).not.toHaveBeenCalled()
+        expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+        const invalid = await request(app).post(preview).set("Authorization", auth).send({ ...input, totalCost: 1 })
+        expect(invalid.status).toBe(400)
+        expect(previewAdminCatalogQuote).toHaveBeenCalledTimes(1)
+    })
+})
 
 const app = buildTestApp("/api/admin/quotes", adminQuoteRouter)
 
@@ -166,5 +200,19 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
                 attachment: { buffer: pdfContent, fileName: "cotizacion.pdf", contentType: "application/pdf" }
             })
         })
+    })
+})
+
+describe("GET fixed quotes date filtering", () => {
+    beforeEach(() => (quoteService.listAllQuotes as jest.Mock).mockClear().mockResolvedValue([]))
+    it("forwards validated dates to the existing listing service", async () => {
+        const response = await request(app).get("/api/admin/quotes?startDate=2026-10-01&endDate=2026-10-07").set("Authorization", `Bearer ${staffToken(["quotes:view"])}`)
+        expect(response.status).toBe(200)
+        expect(quoteService.listAllQuotes).toHaveBeenCalledWith({ startDate: "2026-10-01", endDate: "2026-10-07" })
+    })
+    it.each(["startDate=2026-10-08&endDate=2026-10-07", "startDate=2026-02-30", "endDate=2026-10-07T00:00:00Z"])("rejects invalid ranges before querying: %s", async query => {
+        const response = await request(app).get(`/api/admin/quotes?${query}`).set("Authorization", `Bearer ${staffToken(["quotes:view"])}`)
+        expect(response.status).toBe(400)
+        expect(quoteService.listAllQuotes).not.toHaveBeenCalled()
     })
 })

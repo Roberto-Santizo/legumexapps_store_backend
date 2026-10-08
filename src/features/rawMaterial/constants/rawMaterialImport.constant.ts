@@ -1,7 +1,5 @@
 
-// No hay columna de unidad de costo -- la unidad de costeo se fuerza server-side a la Libra en
-// cada import (ver rawMaterial.service.ts::persistImportedRawMaterials), el usuario nunca la
-// elige, ni siquiera vía Excel.
+// Sin columna de unidad de costo: la libra se fija en el servidor en cada import.
 export type RawMaterialImportField =
     | "code"
     | "displayName"

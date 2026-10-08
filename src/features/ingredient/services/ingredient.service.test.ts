@@ -2,8 +2,7 @@ import "reflect-metadata"
 import ExcelJS from "exceljs"
 import { Op } from "sequelize"
 
-// Mismo patrón que rawMaterial.service.test.ts: modelos mockeados, .xlsx reales armados en memoria,
-// y unitService.findOrCreatePoundUnit mockeado (Libra forzada).
+// Modelos mockeados, .xlsx reales armados en memoria y unitService.findOrCreatePoundUnit mockeado.
 jest.mock("../models/Ingredient.model", () => ({
     __esModule: true,
     default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }

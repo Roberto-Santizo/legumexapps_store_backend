@@ -56,12 +56,9 @@ async function deleteUnit(id: number): Promise<void> {
     await unit.update({ isActive: false });
 }
 
-// RawMaterial.costUnitId se fuerza server-side a la Libra (ver rawMaterial.service.ts) -- el
-// admin nunca la elige. `Unit` no se auto-siembra al arrancar (a diferencia de RBAC), así que en
-// una BD recién creada puede no existir todavía ninguna fila de Libra: esta función la busca y,
-// si no existe, la crea con el mismo criterio que createUnit (copiando el catalog entry). El
-// match es por unitType + baseFactor (453.592, único en todo el catálogo de 10 unidades) y NO
-// por displayName -- el texto es dependiente del idioma/edición manual, el baseFactor no.
+// La libra de RawMaterial/Ingredient se fija en el servidor. `Unit` no se siembra al arrancar, así que
+// en una BD nueva puede no existir: esta función la busca y, si no existe, la crea desde el catálogo.
+// El match es por unitType + baseFactor (453.592, único en el catálogo), no por displayName.
 const POUND_MATCH_TOLERANCE = 0.0001
 
 async function findOrCreatePoundUnit(): Promise<Unit> {

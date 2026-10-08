@@ -1,5 +1,5 @@
 
-export type PackagingImportField = "code" | "displayName" | "packagingRole" | "unitCost"
+export type PackagingImportField = "code" | "displayName" | "packagingRole" | "unitCost" | "defaultQuantityBasis" | "defaultQuantityValue"
 
 interface ImportColumnDef {
     header: string
@@ -12,9 +12,10 @@ export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumn
     code: { header: "Código", aliases: ["codigo", "código", "code"] },
     displayName: { header: "Nombre", aliases: ["nombre"] },
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
-    unitCost: { header: "Costo por unidad (Q)", aliases: ["costo por unidad (q)", "costo por unidad", "costo"] },
+    unitCost: { header: "Costo por unidad (USD)", aliases: ["costo por unidad (usd)", "costo por unidad (q)", "costo por unidad", "costo"] },
+    defaultQuantityBasis: { header: "FORMA DE CONSUMO", aliases: ["forma de consumo", "defaultquantitybasis"] },
+    defaultQuantityValue: { header: "CANTIDAD DE CONSUMO", aliases: ["cantidad de consumo", "defaultquantityvalue"] },
 }
-
 
 export const REQUIRED_PACKAGING_IMPORT_FIELDS: PackagingImportField[] = ["code", "displayName", "packagingRole", "unitCost"]
 

@@ -1,5 +1,6 @@
 import "reflect-metadata"
 import ExcelJS from "exceljs"
+import { prefixSpreadsheetNamespaces } from "../../../shared/test-utils/xlsxCompatibility.fixture"
 
 // Modelos mockeados, archivos .xlsx reales
 // armados en memoria, y sequelize.transaction invocando el callback con una transacción falsa.
@@ -96,6 +97,13 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
     })
 
     describe("receta fija", () => {
+        it("imports an equivalent fixed recipe through the namespace-aware fallback", async () => {
+            const buffer = await prefixSpreadsheetNamespaces(await buildWorkbookBuffer([fixedRow(PINA.code, 90), fixedRow(AGUA.code, 10)]))
+            const result = await productRawMaterialImportService.bulkImportProductRawMaterials(buffer)
+            expect(result).toHaveLength(2)
+            expect(mockRecipeBulkCreate).toHaveBeenCalledTimes(1)
+            expect(mockTransaction).toHaveBeenCalledTimes(1)
+        })
         it("importa una receta que suma 100 dentro de UNA transacción, sin rangos", async () => {
             const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 90), fixedRow(AGUA.code, 10)])
 

@@ -1,15 +1,17 @@
 import CustomQuote, { CustomQuoteStatus } from "../models/CustomQuote.model"
 import Salesperson from "../../salesperson/models/Salesperson.model"
-import SubCategory from "../../category/models/SubCategory.model"
-import SubCategoryTranslation from "../../category/models/SubCategoryTranslation.model"
-import Presentation from "../../presentation/models/Presentation.model"
-import Destination from "../../destination/models/Destination.model"
 import { NotFoundError } from "../../../shared/errors/AppError"
 import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
-import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
+import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE } from "../../../shared/utils/translation.util"
+import type { calculateCatalogQuote } from "./catalogQuote.service"
+type CatalogSnapshot = Awaited<ReturnType<typeof calculateCatalogQuote>>["configuration"]["snapshot"]
+function snapshotOf(quote: CustomQuote): CatalogSnapshot | undefined {
+    const configuration = quote.configuration as { snapshot?: CatalogSnapshot }
+    return configuration.snapshot?.schemaVersion === 2 ? configuration.snapshot : undefined
+}
 
 // Lectura admin de cotizaciones a la medida (solo customQuotes -- nunca Quote ni el dashboard) y el
-// cambio de estado del seguimiento. DECIMALs casteados a número en el borde del DTO (§8).
+// cambio de estado del seguimiento. DECIMALs casteados a número en el borde del DTO.
 
 const MONEY_FIELDS = [
     "rawMaterialCost",
@@ -63,23 +65,14 @@ export type CustomQuoteDetail = CustomQuoteListItem & Record<MoneyField, number>
 
 const LIST_INCLUDE = [
     { model: Salesperson, as: "requestingSalesperson", attributes: ["id", "name", "companyName", "email"] },
-    {
-        model: SubCategory,
-        as: "subCategory",
-        attributes: ["id", "displayName"],
-        include: [{ model: SubCategoryTranslation, as: "translations", attributes: ["language", "displayName"] }]
-    },
-    { model: Presentation, as: "presentation", attributes: ["id", "displayLabel"] },
 ]
 
 const DETAIL_INCLUDE = [
     ...LIST_INCLUDE,
-    { model: Destination, as: "destination", attributes: ["id", "displayName"] },
 ]
 
 function toListItem(customQuote: CustomQuote, language: ContentLanguage): CustomQuoteListItem {
     const salesperson = customQuote.requestingSalesperson
-    const subCategory = customQuote.subCategory
     return {
         id: customQuote.id,
         status: customQuote.status,
@@ -89,9 +82,9 @@ function toListItem(customQuote: CustomQuote, language: ContentLanguage): Custom
             ? { id: salesperson.id, name: salesperson.name, companyName: salesperson.companyName ?? null, email: salesperson.email }
             : null,
         subCategoryId: customQuote.subCategoryId,
-        subCategoryName: subCategory ? pickTranslatedName(subCategory.displayName, subCategory.translations, language) : null,
+        subCategoryName: snapshotOf(customQuote)?.subCategory.displayName ?? null,
         presentationId: customQuote.presentationId,
-        presentationLabel: customQuote.presentation?.displayLabel ?? null,
+        presentationLabel: snapshotOf(customQuote)?.presentation.displayLabel ?? customQuote.variantLabel ?? null,
         productDisplayName: customQuote.productDisplayName,
         variantLabel: customQuote.variantLabel,
         isOrganic: customQuote.isOrganic,
@@ -107,7 +100,7 @@ function toDetail(customQuote: CustomQuote, language: ContentLanguage): CustomQu
         ...toListItem(customQuote, language),
         ...money,
         destinationId: customQuote.destinationId ?? null,
-        destinationName: customQuote.destination?.displayName ?? null,
+        destinationName: (customQuote.breakdown as { transport?: { displayName?: string } }).transport?.displayName ?? null,
         boxesPerPallet: Number(customQuote.boxesPerPallet),
         bagsPerBox: Number(customQuote.bagsPerBox),
         unitsPerIntermediatePackage:

@@ -7,9 +7,8 @@ import { paginate, PaginatedResult, PaginationParams } from "../../../shared/uti
 
 const PASSWORD_SALT_ROUNDS = 10
 
-// Devuelve activos e inactivos -- es la lista que consume el admin (SalespersonTable), que
-// necesita ver los representantes desactivados para poder reactivarlos (mismo patrón en
-// user.service.ts::listUsers / category.service.ts::listCategories).
+// Devuelve activos e inactivos: el admin necesita ver los representantes desactivados para
+// reactivarlos.
 async function listSalespeople(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Salesperson>> {
     const where: WhereOptions = search
         ? { [Op.or]: [{ name: { [Op.iLike]: `%${search}%` } }, { email: { [Op.iLike]: `%${search}%` } }] }
@@ -51,10 +50,8 @@ async function deleteSalesperson(id: number): Promise<void> {
     await salesperson.update({ isActive: false })
 }
 
-// Ver el mismo patrón en user.service.ts::setUserStatus / category.service.ts::setCategoryStatus
-// -- busca sin filtrar por isActive para poder tanto desactivar como reactivar (getSalespersonById
-// no sirve acá porque filtra isActive:true, y dejaría inalcanzable a un representante ya
-// desactivado).
+// Busca sin filtrar por isActive para poder tanto desactivar como reactivar (getSalespersonById
+// filtra isActive:true).
 async function setSalespersonStatus(id: number, isActive: boolean): Promise<Salesperson> {
     const salesperson = await Salesperson.findOne({ where: { id }, attributes: { exclude: ["password"] } })
     if (!salesperson) throw new NotFoundError("Salesperson", id)

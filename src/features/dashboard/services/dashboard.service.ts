@@ -75,8 +75,7 @@ interface DashboardSummary {
     trend: DashboardTrendPoint[]
     trendGranularity: "day" | "week"
     // Ordenado por valor cotizado (suma de Quote.totalCost), NO por unidades: sumar bolsas de
-    // presentaciones distintas (500 g vs 2 kg) no es comparable. Alimenta la lista y la dona de
-    // participación (antes había un topProductsByRevenue aparte; ahora sería idéntico).
+    // presentaciones distintas (500 g vs 2 kg) no es comparable. Alimenta la lista y la dona.
     topProducts: DashboardTopProduct[]
     topSalespeople: DashboardTopSalesperson[]
     topRawMaterials: DashboardTopRawMaterial[]

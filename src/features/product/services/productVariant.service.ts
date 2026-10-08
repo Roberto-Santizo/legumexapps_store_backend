@@ -24,10 +24,8 @@ async function assertPresentationNotAlreadyUsed(productId: number, presentationI
     }
 }
 
-// Opción B (decisión de negocio): la Presentación de un SKU queda fija una vez
-// creada. Si se quiere cotizar el mismo producto en otra presentación, se crea un SKU nuevo --
-// nunca se reasigna uno existente. No afecta cotizaciones ya guardadas (Quote congela su propio
-// snapshot, ver quoteService.calculateQuote), solo bloquea la edición hacia adelante.
+// La Presentación de un SKU queda fija una vez creada (decisión de negocio): para cotizar el mismo
+// producto en otra presentación se crea un SKU nuevo. Las cotizaciones ya guardadas no se afectan.
 function assertPresentationNotChanged(existingPresentationId: number, incomingPresentationId: number): void {
     if (incomingPresentationId !== existingPresentationId) {
         throw new AppError(422, "errors.product_variant_presentation_immutable")

@@ -1,8 +1,9 @@
 import "reflect-metadata"
 import ExcelJS from "exceljs"
+import { prefixSpreadsheetNamespaces } from "../../../shared/test-utils/xlsxCompatibility.fixture"
 
-// Mismo patrón que productRawMaterialImport.service.test.ts: modelos mockeados, .xlsx reales en
-// memoria, sequelize.transaction invocando el callback con una transacción falsa.
+// Modelos mockeados, .xlsx reales en memoria y sequelize.transaction invocando el callback con una
+// transacción falsa.
 jest.mock("../../../database/connection", () => ({
     __esModule: true,
     default: { transaction: jest.fn((callback: (t: unknown) => unknown) => callback({ __fakeTransaction: true })) }
@@ -59,6 +60,13 @@ async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<void
 }
 
 describe("productIngredientImportService.bulkImportProductIngredients", () => {
+    it("imports equivalent ingredient values through the shared fallback", async () => {
+        const buffer = await prefixSpreadsheetNamespaces(await buildWorkbookBuffer([row(FIXED.skuCode, SAL.code, 5, 100)]))
+        const result = await productIngredientImportService.bulkImportProductIngredients(buffer)
+        expect(result).toHaveLength(1)
+        expect(mockRowBulkCreate).toHaveBeenCalledTimes(1)
+        expect(mockTransaction).toHaveBeenCalledTimes(1)
+    })
     beforeEach(() => {
         (ProductVariant.findAll as jest.Mock).mockImplementation(async () => (await mockProductFindAll()).map((product: { id: number; skuCode: string }) => ({ skuCode: product.skuCode, productId: product.id, parentProduct: product })))
         mockTransaction.mockClear()

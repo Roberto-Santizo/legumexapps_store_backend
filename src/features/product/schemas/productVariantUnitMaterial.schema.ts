@@ -4,10 +4,10 @@ export const createProductVariantUnitMaterialSchema = z.object({
     productVariantId: z.number().int().positive(),
     packagingId: z.number().int().positive(),
     quantityPerUnit: z.number().positive(),
-    // Grupos de opciones (reemplaza isSwappable): null (default) es
-    // una fila de receta incondicional. Un nombre de grupo la marca como alternativa dentro de ese
-    // grupo; el servicio lo normaliza (espacios, grafía de un grupo ya existente en el SKU).
+    // Grupos de opciones: null (default) es una fila fija. Un nombre de grupo la marca como alternativa
+    // dentro de ese grupo; el servicio normaliza el nombre (espacios, grafía de un grupo ya existente).
     optionGroup: z.string().trim().min(1).max(60).nullable().default(null),
+    optionGroupId: z.number().int().positive().nullable().optional(),
     isDefault: z.boolean().default(false),
 })
 

@@ -3,8 +3,9 @@ import Salesperson from "../../salesperson/models/Salesperson.model";
 import SubCategory from "../../category/models/SubCategory.model";
 import Presentation from "../../presentation/models/Presentation.model";
 import Destination from "../../destination/models/Destination.model";
+import ProductVariant from "../../product/models/ProductVariant.model";
 
-// Cotización a la medida guardada (World 2): un producto que NO existe (sin SKU, sin Cliente) que un
+// Cotización a la medida guardada: un producto que NO existe (sin SKU, sin Cliente) que un
 // representante armó y quiere cotizar. Tabla APARTE de `quotes` a propósito, igual que quoteDrafts:
 // ni el dashboard, ni listAllQuotes, ni QuoteDraft la leen, así que datos incompletos nunca se mezclan
 // con cotizaciones de productos definidos. Pertenece solo al representante del JWT (sin Cliente).
@@ -20,9 +21,28 @@ export type CustomQuoteStatus = typeof CUSTOM_QUOTE_STATUSES[number];
 const MONEY = DataType.DECIMAL(12, 4);
 
 @Table({
-    tableName: "customQuotes"
+    tableName: "customQuotes",
+    indexes: [{ name: "customQuotes_confirmation_unique", unique: true, fields: ["salespersonId", "confirmationKey"] }],
 })
 class CustomQuote extends Model {
+    @Column({ type: DataType.STRING(30), allowNull: false, defaultValue: "legacy_options" })
+    declare configurationOrigin: "legacy_options" | "catalog_variant"
+
+    @Column({ type: DataType.SMALLINT, allowNull: false, defaultValue: 1 })
+    declare snapshotVersion: number
+
+    @ForeignKey(() => ProductVariant)
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    declare sourceProductVariantId: number | null
+
+    @BelongsTo(() => ProductVariant, { foreignKey: "sourceProductVariantId", onDelete: "SET NULL", onUpdate: "CASCADE" })
+    declare sourceProductVariant: ProductVariant | null
+
+    @Column({ type: DataType.UUID, allowNull: true })
+    declare confirmationKey: string | null
+
+    @Column({ type: DataType.STRING(64), allowNull: true })
+    declare confirmationRequestHash: string | null
     @ForeignKey(() => Salesperson)
     @Column({
         type: DataType.INTEGER,

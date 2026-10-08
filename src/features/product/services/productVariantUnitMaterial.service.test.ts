@@ -1,4 +1,7 @@
 import "reflect-metadata"
+jest.mock("../../packagingGroup/services/packagingGroup.service", () => ({
+    resolveUnitMaterialGroup: jest.fn(async (optionGroupId: number | null | undefined, optionGroup: string | null) => ({ optionGroupId: optionGroupId ?? null, optionGroup })),
+}))
 import { Op } from "sequelize"
 
 jest.mock("../models/ProductVariantUnitMaterial.model", () => ({
@@ -12,6 +15,7 @@ jest.mock("../../packaging/services/packaging.service", () => ({
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import { packagingService } from "../../packaging/services/packaging.service"
 import { productVariantUnitMaterialService } from "./productVariantUnitMaterial.service"
+import { resolveUnitMaterialGroup } from "../../packagingGroup/services/packagingGroup.service"
 
 const mockFindOne = ProductVariantUnitMaterial.findOne as unknown as jest.Mock
 const mockFindAll = ProductVariantUnitMaterial.findAll as unknown as jest.Mock
@@ -46,6 +50,43 @@ describe("productVariantUnitMaterialService -- grupos de opciones (2026-09-24)",
         mockAssertRole.mockReset().mockResolvedValue(undefined)
         mockFindAll.mockResolvedValue([])
         mockCreate.mockImplementation((input) => Promise.resolve({ id: 99, ...input }))
+        jest.mocked(resolveUnitMaterialGroup).mockImplementation(async (optionGroupId, optionGroup) => ({ optionGroupId: optionGroupId ?? null, optionGroup: optionGroup ?? null }))
+    })
+
+    describe("stable catalog IDs", () => {
+        it("demotes only siblings with the same ID even when labels differ", async () => {
+            jest.mocked(resolveUnitMaterialGroup).mockResolvedValue({ optionGroupId: 4, optionGroup: "Caja exterior" })
+            mockFindAll.mockResolvedValue([
+                { ...groupedRow(1, "Caja", true), optionGroupId: 4 },
+                { ...groupedRow(2, "Caja exterior", true), optionGroupId: 5 },
+            ])
+            await productVariantUnitMaterialService.createProductVariantUnitMaterial({ ...BASE_INPUT, optionGroupId: 4, isDefault: true })
+            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [1] } } })
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroupId: 4, optionGroup: "Caja exterior", isDefault: true }))
+        })
+
+        it("forces the first row of an ID group as default", async () => {
+            jest.mocked(resolveUnitMaterialGroup).mockResolvedValue({ optionGroupId: 4, optionGroup: "Caja" })
+            await productVariantUnitMaterialService.createProductVariantUnitMaterial({ ...BASE_INPUT, optionGroupId: 4 })
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroupId: 4, isDefault: true }))
+        })
+
+        it("blocks removing a default using ID even if a sibling has an old label", async () => {
+            const update = jest.fn()
+            mockFindOne.mockResolvedValue({ ...existingRow(1, "Caja exterior", true, update), optionGroupId: 4 })
+            mockFindAll.mockResolvedValue([{ ...groupedRow(2, "Caja", false), optionGroupId: 4 }])
+            await expect(productVariantUnitMaterialService.deleteProductVariantUnitMaterial(1)).rejects.toMatchObject({ statusCode: 409 })
+            expect(update).not.toHaveBeenCalled()
+        })
+
+        it("keeps the default in the same ID group after a rename", async () => {
+            const update = jest.fn()
+            mockFindOne.mockResolvedValue({ ...existingRow(1, "Caja", true, update), optionGroupId: 4 })
+            mockFindAll.mockResolvedValue([{ ...groupedRow(2, "Caja", false), optionGroupId: 4 }])
+            jest.mocked(resolveUnitMaterialGroup).mockResolvedValue({ optionGroupId: 4, optionGroup: "Caja exterior" })
+            await productVariantUnitMaterialService.updateProductVariantUnitMaterial(1, { quantityPerUnit: 1, optionGroup: null, optionGroupId: 4, isDefault: true })
+            expect(update).toHaveBeenCalledWith(expect.objectContaining({ optionGroupId: 4, optionGroup: "Caja exterior", isDefault: true }))
+        })
     })
 
     describe("crear", () => {

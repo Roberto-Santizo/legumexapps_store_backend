@@ -54,12 +54,8 @@ class RawMaterial extends BaseCatalogModel {
     })
     declare isMixable: boolean
 
-    // Costo por libra -- la unidad de costeo ya no la elige el admin, se fuerza server-side a la
-    // Libra en cada create/update (ver rawMaterial.service.ts::findOrCreatePoundUnit). costUnit/
-    // costUnitId se conservan (no se borran) porque el motor de cotización los sigue usando para
-    // convertir % -> gramos -> costo (ver quote.service.ts::buildPercentageRawMaterialLine), y
-    // porque así la unidad podría volver a abrirse más adelante sin tocar el motor. (La entidad
-    // Ingredient -- sal, azúcar... -- usa exactamente el mismo modelo de Libra forzada.)
+    // Costo por libra: la unidad la fija el servidor en cada create/update. costUnit/costUnitId se
+    // conservan porque el motor los usa para convertir % -> gramos -> costo.
     @Column({
         type: DataType.DECIMAL(10, 4),
         allowNull: true

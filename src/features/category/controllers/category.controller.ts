@@ -26,7 +26,6 @@ async function store(req: Request, res: Response, next: NextFunction): Promise<v
     try {
         const category = await categoryService.createCategory(req.body)
         res.status(201).json({
-            // req.t = i18next translation function, see src/config/i18n.ts
             message: req.t("success.created", { resource: req.t("resources.Category") }),
             data: category
         })

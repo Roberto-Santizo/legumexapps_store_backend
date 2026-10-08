@@ -6,7 +6,7 @@ import "reflect-metadata"
 // para ese SKU. Es la prueba de que el motor a la medida reutiliza la matemática de productos
 // definidos en vez de tener una propia. Ambos motores leen el mismo catálogo simulado.
 
-// ---- World 1 (productos definidos) ----
+// ---- Productos definidos ----
 jest.mock("../../product/models/ProductVariant.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn() }
@@ -14,7 +14,7 @@ jest.mock("../../product/models/ProductVariant.model", () => ({
 jest.mock("../../quoteDraft/services/quoteDraft.service", () => ({
     quoteDraftService: { upsertFromCalculation: jest.fn(), markConverted: jest.fn(), listDrafts: jest.fn() }
 }))
-// ---- World 2 (a la medida) ----
+// ---- A la medida ----
 jest.mock("../models/CustomQuotePresentationOption.model", () => ({ __esModule: true, default: { findOne: jest.fn() } }))
 jest.mock("../models/CustomQuoteRawMaterialOption.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 jest.mock("../models/CustomQuoteIngredientOption.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))

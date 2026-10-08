@@ -3,9 +3,8 @@ import z from "zod"
 export const createProductVariantSchema = z.object({
     skuCode: z.string().trim().min(1).max(60),
     productId: z.number().int().positive(),
-    // Requerido: cada SKU es, por definición, un producto en UNA presentación --
-    // ya no se permite crear una variante sin presentación. También es inmutable una vez creada,
-    // ver updateProductVariantSchema y productVariant.service.ts::assertPresentationNotChanged.
+    // Requerido: cada SKU es un producto en UNA presentación, inmutable una vez creada
+    // (productVariant.service.ts::assertPresentationNotChanged).
     presentationId: z.number().int().positive(),
     boxesPerPallet: z.number().int().positive(),
     bagsPerBox: z.number().int().positive(),

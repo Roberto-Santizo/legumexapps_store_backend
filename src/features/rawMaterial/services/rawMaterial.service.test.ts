@@ -2,11 +2,8 @@ import "reflect-metadata"
 import ExcelJS from "exceljs"
 import { Op } from "sequelize"
 
-// Mock manual de los modelos que toca bulkImportRawMaterials -- el resto (leer el .xlsx, mapear
-// encabezados, resolver tipo/booleanos, generar slug) corre real, con archivos .xlsx armados de
-// verdad en cada test. Mismo patrón que packaging.service.test.ts. La unidad de costeo ya NO se
-// resuelve por nombre desde el archivo -- se mockea unitService.findOrCreatePoundUnit en su lugar
-// (ver rawMaterial.service.ts, force-to-pound).
+// Mock manual de los modelos que toca bulkImportRawMaterials; leer el .xlsx, mapear encabezados,
+// resolver tipo/booleanos y generar slug corre real. unitService.findOrCreatePoundUnit se mockea.
 jest.mock("../models/RawMaterial.model", () => ({
     __esModule: true,
     default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }
@@ -46,9 +43,7 @@ async function buildWorkbookBuffer(headers: string[], rows: SheetRow[]): Promise
     return arrayBuffer as unknown as Buffer
 }
 
-// "Código" primero a propósito, igual que la plantilla real -- pero el parser mapea por nombre
-// de encabezado, no por posición, así que el orden acá no es lo que se está probando. Sin columna
-// de "Unidad de costo" -- la unidad de costeo ya no es un dato de entrada (ver force-to-pound).
+// "Código" primero, igual que la plantilla real (el parser mapea por nombre de encabezado).
 const HEADERS = ["Código", "Nombre", "Tipo de materia prima", "Es la variante orgánica (Sí/No)", "Se puede mezclar (Sí/No)", "Costo por libra", "Nombre (inglés)"]
 
 const POUND_UNIT = { id: 2, displayName: "Libra" }

@@ -1,6 +1,5 @@
 
-// Carga masiva de Ingredientes por producto -- paso 3 (opcional) de 4 del pipeline Productos →
-// Recetas → Ingredientes → SKUs. Una fila por (Producto, Ingrediente).
+// Carga masiva de Ingredientes por producto (opcional). Una fila por (Producto, Ingrediente).
 export type ProductIngredientImportField =
     | "productSku"
     | "ingredientCode"

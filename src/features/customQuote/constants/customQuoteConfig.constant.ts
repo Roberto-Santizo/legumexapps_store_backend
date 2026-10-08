@@ -1,7 +1,6 @@
-// Configuración de "Cotizaciones a la medida" (World 2): listas de permitidos que el admin arma
-// para que un representante pueda cotizar un producto que todavía no existe (sin SKU). Estas
-// tablas NO forman parte del catálogo de productos definidos y nunca se leen desde
-// quote.service.ts.
+// Configuración de "Cotizaciones a la medida": listas de permitidos que el admin arma para que un
+// representante cotice un producto que todavía no existe (sin SKU). Estas tablas NO forman parte del
+// catálogo de productos definidos y nunca se leen desde quote.service.ts.
 
 // Cómo se interpreta CustomQuotePackagingOption.quantity según el nivel del empaque (el nivel es
 // el packagingRole del Packaging, nunca se guarda aparte):

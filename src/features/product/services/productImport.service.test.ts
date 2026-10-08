@@ -1,5 +1,18 @@
 import "reflect-metadata"
 import ExcelJS from "exceljs"
+import JSZip from "jszip"
+import request from "supertest"
+import jwt from "jsonwebtoken"
+import { readFile, writeFile, mkdtemp, unlink, rmdir } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { buildTestApp } from "../../../shared/test-utils/testApp"
+import productRouter from "../routes/product.routes"
+import { loadWorkbookFromBuffer, writeWorkbookToBuffer } from "../../../shared/utils/excelImport.util"
+import { prefixSpreadsheetNamespaces } from "../../../shared/test-utils/xlsxCompatibility.fixture"
+
+jest.mock("../../../config/env", () => ({ env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" } }))
+jest.mock("./product.service", () => ({ productService: {} }))
 
 // Modelos mockeados, archivos .xlsx reales
 // armados en memoria, y sequelize.transaction invocando el callback con una transacción falsa.
@@ -13,6 +26,17 @@ jest.mock("../../category/models/SubCategory.model", () => ({ __esModule: true, 
 jest.mock("../../category/models/Category.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 jest.mock("../../client/models/Client.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 
+jest.mock("../../packaging/models/Packaging.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
+jest.mock("../../packagingGroup/models/PackagingGroup.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
+jest.mock("../models/ProductVariantUnitMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
+jest.mock("../models/ProductVariantIntermediateMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
+jest.mock("../models/ProductVariantPalletMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
+import Packaging from "../../packaging/models/Packaging.model"
+import PackagingGroup from "../../packagingGroup/models/PackagingGroup.model"
+import UnitMaterial from "../models/ProductVariantUnitMaterial.model"
+import IntermediateMaterial from "../models/ProductVariantIntermediateMaterial.model"
+import PalletMaterial from "../models/ProductVariantPalletMaterial.model"
+import { INITIAL_PACKAGING_COLUMNS, INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET } from "../constants/initialPackagingImport.constant"
 import sequelize from "../../../database/connection"
 jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
 jest.mock("../../presentation/models/Presentation.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
@@ -354,13 +378,325 @@ describe("productImportService.bulkImportProducts", () => {
 })
 
 describe("productImportService.buildProductImportTemplate", () => {
+    // HTTP, disk I/O and repeated XLSX/ZIP processing need extra time on slower test runners.
+    it("downloads the real template and reuploads identical bytes through the real preview endpoint", async () => {
+        (PackagingGroup.findAll as jest.Mock).mockResolvedValue([{ displayName: "Opciones reales" }])
+        const app = buildTestApp("/api/products", productRouter)
+        const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
+        const download = await request(app).get("/api/products/bulk-import/template").set("Authorization", `Bearer ${token}`)
+            .buffer(true).parse((response, callback) => {
+                const chunks: Buffer[] = []
+                response.on("data", chunk => chunks.push(Buffer.from(chunk)))
+                response.on("end", () => callback(null, Buffer.concat(chunks)))
+                response.on("error", callback)
+            })
+        expect(download.status).toBe(200)
+        expect(Buffer.isBuffer(download.body)).toBe(true)
+        const directory = await mkdtemp(join(tmpdir(), "legumex-xlsx-"))
+        const path = join(directory, "downloaded.xlsx")
+        try {
+            await writeFile(path, download.body)
+            const buffer = await readFile(path)
+            const workbook = await loadWorkbookFromBuffer(buffer)
+            expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES"])
+            const original = productImportService.previewProductImport
+            const received = jest.spyOn(productImportService, "previewProductImport").mockImplementation(async uploaded => {
+                expect(Buffer.isBuffer(uploaded)).toBe(true)
+                expect(uploaded.equals(buffer)).toBe(true)
+                return original(uploaded)
+            })
+            try {
+                const response = await request(app).post("/api/products/bulk-import/preview")
+                    .set("Authorization", `Bearer ${token}`)
+                    .attach("file", buffer, { filename: "downloaded.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+                expect(received).toHaveBeenCalledTimes(1)
+                expect(response.status).toBe(422)
+                expect(response.body.message).not.toMatch(/sheets|TypeError|internal/i)
+                const zip = await JSZip.loadAsync(buffer)
+                for (const entry of ["[Content_Types].xml", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml"]) {
+                    expect(await zip.file(entry)?.async("string")).toMatch(/^<\?xml/)
+                }
+                zip.file("xl/workbook.xml", "")
+                const corrupt = await zip.generateAsync({ type: "nodebuffer" })
+                received.mockImplementation(original)
+                const logged = jest.spyOn(console, "error").mockImplementation(() => undefined)
+                try {
+                    const failed = await request(app).post("/api/products/bulk-import/preview")
+                        .set("Authorization", `Bearer ${token}`)
+                        .attach("file", corrupt, { filename: "corrupt.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+                    expect(failed.status).toBe(422)
+                    expect(failed.body.message).toContain(".xlsx")
+                    expect(JSON.stringify(failed.body)).not.toMatch(/TypeError|sheets|stack|XLSX.load/)
+                    expect(logged).not.toHaveBeenCalled()
+                } finally { logged.mockRestore() }
+            } finally { received.mockRestore() }
+        } finally {
+            await unlink(path)
+            await rmdir(directory)
+        }
+    }, 15_000)
     it("la plantilla descargable trae los encabezados que el importador reconoce", async () => {
+        (PackagingGroup.findAll as jest.Mock).mockResolvedValue([{ displayName: "Opciones reales" }])
         const buffer = await productImportService.buildProductImportTemplate()
         const workbook = new ExcelJS.Workbook()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mismo cast que excelImport.util.ts
         await workbook.xlsx.load(buffer as any)
         const headerRow = workbook.worksheets[0].getRow(1).values as unknown[]
 
-        expect(headerRow.filter(Boolean)).toEqual(HEADERS)
+        expect(headerRow.filter(Boolean)).toEqual(HEADERS.map(header => header.toUpperCase()))
+        expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES"])
+        expect(workbook.worksheets[0].rowCount).toBe(1)
+        const materials = workbook.worksheets[1]
+        expect(materials.getRow(1).values).toEqual([undefined, ...Object.values(INITIAL_PACKAGING_COLUMNS).map(column => column.header)])
+        expect(materials.getCell("C2").dataValidation.formulae?.[0]).toContain("ESQUINERO")
+        expect(materials.getCell("D2").dataValidation.formulae).toEqual(["InitialPackagingGroups"])
+        expect(materials.getCell("E2").dataValidation.formulae).toEqual(['"SI,NO"'])
+        expect(materials.getCell("F2").dataValidation.formulae).toEqual(['"POR CAJA,POR PALLET"'])
+        expect(materials.views[0]).toMatchObject({ state: "frozen", ySplit: 1 })
+        expect(materials.autoFilter).toBeDefined()
+        expect(workbook.worksheets[2].getColumn(1).values).toContain("Opciones reales")
+    })
+})
+
+
+type MaterialRow = Partial<Record<keyof typeof INITIAL_PACKAGING_COLUMNS, ExcelJS.CellValue>>
+async function combinedExcel(materialRows: MaterialRow[], products = [baseRow({ "Unidades por empaque intermedio": 6, "Nombre del producto (inglés)": "Juice" })]) {
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet(INITIAL_PRODUCT_SHEET)
+    sheet.addRow(HEADERS)
+    products.forEach(row => sheet.addRow(HEADERS.map(header => row[header])))
+    const materials = workbook.addWorksheet(INITIAL_PACKAGING_SHEET)
+    const keys = Object.keys(INITIAL_PACKAGING_COLUMNS) as (keyof typeof INITIAL_PACKAGING_COLUMNS)[]
+    materials.addRow(keys.map(key => INITIAL_PACKAGING_COLUMNS[key].header))
+    materialRows.forEach(row => materials.addRow(keys.map(key => row[key] ?? null)))
+    return await workbook.xlsx.writeBuffer() as unknown as Buffer
+}
+const material = (materialType = "CAJA", overrides: MaterialRow = {}): MaterialRow => ({ skuCode: "JUGO-PINA", packagingCode: "MP-B", materialType, ...overrides })
+describe("carga inicial conjunta", () => {
+    let packagings: Record<string, unknown>[]
+    let groups: Record<string, unknown>[]
+    const transaction = { LOCK: { UPDATE: "UPDATE" }, staged: [] as unknown[], commit: jest.fn(), rollback: jest.fn() }
+    beforeEach(() => {
+        jest.resetAllMocks()
+        transaction.staged = []
+        packagings = [
+            { id: 1, code: "MP-B", displayName: "Nombre arbitrario", packagingRole: "pallet", isActive: true, unitCost: 2 },
+            { id: 2, code: "MP-B2", displayName: "Alternativa", packagingRole: "pallet", isActive: true, unitCost: 3 },
+            { id: 3, code: "MP-U", displayName: "Bolsa", packagingRole: "unit", isActive: true, unitCost: 1 },
+            { id: 4, code: "MP-U2", displayName: "Otra bolsa", packagingRole: "unit", isActive: true, unitCost: 2 },
+            { id: 5, code: "MP-I", displayName: "Intermedio", packagingRole: "intermediate", isActive: true, unitCost: 1 },
+        ]
+        groups = [{ id: 10, nameKey: "opciones", displayName: "Opciones", isActive: true }]
+        ;(Packaging.findAll as jest.Mock).mockImplementation(async () => packagings)
+        ;(PackagingGroup.findAll as jest.Mock).mockImplementation(async () => groups)
+        ;(Product.findAll as jest.Mock).mockResolvedValue([])
+        ;(ProductVariant.findAll as jest.Mock).mockResolvedValue([])
+        ;(Presentation.findAll as jest.Mock).mockResolvedValue([{ id: 30, displayLabel: "Bolsa 500 g" }, { id: 31, displayLabel: "Bolsa 2 kg" }])
+        ;(SubCategory.findAll as jest.Mock).mockResolvedValue([JUGOS])
+        ;(Category.findAll as jest.Mock).mockResolvedValue([FRUTAS])
+        ;(Client.findAll as jest.Mock).mockResolvedValue([WALMART])
+        let id = 100
+        for (const model of [Product, ProductVariant, ProductTranslation, UnitMaterial, IntermediateMaterial, PalletMaterial]) {
+            (model.create as jest.Mock).mockImplementation(async (data, options) => {
+                expect(options.transaction).toBe(transaction)
+                transaction.staged.push(data)
+                return { ...data, id: id++ }
+            })
+        }
+        mockTransaction.mockImplementation(async (options, callback) => {
+            const run = typeof options === "function" ? options : callback
+            try { const result = await run(transaction); transaction.commit(); return result }
+            catch (error) { transaction.staged = []; transaction.rollback(); throw error }
+        })
+    })
+    const noWrites = () => {
+        for (const model of [Product, ProductTranslation, ProductVariant, UnitMaterial, IntermediateMaterial, PalletMaterial]) expect(model.create).not.toHaveBeenCalled()
+    }
+    it.each([false, true])("fills the three-sheet template and previews products/materials over HTTP (fallback=%s)", async fallback => {
+        const workbook = await loadWorkbookFromBuffer(await productImportService.buildProductImportTemplate())
+        const products = workbook.getWorksheet(INITIAL_PRODUCT_SHEET)!
+        products.getRow(2).values = Object.keys(PRODUCT_IMPORT_COLUMNS).map(key => {
+            const header = PRODUCT_IMPORT_COLUMNS[key as keyof typeof PRODUCT_IMPORT_COLUMNS].header
+            return baseRow()[header] ?? null
+        })
+        const materials = workbook.getWorksheet(INITIAL_PACKAGING_SHEET)!
+        materials.getRow(2).values = Object.keys(INITIAL_PACKAGING_COLUMNS).map(key => material()[key as keyof typeof INITIAL_PACKAGING_COLUMNS] ?? null)
+        const saved = await writeWorkbookToBuffer(workbook)
+        const buffer = fallback ? await prefixSpreadsheetNamespaces(saved) : saved
+        expect((await loadWorkbookFromBuffer(buffer)).worksheets).toHaveLength(3)
+        const app = buildTestApp("/api/products", productRouter)
+        const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
+        const response = await request(app).post("/api/products/bulk-import/preview")
+            .set("Authorization", `Bearer ${token}`)
+            .attach("file", buffer, { filename: "filled.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+        expect(response.status).toBe(200)
+        expect(response.body.data.summary).toMatchObject({ products: 1, variants: 1, pallet: 1, errors: 0 })
+        expect(response.body.data.materials[0]).toMatchObject({ quantity: 1, quantityBasis: "per_box" })
+        noWrites()
+    })
+    it("fallback keeps product and packaging formulas visible to business validation", async () => {
+        const workbook = await loadWorkbookFromBuffer(await combinedExcel([material()]))
+        workbook.getWorksheet(INITIAL_PRODUCT_SHEET)!.getCell("D2").value = { formula: "1+1", result: 2 }
+        workbook.getWorksheet(INITIAL_PACKAGING_SHEET)!.getCell("G2").value = { formula: "1+1", result: 2 }
+        const preview = await productImportService.previewProductImport(await prefixSpreadsheetNamespaces(await writeWorkbookToBuffer(workbook)))
+        expect(preview.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({ sheet: INITIAL_PRODUCT_SHEET, key: "errors.packaging_association_import.formula" }),
+            expect.objectContaining({ sheet: INITIAL_PACKAGING_SHEET, key: "errors.packaging_association_import.formula" }),
+        ]))
+        noWrites()
+    })
+    it("fallback reaches header validation instead of reporting an unreadable Excel", async () => {
+        const buffer = await prefixSpreadsheetNamespaces(await buildWorkbookBuffer([{ SKU: "BAD" }], ["SKU"]))
+        await expect(productImportService.previewProductImport(buffer)).rejects.toMatchObject({ statusCode: 422, key: "errors.bulk_import_missing_columns" })
+        noWrites()
+    })
+    it("the independent openpyxl fixture reaches business header validation over HTTP", async () => {
+        const buffer = await readFile(join(__dirname, "../../../shared/test-utils/fixtures/openpyxl-namespaced.xlsx"))
+        const app = buildTestApp("/api/products", productRouter)
+        const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
+        const response = await request(app).post("/api/products/bulk-import/preview")
+            .set("Authorization", `Bearer ${token}`).set("Accept-Language", "en")
+            .attach("file", buffer, { filename: "openpyxl-namespaced.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+        expect(response.status).toBe(422)
+        expect(response.body.message).toMatch(/missing.*columns/i)
+        expect(response.body.message).not.toMatch(/could not be read/i)
+        noWrites()
+    })
+    it("the actual failing user file reaches preview data/catalog validation over HTTP", async () => {
+        const buffer = await readFile(join(__dirname, "../../../shared/test-utils/fixtures/carga_masiva_PRODUCTOS_VARIANTES_EMPAQUES_exceljs_FINAL.xlsx"))
+        const app = buildTestApp("/api/products", productRouter)
+        const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
+        const response = await request(app).post("/api/products/bulk-import/preview")
+            .set("Authorization", `Bearer ${token}`).set("Accept-Language", "en")
+            .attach("file", buffer, { filename: "carga_masiva_PRODUCTOS_VARIANTES_EMPAQUES_exceljs_FINAL.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+        expect(response.status).toBe(200)
+        expect(response.body.data.summary.errors).toBeGreaterThan(0)
+        expect(response.body.data.issues.length).toBeGreaterThan(0)
+        expect(response.body.data.issues.every((issue: { sheet: string }) => [INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET].includes(issue.sheet))).toBe(true)
+        expect(JSON.stringify(response.body)).not.toMatch(/could not be read|TypeError|XLSX.load/)
+        noWrites()
+    })
+    it("fallback preserves legacy first-sheet handling when the functional sheet name is absent", async () => {
+        const preview = await productImportService.previewProductImport(await prefixSpreadsheetNamespaces(await buildWorkbookBuffer([baseRow()])))
+        expect(preview.summary).toMatchObject({ products: 1, variants: 1, errors: 0 })
+        noWrites()
+    })
+    it("fallback preserves existing row limits", async () => {
+        const workbook = await loadWorkbookFromBuffer(await combinedExcel([material()]))
+        workbook.getWorksheet(INITIAL_PRODUCT_SHEET)!.getCell("A5002").value = "TOO MANY"
+        await expect(productImportService.previewProductImport(await prefixSpreadsheetNamespaces(await writeWorkbookToBuffer(workbook)))).rejects.toMatchObject({ key: "errors.bulk_import_too_many_rows" })
+        noWrites()
+    })
+    async function issue(rows: MaterialRow[], key: string, products?: SheetRow[]) {
+        const buffer = await combinedExcel(rows, products)
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.issues).toEqual(expect.arrayContaining([expect.objectContaining({ sheet: INITIAL_PACKAGING_SHEET, key: `errors.packaging_association_import.${key}` })]))
+        await expect(productImportService.bulkImportProducts(buffer)).rejects.toBeInstanceOf(BulkImportError)
+        noWrites()
+        expect(mockTransaction).not.toHaveBeenCalled()
+    }
+    it.each([
+        ["INDIVIDUAL", "MP-U", "per_unit", 1], ["CAJA", "MP-B", "per_box", 1],
+        ["ESQUINERO", "MP-B", "per_pallet", 4], ["TARIMA", "MP-B", "per_pallet", 1],
+        ["STRETCH", "MP-B", "per_pallet", 93.3], ["INTERMEDIO", "MP-I", null, null],
+    ])("aplica %s explícitamente y permite defaults de catálogo vacíos", async (type, code, basis, quantity) => {
+        const buffer = await combinedExcel([material(type, { packagingCode: code })])
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.summary).toMatchObject({ products: 1, variants: 1, errors: 0 })
+        expect(preview.materials[0]).toMatchObject({ materialType: type, quantityBasis: basis, quantity })
+        if (type === "CAJA") expect(preview.materials[0].quantityPerPallet).toBe(40)
+        noWrites()
+        await productImportService.confirmProductImport(buffer, preview.previewHash)
+        const association = type === "INDIVIDUAL" ? UnitMaterial : type === "INTERMEDIO" ? IntermediateMaterial : PalletMaterial
+        expect(association.create).toHaveBeenCalledWith(expect.objectContaining({ productVariantId: 102 }), { transaction })
+        expect(transaction.commit).toHaveBeenCalledTimes(1)
+    })
+    it("crea todas las asociaciones y dos variantes en la misma transacción", async () => {
+        const buffer = await combinedExcel([
+            material("INDIVIDUAL", { packagingCode: "MP-U" }), material("INTERMEDIO", { packagingCode: "MP-I" }),
+            material(), material("ESQUINERO", { packagingCode: "MP-B2", skuCode: "SECOND" }),
+        ], [baseRow({ "Unidades por empaque intermedio": 6 }), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1", "Presentación": "Bolsa 2 kg" })])
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.summary).toEqual({ products: 1, variants: 2, unit: 1, intermediate: 1, pallet: 2, errors: 0, warnings: 0 })
+        await productImportService.confirmProductImport(buffer, preview.previewHash)
+        expect(Product.create).toHaveBeenCalledTimes(1)
+        expect(ProductVariant.create).toHaveBeenCalledTimes(2)
+        expect(PalletMaterial.create).toHaveBeenLastCalledWith(expect.objectContaining({ productVariantId: 102, quantityBasis: "per_pallet", quantityValue: 4 }), { transaction })
+        expect(mockTransaction).toHaveBeenCalledTimes(1)
+    })
+    it.each([
+        [material("CAJA", { skuCode: "EXISTING" }), "unknown_sku"],
+        [material("CAJA", { packagingCode: "MISSING" }), "unknown_packaging"],
+        [material("CAJA", { packagingCode: "MP-U" }), "type_role"],
+        [material("NOMBRE NO ES TIPO"), "unknown_type"],
+        [material("CAJA", { group: "Faltante", isDefault: "SI" }), "unknown_group"],
+        [material("CAJA", { group: "Opciones" }), "default_required"],
+        [material("CAJA", { group: "Opciones", isDefault: "NO" }), "defaults"],
+        [material("CAJA", { group: "Opciones", isDefault: "TRUE" }), "boolean"],
+        [material("CAJA", { isDefault: "SI" }), "fixed_default"],
+        [material("CAJA", { quantity: 5 }), "type_rule"],
+        [material("ESQUINERO", { quantity: 3 }), "type_rule"],
+        [material("CAJA", { basis: "POR PALLET" }), "type_rule"],
+        [material("CAJA", { basis: "per_box" }), "friendly_basis"],
+        [material("OTRO PALETIZACIÓN"), "other_rule_required"],
+        [material("OTRO PALETIZACIÓN", { basis: "POR PALLET", quantity: 0 }), "number"],
+        [material("OTRO PALETIZACIÓN", { basis: "POR PALLET", quantity: 1.234 }), "pallet_quantity"],
+        [material("INTERMEDIO", { packagingCode: "MP-I", quantity: 1 }), "type_rule"],
+    ])("rechaza fila inválida %# antes de crear productos", async (row, key) => { await issue([row], key) })
+    it("rechaza Packaging inactivo", async () => { packagings[0].isActive = false; await issue([material()], "inactive_packaging") })
+    it("rechaza grupo inactivo", async () => { groups[0].isActive = false; await issue([material("CAJA", { group: "Opciones", isDefault: "SI" })], "inactive_group") })
+    it("INTERMEDIO requiere la configuración existente de variante", async () => { await issue([material("INTERMEDIO", { packagingCode: "MP-I" })], "intermediate_configuration", [baseRow()]) })
+    it("rechaza duplicado SKU + MP sin importar mayúsculas", async () => { await issue([material(), material("CAJA", { skuCode: "jugo-pina", packagingCode: "mp-b" })], "duplicate") })
+    it("rechaza múltiples predeterminados", async () => { await issue([material("CAJA", { group: "Opciones", isDefault: "SI" }), material("CAJA", { group: "Opciones", isDefault: "SI", packagingCode: "MP-B2" })], "defaults") })
+    it.each(["CAJA", "INDIVIDUAL"])("admite alternativas de %s con un solo predeterminado", async type => {
+        const codes = type === "CAJA" ? ["MP-B", "MP-B2"] : ["MP-U", "MP-U2"]
+        const buffer = await combinedExcel(codes.map((code, index) => material(type, { packagingCode: code, group: "Opciones", isDefault: index === 0 ? "SI" : "NO" })))
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.issues).toEqual([])
+        await productImportService.confirmProductImport(buffer, preview.previewHash)
+        const association = type === "CAJA" ? PalletMaterial : UnitMaterial
+        expect(association.create).toHaveBeenCalledTimes(2)
+        expect((association.create as jest.Mock).mock.calls.map(([data]) => data.optionGroupId)).toEqual([10, 10])
+    })
+    it("rechaza cantidades inconsistentes en el mismo grupo", async () => { await issue([material("CAJA", { group: "Opciones", isDefault: "SI" }), material("ESQUINERO", { packagingCode: "MP-B2", group: "Opciones", isDefault: "NO" })], "group_quantity") })
+    it("rechaza un mismo grupo entre niveles distintos", async () => { await issue([material("CAJA", { group: "Opciones", isDefault: "SI" }), material("INDIVIDUAL", { packagingCode: "MP-U", group: "Opciones", isDefault: "NO" })], "group_role") })
+    it("rechaza defaults contradictorios sin modificar Packaging", async () => {
+        Object.assign(packagings[0], { defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 })
+        await issue([material()], "catalog_conflict")
+    })
+    it("acepta defaults coherentes y OTRO con regla explícita", async () => {
+        Object.assign(packagings[0], { defaultQuantityBasis: "per_box", defaultQuantityValue: 1 })
+        const preview = await productImportService.previewProductImport(await combinedExcel([material(), material("OTRO PALETIZACIÓN", { packagingCode: "MP-B2", basis: "POR PALLET", quantity: 2.5 })]))
+        expect(preview.issues).toEqual([])
+        expect(preview.materials[1]).toMatchObject({ quantityBasis: "per_pallet", quantity: 2.5 })
+    })
+    it("un error en Hoja 1 impide guardar materiales válidos", async () => {
+        await expect(productImportService.bulkImportProducts(await combinedExcel([material()], [baseRow({ "Cliente": "Faltante" })]))).rejects.toBeInstanceOf(BulkImportError)
+        noWrites()
+    })
+    it("propaga fallo tardío para rollback de productos, variantes y materiales", async () => {
+        (PalletMaterial.create as jest.Mock).mockRejectedValueOnce(new Error("fallo de material"))
+        const buffer = await combinedExcel([material("INDIVIDUAL", { packagingCode: "MP-U" }), material()])
+        const preview = await productImportService.previewProductImport(buffer)
+        await expect(productImportService.confirmProductImport(buffer, preview.previewHash)).rejects.toThrow("fallo de material")
+        expect(transaction.rollback).toHaveBeenCalledTimes(1)
+        expect(transaction.commit).not.toHaveBeenCalled()
+        expect(transaction.staged).toEqual([])
+        expect(Product.create).toHaveBeenCalledTimes(1)
+        expect(UnitMaterial.create).toHaveBeenCalledTimes(1)
+    })
+    it("exige nueva validación si cambia el catálogo tras el preview", async () => {
+        const buffer = await combinedExcel([material()])
+        const preview = await productImportService.previewProductImport(buffer)
+        packagings[0].unitCost = 100
+        await expect(productImportService.confirmProductImport(buffer, preview.previewHash)).rejects.toMatchObject({ statusCode: 409 })
+        noWrites()
+    })
+    it("admite la segunda hoja vacía sin asociaciones", async () => {
+        const buffer = await combinedExcel([])
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.summary).toMatchObject({ products: 1, variants: 1, errors: 0, pallet: 0 })
+        await productImportService.confirmProductImport(buffer, preview.previewHash)
+        expect(PalletMaterial.create).not.toHaveBeenCalled()
     })
 })

@@ -1,3 +1,4 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Ingredient from "../models/Ingredient.model"
@@ -50,8 +51,7 @@ async function syncEnglishTranslation(ingredientId: number, en: IngredientTransl
     await translation.update({ displayName: en.displayName })
 }
 
-// Mismo criterio que rawMaterial.service.ts::assertCodeIsUnique -- error de negocio claro antes
-// del unique constraint genérico de la columna.
+// Error de negocio claro antes del unique constraint genérico de la columna.
 async function assertCodeIsUnique(code: string, excludeId?: number): Promise<void> {
     const where: WhereOptions = excludeId ? { code, id: { [Op.ne]: excludeId } } : { code }
     const existing = await Ingredient.findOne({ where })
@@ -105,8 +105,7 @@ function buildIngredientImportCandidate(fields: {
 }) {
     const displayNameEn = typeof fields.rawDisplayNameEn === "string" ? fields.rawDisplayNameEn.trim() : ""
     return {
-        // String(...) siempre -- un código numérico entrado sin formato de texto llega como number
-        // (mismo motivo que en el importador de materias primas).
+        // String(...) siempre: un código numérico entrado sin formato de texto llega como number.
         code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         costPerUnit: fields.rawCostPerUnit === null || fields.rawCostPerUnit === "" ? undefined : Number(fields.rawCostPerUnit),
@@ -183,7 +182,7 @@ async function finalizeIngredientImportCandidate(
 }
 
 async function processIngredientImportRow(
-    row: ExcelJS.Row,
+    row: ParsedRow,
     rowNumber: number,
     columnIndexByField: Map<IngredientImportField, number>,
     accumulators: IngredientImportAccumulators
@@ -203,13 +202,13 @@ async function processIngredientImportRow(
     return finalizeIngredientImportCandidate(validated, rowNumber, accumulators)
 }
 
-// Todos los códigos existentes (activos o no), igual que el importador de materias primas.
+// Todos los códigos existentes (activos o no).
 async function loadExistingIngredientCodes(): Promise<Set<string>> {
     const existingIngredients = await Ingredient.findAll({ attributes: ["code"] })
     return new Set(existingIngredients.map(ingredient => normalizeImportText(ingredient.code)))
 }
 
-function validateIngredientImportHeaders(sheet: ExcelJS.Worksheet): Map<IngredientImportField, number> {
+function validateIngredientImportHeaders(sheet: ParsedWorksheet): Map<IngredientImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), INGREDIENT_IMPORT_COLUMNS)
     const missingFields = REQUIRED_INGREDIENT_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -221,7 +220,7 @@ function validateIngredientImportHeaders(sheet: ExcelJS.Worksheet): Map<Ingredie
 }
 
 async function persistImportedIngredients(candidates: ImportedIngredientCandidate[]): Promise<Ingredient[]> {
-    // Libra forzada para todo el archivo, una sola resolución (igual que materias primas).
+    // Libra forzada para el archivo completo, una sola resolución.
     const poundUnit = await unitService.findOrCreatePoundUnit()
     const ingredientRecords = candidates.map(({ translations: _translations, urlSlug, ...rest }) => ({ ...rest, urlSlug, costUnitId: poundUnit.id }))
     const createdIngredients = await Ingredient.bulkCreate(ingredientRecords, { returning: true })
@@ -241,7 +240,7 @@ async function persistImportedIngredients(candidates: ImportedIngredientCandidat
 }
 
 async function bulkImportIngredients(buffer: Buffer): Promise<Ingredient[]> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
     if (!sheet || sheet.rowCount <= 1) {
         throw new AppError(422, "errors.bulk_import_empty_file")

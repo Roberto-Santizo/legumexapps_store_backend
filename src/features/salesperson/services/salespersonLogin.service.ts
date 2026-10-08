@@ -34,9 +34,8 @@ async function login(input: SalespersonLoginInput): Promise<SalespersonLoginResu
 
     await clearFailedAttempts(salesperson)
 
-    // type se queda literal "customer" a propósito (rename customer -> salesperson): es el valor del claim que
-    // ya llevan los JWT emitidos antes del rename -- cambiarlo invalidaría de golpe toda sesión
-    // activa. authenticateSalesperson.ts sigue comparando contra este mismo literal.
+    // type se queda literal "customer" a propósito: es el valor que ya llevan los JWT emitidos y
+    // cambiarlo invalidaría toda sesión activa. authenticateSalesperson.ts compara contra este literal.
     const token = jwt.sign(
         { sub: salesperson.id, type: "customer" },
         env.jwtSecret,

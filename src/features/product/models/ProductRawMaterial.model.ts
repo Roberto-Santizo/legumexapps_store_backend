@@ -27,12 +27,8 @@ class ProductRawMaterial extends BaseCatalogModel {
     })
     declare rawMaterialId: number
 
-    // Solo aplica cuando el producto padre es de receta fija (!Product.isCustomizable): el
-    // admin fija este % al crear el producto y el cliente nunca puede alterarlo (ver
-    // quoteService.buildFixedPercentageRawMaterials). Reemplaza el viejo quantityValue (cantidad
-    // absoluta, independiente de la presentación) -- ahora la receta fija usa la MISMA base
-    // matemática (% del peso neto) que el mix personalizable, solo que quien fija el % es el
-    // admin, no el cliente.
+    // Solo aplica a receta fija (!Product.isCustomizable): el admin fija este % y el cliente nunca puede
+    // alterarlo. Misma base matemática (% del peso neto) que el mix personalizable.
     @Column({
         type: DataType.DECIMAL(5, 2),
         allowNull: true

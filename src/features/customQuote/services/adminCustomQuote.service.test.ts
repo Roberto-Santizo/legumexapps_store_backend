@@ -64,7 +64,7 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
         const args = mockFindAll.mock.calls[0][0]
         expect(args.where).toEqual({})
         expect(args.order).toEqual([["createdAt", "DESC"]])
-        expect(args.include.map((include: { as: string }) => include.as)).toEqual(["requestingSalesperson", "subCategory", "presentation"])
+        expect(args.include.map((include: { as: string }) => include.as)).toEqual(["requestingSalesperson"])
     })
 
     it("rango: límites de día en hora de Guatemala sobre createdAt", async () => {
@@ -89,7 +89,7 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
         expect(sentWhere()).toEqual({ status: "in_development" })
     })
 
-    it("el DTO castea el total y traduce la subcategoría", async () => {
+    it("el DTO castea el total y no inventa contexto histórico desde el catálogo actual", async () => {
         mockFindAll.mockResolvedValue([storedRow()])
 
         const [item] = await adminCustomQuoteService.listCustomQuotes({}, "en")
@@ -101,9 +101,9 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
             updatedAt: new Date("2026-09-29T16:00:00.000Z"),
             salesperson: { id: 42, name: "Rep Uno", companyName: null, email: "uno@legumex.com" },
             subCategoryId: 3,
-            subCategoryName: "Fruit mixes",
+            subCategoryName: null,
             presentationId: 7,
-            presentationLabel: "500 g",
+            presentationLabel: "12 und × 500 g · 40 cajas/palet",
             productDisplayName: "A la medida · 60% Piña · 40% Mango",
             variantLabel: "12 und × 500 g · 40 cajas/palet",
             isOrganic: false,
@@ -115,6 +115,23 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
 })
 
 describe("adminCustomQuoteService.getCustomQuoteById", () => {
+    it.each([1, 2])("snapshot version %s opens without consulting option tables or current catalogs", async version => {
+        const configuration = version === 1
+            ? { presentationId: 7, rawMaterialMix: [{ rawMaterialId: 123, percentage: 100 }], packaging: { unit: [{ packagingOptionId: 456, packagingId: 789, quantity: 1 }] } }
+            : { snapshot: { schemaVersion: 2, subCategory: { displayName: "Frozen subcategory" }, presentation: { displayLabel: "Frozen presentation" } } }
+        const breakdown = { rawMaterials: [{ rawMaterialId: 123, displayName: "Historical fruit", cost: 100.1234 }], unitPackagings: [{ packagingId: 789, displayName: "Historical bag", cost: 20 }] }
+        mockFindOne.mockResolvedValue(storedRow({ configuration, breakdown, subCategory: null, presentation: null, destination: null }))
+        const detail = await adminCustomQuoteService.getCustomQuoteById(5)
+        expect(detail.configuration).toEqual(configuration)
+        expect(detail.breakdown).toEqual(breakdown)
+        expect(mockFindOne.mock.calls[0][0].include.map((include: { as: string }) => include.as)).toEqual(["requestingSalesperson"])
+    })
+    it("reads frozen names even when catalog labels have changed", async () => {
+        mockFindOne.mockResolvedValue(storedRow({ configuration: { snapshot: { schemaVersion: 2, subCategory: { displayName: "Frozen subcategory" }, presentation: { displayLabel: "Frozen presentation" } } } }))
+        const detail = await adminCustomQuoteService.getCustomQuoteById(5)
+        expect(detail.subCategoryName).toBe("Frozen subcategory")
+        expect(detail.presentationLabel).toBe("Frozen presentation")
+    })
     it("inexistente -> 404", async () => {
         mockFindOne.mockResolvedValue(null)
         await expect(adminCustomQuoteService.getCustomQuoteById(99)).rejects.toMatchObject({ statusCode: 404 })
@@ -138,11 +155,11 @@ describe("adminCustomQuoteService.getCustomQuoteById", () => {
             adjustmentCost: 0,
             totalCost: 322.8234,
             destinationId: 9,
-            destinationName: "Puerto Quetzal",
+            destinationName: null,
             boxesPerPallet: 40,
             bagsPerBox: 12,
             unitsPerIntermediatePackage: null,
-            subCategoryName: "Mezclas de fruta",
+            subCategoryName: null,
             configuration: { presentationId: 7 },
             breakdown: { rawMaterials: [] },
         })

@@ -1,17 +1,16 @@
 import { Router } from "express"
-import { customQuoteController } from "../controllers/customQuote.controller"
 import { validate } from "../../../shared/middlewares/validate"
 import { authenticateSalesperson } from "../../../shared/middlewares/authenticateSalesperson"
-import { customQuoteCalculationSchema } from "../schemas/customQuote.schema"
+import { catalogQuoteController } from "../controllers/catalogQuote.controller"
+import { catalogQuoteConfirmSchema, catalogQuoteInputSchema } from "../schemas/catalogQuote.schema"
 
-// Cotizaciones a la medida del representante (montado en /custom-quotes, JWT de representante, igual
-// que /quotes): el menú, el cálculo en vivo (nunca escribe) y guardar (escribe solo en customQuotes).
+// Customize basado en el catálogo. Los snapshots legacy siguen disponibles en la administración;
+// sus antiguos endpoints de catálogo, preview y creación ya no se exponen.
 const customQuoteRouter = Router()
 
 customQuoteRouter.use(authenticateSalesperson)
-
-customQuoteRouter.get("/catalog", customQuoteController.catalog)
-customQuoteRouter.post("/preview", validate(customQuoteCalculationSchema), customQuoteController.preview)
-customQuoteRouter.post("/", validate(customQuoteCalculationSchema), customQuoteController.save)
+customQuoteRouter.get("/configurations", catalogQuoteController.catalog)
+customQuoteRouter.post("/catalog-preview", validate(catalogQuoteInputSchema), catalogQuoteController.preview)
+customQuoteRouter.post("/catalog-confirm", validate(catalogQuoteConfirmSchema), catalogQuoteController.confirm)
 
 export default customQuoteRouter

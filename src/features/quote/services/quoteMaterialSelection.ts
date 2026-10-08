@@ -1,10 +1,9 @@
 import { AppError } from "../../../shared/errors/AppError"
-import { normalizeOptionGroup, optionGroupKey } from "../../../shared/utils/optionGroup.util"
+import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
+import { materialGroupIdentity } from "../../../shared/utils/materialGroupIdentity.util"
 
-// Resolución de grupos de opciones de empaque, compartida por el motor de productos definidos
-// (quote.service.ts) y por cualquier otro flujo que costee filas con optionGroup/isDefault. Movido
-// tal cual desde quote.service.ts (extracción sin cambios de lógica): opera sobre cualquier fila que
-// cumpla GroupedMaterialRow, no sobre un modelo en particular.
+// Resolución de grupos de opciones de empaque, compartida por el motor de productos definidos y por
+// cualquier otro flujo que costee filas con optionGroup/isDefault (opera sobre GroupedMaterialRow).
 
 export type MaterialLevel = "unit" | "intermediate" | "pallet"
 
@@ -14,6 +13,7 @@ export interface GroupedMaterialRow {
     // trae.
     id?: number
     optionGroup: string | null
+    optionGroupId?: number | null
     isDefault: boolean
 }
 
@@ -50,7 +50,7 @@ export function bucketMaterialsByGroup<T extends GroupedMaterialRow>(
     const fixedRows: T[] = []
     const groups = new Map<string, MaterialOptionGroupBucket<T>>()
     for (const row of sortedRows) {
-        const key = optionGroupKey(row.optionGroup)
+        const key = materialGroupIdentity(row)
         if (key === null) {
             fixedRows.push(row)
             continue
@@ -62,13 +62,10 @@ export function bucketMaterialsByGroup<T extends GroupedMaterialRow>(
     return { fixedRows, groups }
 }
 
-// Grupos de opciones (reemplaza el viejo "un solo slot swappable por nivel" y el resolver 0-o-1
-// del intermedio): un mismo resolver para los tres niveles. Devuelve
-// las filas fijas (siempre se costean) + UNA fila por grupo: la que eligió el cliente para ese
-// grupo, o si no mandó ninguna, el default del grupo. Nunca confía en el cliente: cada id enviado
-// debe ser una fila AGRUPADA de este SKU en ESTE nivel (el grupo se lee de la fila, el cliente
-// nunca lo declara), y dos ids del mismo grupo se rechazan en vez de costear ambos o elegir uno en
-// silencio -- mismo principio que buildCustomizableRawMaterials/poolByRawMaterialId con la mezcla.
+// Un mismo resolver para los tres niveles. Devuelve las filas fijas (siempre se costean) + UNA fila
+// por grupo: la que eligió el cliente, o si no mandó ninguna, el default del grupo. Nunca confía en
+// el cliente: cada id enviado debe ser una fila AGRUPADA de este SKU en ESTE nivel (el grupo se lee
+// de la fila), y dos ids del mismo grupo se rechazan en vez de costear ambos o elegir uno en silencio.
 // Solo decide QUÉ filas se suman; la matemática por fila vive en quoteCostLines.ts.
 export function resolveMaterialsForQuote<T extends GroupedMaterialRow>(
     allRows: T[],
@@ -80,10 +77,10 @@ export function resolveMaterialsForQuote<T extends GroupedMaterialRow>(
 
     const chosenByGroup = new Map<string, T>()
     for (const selectedId of selectedIds ?? []) {
-        const chosen = allRows.find(row => row.id === selectedId && optionGroupKey(row.optionGroup) !== null)
+        const chosen = allRows.find(row => row.id === selectedId && materialGroupIdentity(row) !== null)
         if (!chosen) throw new AppError(422, errorKeys.invalidSelection, { selectedId })
 
-        const key = optionGroupKey(chosen.optionGroup) as string
+        const key = materialGroupIdentity(chosen) as string
         if (chosenByGroup.has(key)) {
             throw new AppError(422, "errors.duplicate_material_group_selection", { group: groups.get(key)?.label ?? key })
         }

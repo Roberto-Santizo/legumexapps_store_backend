@@ -1,20 +1,28 @@
 import ExcelJS from "exceljs"
+import { AppError, ExcelImportParseError } from "../errors/AppError"
+import type { ParsedRow } from "./parsedWorkbook"
+import { readXlsxArchive } from "./xlsxArchive.util"
+import { parseXlsxData } from "./xlsxDataParser.util"
 
-// Plumbing compartido por TODAS las cargas masivas de Excel del admin (Empaques, Materias Primas,
-// y cualquier catálogo futuro que lo necesite) -- mismo diseño en los 3: encabezados tolerantes
-// a variaciones de tipeo, inserción atómica, filas vacías ignoradas. Lo que SÍ cambia por catálogo
-// (columnas, validaciones, mapeos de texto libre a keys internas) vive en la carpeta de cada
-// feature (ver packagingImport.constant.ts / rawMaterialImport.constant.ts).
+export function validateXlsxBuffer(buffer: unknown): asserts buffer is Buffer {
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new AppError(422, "errors.bulk_import_invalid_xlsx")
+    if (buffer.length > 5 * 1024 * 1024) throw new AppError(422, "errors.bulk_import_file_too_large")
+    // XLSX contains ZIP local file headers. A signature alone does not establish validity;
+    // ExcelJS must still parse the ZIP, workbook XML and worksheet relationships.
+    if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x04034b50) throw new AppError(422, "errors.bulk_import_invalid_xlsx")
+}
+
+// Plumbing compartido por las cargas masivas de Excel del admin: encabezados tolerantes a variaciones
+// de tipeo, inserción atómica, filas vacías ignoradas. Lo que cambia por catálogo (columnas,
+// validaciones, mapeos de texto libre a keys internas) vive en la carpeta de cada feature.
 
 // Rango Unicode de "combining diacritical marks" (U+0300-U+036F) construido con
 // String.fromCodePoint en vez de un literal embebido en el regex -- evita cualquier ambigüedad
 // de encoding entre el código fuente y los acentos que en realidad tiene que reconocer.
 const COMBINING_DIACRITICS_REGEX = new RegExp(`[${String.fromCodePoint(0x0300)}-${String.fromCodePoint(0x036f)}]`, "g")
 
-// Lo que puede quedar de una celda de Excel ya leída (ver readImportCell) -- null significa
-// "columna no mapeada o celda vacía", nunca "el archivo trae la palabra null". Único alias
-// para este tipo: lo usan tanto este módulo como los helpers de resolución de campo de cada
-// service de import (Empaques, Materias Primas) que reciben el valor crudo de una celda.
+// Lo que puede quedar de una celda de Excel ya leída (ver readImportCell): null significa "columna no
+// mapeada o celda vacía", nunca "el archivo trae la palabra null".
 export type ImportCellValue = string | number | null
 
 // trim + minúsculas + sin acentos -- tolera variaciones razonables de tipeo tanto en
@@ -35,7 +43,7 @@ export function normalizeImportText(value: ImportCellValue): string {
 // espera fórmulas, pero se cubre el caso para no reventar con `[object Object]` si alguien pega
 // una celda con formato raro. Compartido por readImportCell (celdas de datos) y mapImportHeaders
 // (celdas de encabezado) -- mismo tipo de valor crudo, mismo desempaquetado.
-function extractCellValue(value: ExcelJS.CellValue): ImportCellValue {
+function extractCellValue(value: unknown): ImportCellValue {
     if (value === null || value === undefined) return null
     if (typeof value === "object") {
         const rich = value as { text?: string; result?: unknown; richText?: { text: string }[] }
@@ -47,17 +55,17 @@ function extractCellValue(value: ExcelJS.CellValue): ImportCellValue {
     // Una celda booleana (ej. casilla de verificación pegada por error) no tiene sentido para
     // ningún campo de texto/número de estos imports -- se pasa como texto para que el validador
     // de cada feature la rechace con un mensaje claro en vez de que este helper reviente de tipos.
-    return typeof value === "boolean" ? String(value) : value
+    return typeof value === "string" || typeof value === "number" ? value : typeof value === "boolean" ? String(value) : null
 }
 
-export function readImportCell(row: ExcelJS.Row, columnIndex: number | undefined): ImportCellValue {
+export function readImportCell(row: ParsedRow, columnIndex: number | undefined): ImportCellValue {
     if (columnIndex === undefined) return null
     return extractCellValue(row.getCell(columnIndex).value)
 }
 
 // Fila "en blanco" = todas las columnas que SÍ se lograron mapear del encabezado están vacías en
 // esa fila -- huecos típicos que deja Excel entre bloques de datos, no se cuentan como error.
-export function isImportRowBlank<TField extends string>(row: ExcelJS.Row, columnIndexByField: Map<TField, number>): boolean {
+export function isImportRowBlank<TField extends string>(row: ParsedRow, columnIndexByField: Map<TField, number>): boolean {
     return Array.from(columnIndexByField.values()).every(columnIndex => {
         const value = readImportCell(row, columnIndex)
         return value === null || value === ""
@@ -75,7 +83,7 @@ export interface ImportColumnDef {
 // Mapea la fila de encabezados (fila 1) a la columna física en la que está cada campo conocido,
 // por alias normalizado -- así el archivo no tiene que respetar un orden fijo de columnas.
 export function mapImportHeaders<TField extends string>(
-    headerRow: ExcelJS.Row,
+    headerRow: ParsedRow,
     columns: Record<TField, ImportColumnDef>
 ): Map<TField, number> {
     const columnIndexByField = new Map<TField, number>()
@@ -107,9 +115,31 @@ export function parseImportBoolean(value: ImportCellValue, defaultValue: boolean
 // implementa -- un choque puramente de tipos, no de runtime. Se aísla acá (único lugar del
 // programa que toca la API de exceljs) para que cada service de import no repita el cast.
 export async function loadWorkbookFromBuffer(buffer: Buffer): Promise<ExcelJS.Workbook> {
+    validateXlsxBuffer(buffer)
+    let archive: Map<string, Buffer>
+    try { archive = await readXlsxArchive(buffer) }
+    catch (cause) { throw new ExcelImportParseError(cause) }
     const workbook = new ExcelJS.Workbook()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ver comentario de arriba
-    await workbook.xlsx.load(buffer as any)
+    try {
+        await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0])
+        if (!workbook.worksheets.length) throw new Error("XLSX contains no readable worksheets")
+    } catch (cause) {
+        try {
+            const data = parseXlsxData(archive)
+            // One compatibility adapter for all importers, using only normalized data.
+            // Keep the editable ExcelJS API for existing template round-trip callers.
+            const recovered = new ExcelJS.Workbook()
+            for (const sheet of data.sheets) {
+                const target = recovered.addWorksheet(sheet.name)
+                for (const cell of sheet.cells) target.getRow(cell.row).getCell(cell.column).value = cell.value as ExcelJS.CellValue
+                if (sheet.rowCount) target.getRow(sheet.rowCount)
+            }
+            if (process.env.NODE_ENV === "development") console.debug("Excel import primary parser failed; fallback succeeded.")
+            return recovered
+        } catch (fallbackCause) {
+            throw new ExcelImportParseError(cause, fallbackCause)
+        }
+    }
     return workbook
 }
 

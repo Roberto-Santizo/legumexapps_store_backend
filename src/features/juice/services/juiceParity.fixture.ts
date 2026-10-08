@@ -1,7 +1,7 @@
 import { JuiceConstantsValues } from "../constants/juice.constant"
 import { JuicePhysicalInput, JuiceRecipeInput } from "./juiceCostLines"
 
-// Architect-provided corrected Mode A inputs; no HLOOKUP/displayed-sheet totals.
+// Corrected Mode A inputs supplied by the business; no HLOOKUP/displayed-sheet totals.
 export const parityRecipe: JuiceRecipeInput = {
     rawMaterials: [
         { rawMaterialId: 1, displayName: "NARANJA", percentage: 15, costPerLiter: "1.87391" },

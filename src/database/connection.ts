@@ -1,4 +1,5 @@
 import { Sequelize } from "sequelize-typescript"
+import PackagingGroup from "../features/packagingGroup/models/PackagingGroup.model"
 import colors from "colors"
 import { env } from "../config/env"
 import { runSeeders } from "./seeders"
@@ -59,6 +60,7 @@ const sequelize = new Sequelize(env.databaseUrl, {
         }
     },
     models: [
+        PackagingGroup,
         Category,
         CategoryTranslation,
         SubCategory,

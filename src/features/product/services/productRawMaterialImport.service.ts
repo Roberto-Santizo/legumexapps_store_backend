@@ -1,3 +1,4 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
@@ -23,10 +24,9 @@ import {
     REQUIRED_PRODUCT_RAW_MATERIAL_IMPORT_FIELDS,
 } from "../constants/productRawMaterialImport.constant"
 
-// Carga masiva de Recetas -- paso 2 de 3 (Productos y SKUs → Recetas → Ingredientes (opcional)).
-// Una fila por (Producto, Materia Prima); las filas se agrupan por producto, igual que
-// La referencia SKU resuelve al producto. Las reglas dependen del
-// Product.isCustomizable ya guardado (el archivo nunca re-declara el tipo de receta):
+// Carga masiva de Recetas. Una fila por (Producto, Materia Prima); la referencia SKU resuelve al
+// producto y las filas se agrupan por producto. Las reglas dependen del Product.isCustomizable ya
+// guardado (el archivo nunca re-declara el tipo de receta):
 //   - Fija: Porcentaje obligatorio en cada fila y el grupo debe sumar 100 (±0.5) -- más estricto
 //     que el techo blando del admin, porque el archivo trae la receta COMPLETA.
 //   - Personalizable: sin Porcentaje; % mínimo/% máximo opcionales; cada materia prima debe ser
@@ -140,7 +140,7 @@ function collectRowZodIssues(candidate: unknown, manuallyValidatedFields: Set<st
 }
 
 function processRecipeImportRow(
-    row: ExcelJS.Row,
+    row: ParsedRow,
     rowNumber: number,
     columnIndexByField: Map<ProductRawMaterialImportField, number>,
     productsByVariantSku: Map<string, Product>,
@@ -257,7 +257,7 @@ async function loadProductIdsWithExistingRecipe(): Promise<Set<number>> {
     return new Set(recipeRows.map(recipeRow => recipeRow.productId))
 }
 
-function validateRecipeImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductRawMaterialImportField, number> {
+function validateRecipeImportHeaders(sheet: ParsedWorksheet): Map<ProductRawMaterialImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS)
     const missingFields = REQUIRED_PRODUCT_RAW_MATERIAL_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -269,7 +269,7 @@ function validateRecipeImportHeaders(sheet: ExcelJS.Worksheet): Map<ProductRawMa
 }
 
 async function bulkImportProductRawMaterials(buffer: Buffer): Promise<ProductRawMaterial[]> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
     if (!sheet || sheet.rowCount <= 1) {
         throw new AppError(422, "errors.bulk_import_empty_file")

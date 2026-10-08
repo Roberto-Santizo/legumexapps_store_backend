@@ -1,9 +1,7 @@
 import "reflect-metadata"
 import ExcelJS from "exceljs"
 
-// Mock manual del modelo -- mismo patrón que packaging.service.test.ts: bulkImportPresentations
-// usa bulkCreate; el resto de la lógica (leer el .xlsx, mapear encabezados, validar cada fila)
-// corre real, con archivos .xlsx armados de verdad en cada test.
+// Mock manual del modelo; leer el .xlsx, mapear encabezados y validar cada fila corre real.
 jest.mock("../models/Presentation.model", () => ({
     __esModule: true,
     default: { bulkCreate: jest.fn() }

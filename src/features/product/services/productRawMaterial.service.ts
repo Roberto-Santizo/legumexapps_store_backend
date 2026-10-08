@@ -4,10 +4,8 @@ import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductRawMaterialInput, UpdateProductRawMaterialInput } from "../schemas/productRawMaterial.schema"
 
-// Misma tolerancia que quoteService.MIX_PERCENTAGE_TOLERANCE (±0.5) -- este guard es un techo
-// "blando" a nivel de escritura (ver assertFixedRecipePercentageCeiling abajo), la validación
-// autoritativa de "debe sumar exactamente 100" vive en quote.service.ts al momento de cotizar,
-// no acá (acá se permite guardar una receta incompleta mientras se arma fila por fila).
+// Misma tolerancia que el mix (±0.5). Este guard es un techo "blando" de escritura; la validación
+// de que la receta sume exactamente 100 vive en el cálculo de la cotización.
 const FIXED_RECIPE_PERCENTAGE_TOLERANCE = 0.5
 
 async function listProductRawMaterials(): Promise<ProductRawMaterial[]> {

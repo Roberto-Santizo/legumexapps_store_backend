@@ -16,8 +16,8 @@ const upload = multer({
 productIngredientRouter.use(authenticate)
 
 productIngredientRouter.get("/", authorize("products:view"), productIngredientController.index)
-// Carga masiva de ingredientes por producto (paso 3 del pipeline) -- ANTES de /:id. Mismo permiso
-// que el CRUD de filas (products:edit).
+// Carga masiva de ingredientes por producto, ANTES de /:id. Mismo permiso que el CRUD de filas
+// (products:edit).
 productIngredientRouter.get("/bulk-import/template", authorize("products:edit"), productIngredientController.downloadTemplate)
 productIngredientRouter.post("/bulk-import", authorize("products:edit"), upload.single("file"), productIngredientController.bulkImport)
 

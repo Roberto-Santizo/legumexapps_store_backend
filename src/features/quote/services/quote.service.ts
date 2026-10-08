@@ -1,3 +1,5 @@
+import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
+import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { Op } from "sequelize"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
@@ -5,6 +7,7 @@ import ProductTranslation from "../../product/models/ProductTranslation.model"
 import ProductRawMaterial from "../../product/models/ProductRawMaterial.model"
 import ProductIngredient from "../../product/models/ProductIngredient.model"
 import SubCategory from "../../category/models/SubCategory.model"
+import SubCategoryTranslation from "../../category/models/SubCategoryTranslation.model"
 import Category from "../../category/models/Category.model"
 import CategoryTranslation from "../../category/models/CategoryTranslation.model"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
@@ -91,12 +94,10 @@ export interface QuoteCalculation {
     }
 }
 
-// Receta fija (!Product.isCustomizable): el % de cada materia prima lo fija el admin al crear el
-// producto (ProductRawMaterial.percentage) y el cliente nunca lo puede alterar -- calculateQuote
-// jamás lee input.rawMaterialMix acá (ver buildRawMaterialLines). Si el producto no tiene NINGUNA
-// materia prima activa configurada todavía, se devuelve $0 sin exigir ni peso neto ni que sume 100
-// -- mismo comportamiento "no configurado" que ya tenía el motor viejo con quantityValue vacío,
-// para no romper variantes que todavía no tienen su receta cargada.
+// Receta fija (!Product.isCustomizable): el % de cada materia prima lo fija el admin
+// (ProductRawMaterial.percentage) y el cliente nunca puede alterarlo: input.rawMaterialMix no se lee
+// acá. Si el producto no tiene ninguna materia prima activa todavía, se devuelve $0 sin exigir peso
+// neto ni que sume 100, para no romper variantes cuya receta aún no está cargada.
 function buildFixedPercentageRawMaterials(
     productRawMaterials: ProductRawMaterial[],
     netWeightGrams: number,
@@ -353,7 +354,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
             palletMaterial.packagingId,
             palletMaterial.usedPalletMaterial,
             palletMaterial.optionGroup,
-            palletMaterial.quantityValue ?? 0,
+            toDecimal(palletMaterial.quantityValue ?? 0).times(palletMaterial.quantityBasis === "per_box" ? variant.boxesPerPallet : 1).toString(),
             requestedPallets
         )
     )
@@ -429,6 +430,7 @@ interface QuotableMaterialOption {
 
 interface QuotableMaterialOptionGroup {
     group: string
+    groupId?: number
     options: QuotableMaterialOption[]
 }
 
@@ -441,6 +443,7 @@ function buildMaterialOptionGroups<T extends GroupedMaterialRow & { packagingId:
     const { groups } = bucketMaterialsByGroup(rows)
     return [...groups.values()].map(bucket => ({
         group: bucket.label,
+        ...(bucket.rows[0]?.optionGroupId != null ? { groupId: bucket.rows[0].optionGroupId } : {}),
         options: bucket.rows.map(row => ({
             id: row.id as number,
             packagingId: row.packagingId,
@@ -456,13 +459,8 @@ interface QuotableVariant {
     boxesPerPallet: number
     bagsPerBox: number
     presentationLabel: string | null
-    // Peso neto por bolsa/unidad, en gramos (paso "pallets" del wizard) -- solo lectura, mismo
-    // dato que ya usa buildRawMaterialLines internamente
-    // (variant.sizePresentation.netWeightGrams), expuesto acá para que el frontend calcule el
-    // peso total del pedido (boxesPerPallet × bagsPerBox × netWeightGrams × requestedPallets) sin
-    // tocar calculateQuote. null si la Presentation no tiene el dato (no debería pasar en la
-    // práctica -- netWeightGrams no es nullable a nivel de columna -- pero el include ya lo trae
-    // opcional por el mismo criterio defensivo que presentationLabel).
+    // Peso neto por bolsa/unidad en gramos, expuesto para que el frontend calcule el peso total del
+    // pedido sin tocar calculateQuote. null si la Presentation no tiene el dato (defensivo).
     netWeightGrams: number | null
     packagingLabel: string | null
     unitMaterialOptionGroups: QuotableMaterialOptionGroup[]
@@ -498,6 +496,9 @@ interface QuotableProduct {
     categoryId: number
     categoryName: string
     categoryImageUrl: string | null
+    subCategoryId: number
+    subCategoryName: string
+    subCategoryImageUrl: string | null
     rawMaterialPool: QuotableRawMaterialOption[]
     fixedRecipe: QuotableFixedRawMaterial[]
     variants: QuotableVariant[]
@@ -512,10 +513,8 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 model: ProductVariant,
                 as: "productVariants",
                 required: true,
-                // presentationId ya es NOT NULL a nivel de columna (cada SKU es un
-                // producto + una Presentación) -- este filtro es defensa en profundidad, mismo
-                // criterio que boxesPerPallet/bagsPerBox, por si alguna fila vieja quedara sin
-                // migrar en un entorno que no pasó por el sync todavía.
+                // presentationId ya es NOT NULL a nivel de columna; este filtro es defensa en profundidad, igual
+                // que boxesPerPallet/bagsPerBox.
                 where: {
                     isActive: true,
                     presentationId: { [Op.not]: null },
@@ -550,7 +549,7 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             {
                 model: SubCategory,
                 as: "parentSubCategory",
-                include: [{
+                include: [{ model: SubCategoryTranslation, as: "translations" }, {
                     model: Category,
                     as: "parentCategory",
                     include: [{ model: CategoryTranslation, as: "translations" }]
@@ -584,6 +583,9 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             categoryId: category?.id ?? 0,
             categoryName: pickTranslatedName(category?.displayName ?? "", category?.translations, language),
             categoryImageUrl: category?.imageUrl ?? null,
+            subCategoryId: plain.subCategoryId,
+            subCategoryName: pickTranslatedName(plain.parentSubCategory?.displayName ?? "", plain.parentSubCategory?.translations, language),
+            subCategoryImageUrl: plain.parentSubCategory?.imageUrl ?? null,
             rawMaterialPool: plain.isCustomizable
                 ? (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
                       rawMaterialId: productRawMaterial.rawMaterialId,
@@ -613,20 +615,11 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 boxesPerPallet: variant.boxesPerPallet as number,
                 bagsPerBox: variant.bagsPerBox as number,
                 presentationLabel: variant.sizePresentation?.displayLabel ?? null,
-                // Presentation.netWeightGrams es DECIMAL(10,2) -- igual que unitCost/percentage
-                // más abajo en este mismo DTO, Sequelize/pg lo devuelve como STRING en runtime
-                // pese a que el tipo TS del modelo dice `number` (gotcha conocido de pg con
-                // columnas DECIMAL, para no perder precisión). Number(...) sigue el mismo
-                // patrón ya usado para unitCost/minPercentage/maxPercentage/percentage en este
-                // archivo -- sin este cast, quotableVariantSchema.netWeightGrams (z.number()) en
-                // el frontend revienta con un ZodError "expected number, received string".
+                // Presentation.netWeightGrams es DECIMAL: pg lo devuelve como string pese al tipo TS del modelo,
+                // así que se castea con Number(...) como el resto de DECIMAL de este DTO.
                 netWeightGrams: variant.sizePresentation?.netWeightGrams != null ? Number(variant.sizePresentation.netWeightGrams) : null,
-                // Muestra lo que efectivamente se costea POR DEFECTO (filas fijas + el default
-                // de cada grupo de opciones) -- ya NO concatena todas las alternativas, sería
-                // engañoso. Tolerante a un grupo mal
-                // configurado (ninguna fila marcada como default): simplemente lo omite acá, sin
-                // reventar -- esta lista es de solo lectura para el catálogo, el
-                // guard autoritativo vive en quoteService.calculateQuote.
+                // Muestra lo que se costea por defecto (filas fijas + el default de cada grupo). Un grupo sin
+                // default se omite acá sin reventar; el guard autoritativo vive en calculateQuote.
                 packagingLabel:
                     (variant.unitMaterials ?? [])
                         .filter(unitMaterial => normalizeOptionGroup(unitMaterial.optionGroup) === null || unitMaterial.isDefault)
@@ -649,12 +642,10 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 }
 
 
-// Una cotización guardada NO captura ni vincula un prospecto: el flujo de cotizar
-// no pide datos de contacto; los Leads siguen existiendo pero solo nacen del formulario público de
-// la landing (ver lead/), sin relación con Quote.
-// draftKey (opcional, solo del wizard del representante): NO participa del cálculo ni del Quote.create
-// -- se separa antes de calcular y solo se usa DESPUÉS de crear la cotización, para marcar el borrador
-// como convertido (best-effort: si eso falla, la cotización real ya quedó guardada y se devuelve igual).
+// Una cotización guardada no captura ni vincula un prospecto (Lead).
+// draftKey (opcional, solo del wizard del representante) no participa del cálculo ni del Quote.create:
+// se separa antes de calcular y solo se usa DESPUÉS de crear la cotización, para marcar el borrador
+// como convertido (best-effort: si eso falla, la cotización ya quedó guardada y se devuelve igual).
 async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
     const { draftKey, ...calculationInput } = input
     const calculation = await calculateQuote(calculationInput, language)
@@ -696,8 +687,10 @@ async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, la
 }
 
 
-async function listAllQuotes(): Promise<Quote[]> {
+async function listAllQuotes(filters: AdminQuoteListQuery = {}): Promise<Quote[]> {
+    const createdAt = businessDayRangeFilter(filters.startDate, filters.endDate)
     return Quote.findAll({
+        ...(createdAt ? { where: { createdAt } } : {}),
         include: [
             { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] }
         ],

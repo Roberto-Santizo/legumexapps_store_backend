@@ -2,14 +2,11 @@ import "reflect-metadata"
 import ExcelJS from "exceljs"
 import { Op } from "sequelize"
 
-// Mock manual del modelo: bulkImportPackagings usa bulkCreate/findAll, createPackaging/updatePackaging
-// usan findOne/create -- el resto de la lógica (leer el .xlsx, mapear encabezados, validar cada
-// fila contra createPackagingSchema) corre real, con archivos .xlsx armados de verdad en cada test
-// (no hay atajo honesto para probar un parser de Excel sin un Excel real). Mismo patrón de mock
-// manual que rawMaterial.service.test.ts.
+// Mock manual del modelo; leer el .xlsx, mapear encabezados y validar cada fila corre real, con
+// archivos .xlsx armados en cada test (no hay atajo honesto para probar un parser de Excel).
 jest.mock("../models/Packaging.model", () => ({
     __esModule: true,
-    default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }
+    default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn() }
 }))
 
 import Packaging from "../models/Packaging.model"
@@ -39,7 +36,7 @@ async function buildWorkbookBuffer(headers: string[], rows: SheetRow[]): Promise
 
 // "Código" primero a propósito, igual que la plantilla real -- pero el parser mapea por nombre
 // de encabezado, no por posición, así que el orden acá no es lo que se está probando.
-const HEADERS = ["Código", "Nombre", "Rol del material", "Costo por unidad (Q)"]
+const HEADERS = ["Código", "Nombre", "Rol del material", "Costo por unidad (USD)"]
 
 describe("packagingService.bulkImportPackagings", () => {
     beforeEach(() => {
@@ -49,11 +46,23 @@ describe("packagingService.bulkImportPackagings", () => {
         mockPackagingFindAll.mockResolvedValue([]) // ningún código ya existe en la BD, por defecto
     })
 
+    it.each(["Costo por unidad (USD)", "Costo por unidad (Q)"])("conserva 0.03 sin conversión con el encabezado %s", async header => {
+        const buffer = await buildWorkbookBuffer(["Código", "Nombre", "Rol del material", header], [
+            { "Código": "USD-001", "Nombre": "Bolsa", "Rol del material": "unit", [header]: 0.03 },
+        ])
+
+        await packagingService.bulkImportPackagings(buffer)
+
+        expect(mockBulkCreate).toHaveBeenCalledWith([
+            { code: "USD-001", displayName: "Bolsa", packagingRole: "unit", unitCost: 0.03 },
+        ])
+    })
+
     it("importa todas las filas válidas de un archivo bien formado (los 3 roles)", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa plástica 2kg", "Rol del material": "Empaque individual", "Costo por unidad (Q)": 1.25 },
-            { "Código": "BOL-002", "Nombre": "Bolsa grande 50u", "Rol del material": "Empaque intermedio (bolsa grande)", "Costo por unidad (Q)": 3.5 },
-            { "Código": "CAJ-001", "Nombre": "Caja corrugada master", "Rol del material": "Material de paletización", "Costo por unidad (Q)": 2 },
+            { "Código": "BOL-001", "Nombre": "Bolsa plástica 2kg", "Rol del material": "Empaque individual", "Costo por unidad (USD)": 1.25 },
+            { "Código": "BOL-002", "Nombre": "Bolsa grande 50u", "Rol del material": "Empaque intermedio (bolsa grande)", "Costo por unidad (USD)": 3.5 },
+            { "Código": "CAJ-001", "Nombre": "Caja corrugada master", "Rol del material": "Material de paletización", "Costo por unidad (USD)": 2 },
         ])
 
         const result = await packagingService.bulkImportPackagings(buffer)
@@ -68,7 +77,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("acepta la key interna en inglés como alternativa al label en español (\"pallet\" en vez de \"Material de paletización\")", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "PAR-001", "Nombre": "Parales", "Rol del material": "pallet", "Costo por unidad (Q)": 1 },
+            { "Código": "PAR-001", "Nombre": "Parales", "Rol del material": "pallet", "Costo por unidad (USD)": 1 },
         ])
 
         const result = await packagingService.bulkImportPackagings(buffer)
@@ -91,7 +100,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("no crea NADA si una sola fila falla validación (todo o nada) -- rechaza con BulkImportError", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa buena", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
+            { "Código": "BOL-001", "Nombre": "Bolsa buena", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
             { "Código": "BOL-002", "Nombre": "Bolsa sin costo", "Rol del material": "unit" }, // unitCost requerido, ver createPackagingSchema
         ])
 
@@ -101,7 +110,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("reporta el número de fila correcto (1-based, contando el encabezado) en el error", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa buena", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
+            { "Código": "BOL-001", "Nombre": "Bolsa buena", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
             { "Código": "BOL-002", "Nombre": "Bolsa mala", "Rol del material": "unit" }, // fila 3 del archivo (1=encabezado, 2=buena, 3=mala)
         ])
 
@@ -116,7 +125,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("rechaza un rol que no coincide con ningún valor permitido, con un mensaje que lista los valores válidos", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa rara", "Rol del material": "paletizacion mal escrito", "Costo por unidad (Q)": 1 },
+            { "Código": "BOL-001", "Nombre": "Bolsa rara", "Rol del material": "paletizacion mal escrito", "Costo por unidad (USD)": 1 },
         ])
 
         await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({
@@ -126,8 +135,8 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("rechaza un nombre duplicado dentro del MISMO archivo (pegado dos veces por error)", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa repetida", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
-            { "Código": "BOL-002", "Nombre": "bolsa repetida", "Rol del material": "unit", "Costo por unidad (Q)": 2 }, // mismo nombre, distinto case
+            { "Código": "BOL-001", "Nombre": "Bolsa repetida", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
+            { "Código": "BOL-002", "Nombre": "bolsa repetida", "Rol del material": "unit", "Costo por unidad (USD)": 2 }, // mismo nombre, distinto case
         ])
 
         await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({
@@ -137,8 +146,8 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("rechaza un código duplicado dentro del MISMO archivo (sin distinguir mayúsculas)", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa uno", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
-            { "Código": "bol-001", "Nombre": "Bolsa dos", "Rol del material": "unit", "Costo por unidad (Q)": 2 },
+            { "Código": "BOL-001", "Nombre": "Bolsa uno", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
+            { "Código": "bol-001", "Nombre": "Bolsa dos", "Rol del material": "unit", "Costo por unidad (USD)": 2 },
         ])
 
         await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({
@@ -150,7 +159,7 @@ describe("packagingService.bulkImportPackagings", () => {
     it("rechaza un código que ya existe en la BD (activo o no)", async () => {
         mockPackagingFindAll.mockResolvedValue([{ code: "BOL-001" }])
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa nueva", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
+            { "Código": "BOL-001", "Nombre": "Bolsa nueva", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
         ])
 
         await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({
@@ -161,7 +170,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("rechaza una fila con la celda de Código vacía (columna requerida) en vez de insertarla sin código", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Nombre": "Bolsa sin código", "Rol del material": "unit", "Costo por unidad (Q)": 1 }, // sin "Código"
+            { "Nombre": "Bolsa sin código", "Rol del material": "unit", "Costo por unidad (USD)": 1 }, // sin "Código"
         ])
 
         await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({
@@ -172,7 +181,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("rechaza una fila con el Código de solo espacios en blanco", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "   ", "Nombre": "Bolsa", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
+            { "Código": "   ", "Nombre": "Bolsa", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
         ])
 
         await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({
@@ -183,7 +192,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("acepta un código sin formato de texto (Excel lo entrega como number, no debe romper la validación de string)", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": 12345, "Nombre": "Bolsa", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
+            { "Código": 12345, "Nombre": "Bolsa", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
         ])
 
         await packagingService.bulkImportPackagings(buffer)
@@ -195,7 +204,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("ignora filas completamente vacías (huecos que deja Excel) sin tratarlas como error", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa buena", "Rol del material": "unit", "Costo por unidad (Q)": 1 },
+            { "Código": "BOL-001", "Nombre": "Bolsa buena", "Rol del material": "unit", "Costo por unidad (USD)": 1 },
             {},
         ])
 
@@ -221,7 +230,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
     it("no confía en el costo mandado como texto con espacios -- lo convierte a número antes de validar", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "BOL-001", "Nombre": "Bolsa", "Rol del material": "unit", "Costo por unidad (Q)": "2.50" },
+            { "Código": "BOL-001", "Nombre": "Bolsa", "Rol del material": "unit", "Costo por unidad (USD)": "2.50" },
         ])
 
         const result = await packagingService.bulkImportPackagings(buffer)
@@ -323,5 +332,127 @@ describe("packagingService.updatePackaging", () => {
         await packagingService.updatePackaging(1, { code: "BOL-001", packagingRole: "unit", unitCost: 2 })
 
         expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ code: "BOL-001" }))
+    })
+})
+
+
+describe("packaging catalog consumption import and update", () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockPackagingFindAll.mockResolvedValue([])
+        mockBulkCreate.mockImplementation(async values => values)
+    })
+    it("imports friendly structured consumption columns for all initial rules", async () => {
+        const headers = [...HEADERS, "FORMA DE CONSUMO", "CANTIDAD DE CONSUMO"]
+        const buffer = await buildWorkbookBuffer(headers, [["POR CAJA", 1], ["POR PALLET", 4], ["POR PALLET", 1], ["POR PALLET", 93.3]].map(([basis, value], index) => ({
+            "Código": `MP-${index}`, "Nombre": `Unclassified ${index}`, "Rol del material": "pallet", "Costo por unidad (USD)": 1,
+            "FORMA DE CONSUMO": basis, "CANTIDAD DE CONSUMO": value,
+        })))
+        await packagingService.bulkImportPackagings(buffer)
+        expect(mockBulkCreate).toHaveBeenCalledWith(expect.arrayContaining([
+            expect.objectContaining({ defaultQuantityBasis: "per_box", defaultQuantityValue: 1 }),
+            expect.objectContaining({ defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 }),
+            expect.objectContaining({ defaultQuantityBasis: "per_pallet", defaultQuantityValue: 1 }),
+            expect.objectContaining({ defaultQuantityBasis: "per_pallet", defaultQuantityValue: 93.3 }),
+        ]))
+    })
+    it.each([["POR CAJA", undefined], [undefined, 1], ["POR PALLET", 0], ["UNKNOWN", 4]])("rejects invalid imported catalog defaults %s/%s without writes", async (basis, value) => {
+        const buffer = await buildWorkbookBuffer([...HEADERS, "FORMA DE CONSUMO", "CANTIDAD DE CONSUMO"], [{
+            "Código": "MP-X", "Nombre": "Unclassified", "Rol del material": "pallet", "Costo por unidad (USD)": 1,
+            "FORMA DE CONSUMO": basis, "CANTIDAD DE CONSUMO": value,
+        }])
+        await expect(packagingService.bulkImportPackagings(buffer)).rejects.toBeInstanceOf(BulkImportError)
+        expect(mockBulkCreate).not.toHaveBeenCalled()
+    })
+    it("changing catalog consumption only writes Packaging", async () => {
+        const update = jest.fn(async values => values)
+        const material = { ...BASE_CREATE_INPUT, packagingRole: "pallet", id: 100, defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4, update }
+        mockPackagingFindOne.mockResolvedValueOnce(material).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(100, { ...BASE_CREATE_INPUT, packagingRole: "pallet", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 5 })
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ defaultQuantityValue: 5 }))
+        expect(material.defaultQuantityValue).toBe(4)
+    })
+    it("preserves defaults when old clients omit both fields", async () => {
+        const update = jest.fn()
+        mockPackagingFindOne.mockResolvedValueOnce({ ...BASE_CREATE_INPUT, packagingRole: "pallet", defaultQuantityBasis: "per_pallet", defaultQuantityValue: "4.00", update }).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(100, { ...BASE_CREATE_INPUT, packagingRole: "pallet" })
+        expect(update).toHaveBeenCalledWith({ ...BASE_CREATE_INPUT, packagingRole: "pallet" })
+    })
+    it("clears unused pallet defaults when changing to a non-pallet role", async () => {
+        const update = jest.fn()
+        mockPackagingFindOne.mockResolvedValueOnce({ ...BASE_CREATE_INPUT, packagingRole: "pallet", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4, update }).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(100, BASE_CREATE_INPUT)
+        expect(update).toHaveBeenCalledWith({ ...BASE_CREATE_INPUT, defaultQuantityBasis: null, defaultQuantityValue: null })
+    })
+})
+
+
+describe("packagingService.listPackagings search", () => {
+    const findAndCountAll = Packaging.findAndCountAll as unknown as jest.Mock
+    beforeEach(() => {
+        findAndCountAll.mockReset()
+        mockPackagingFindAll.mockReset()
+    })
+
+    // Verify the ORM query contract: PostgreSQL receives both ILIKE predicates
+    // before applying limit/offset, rather than filtering the loaded page in JS.
+    it.each([
+        ["material name", "Caja Strawberry"],
+        ["full material code", "ME-CW0047"],
+        ["partial code prefix", "ME-CW"],
+        ["partial code suffix", "0047"],
+        ["partial name", "Strawberry"],
+        ["mixed-case name", "sTrAwBeRrY"],
+        ["lowercase code", "me-cw0047"],
+    ])("searches by %s with case-insensitive name OR code predicates", async (_label, search) => {
+        const rows = [{ id: 47, code: "ME-CW0047", displayName: "Caja Strawberry", isActive: true }]
+        findAndCountAll.mockResolvedValue({ rows, count: 1 })
+
+        const result = await packagingService.listPackagings({ page: 1, limit: 10 }, search)
+
+        expect(findAndCountAll).toHaveBeenCalledWith({
+            where: {
+                isActive: true,
+                [Op.or]: [
+                    { displayName: { [Op.iLike]: `%${search}%` } },
+                    { code: { [Op.iLike]: `%${search}%` } },
+                ],
+            },
+            order: [["displayName", "DESC"]],
+            limit: 10, offset: 0, distinct: true,
+        })
+        expect(result).toEqual({ data: rows, meta: { page: 1, limit: 10, total: 1, totalPages: 1 } })
+        expect(mockPackagingFindAll).not.toHaveBeenCalled()
+    })
+
+    it("returns an empty page with valid pagination when there are no matches", async () => {
+        findAndCountAll.mockResolvedValue({ rows: [], count: 0 })
+        const result = await packagingService.listPackagings({ page: 1, limit: 10 }, "NOT-FOUND")
+        expect(result).toEqual({ data: [], meta: { page: 1, limit: 10, total: 0, totalPages: 1 } })
+        expect(findAndCountAll).toHaveBeenCalledWith(expect.objectContaining({
+            where: { isActive: true, [Op.or]: [
+                { displayName: { [Op.iLike]: "%NOT-FOUND%" } },
+                { code: { [Op.iLike]: "%NOT-FOUND%" } },
+            ] },
+        }))
+    })
+
+    it("preserves active filtering, ordering, and page offset during search", async () => {
+        findAndCountAll.mockResolvedValue({ rows: [], count: 35 })
+        const result = await packagingService.listPackagings({ page: 3, limit: 5 }, "ME-CW")
+        expect(findAndCountAll).toHaveBeenCalledWith(expect.objectContaining({
+            where: expect.objectContaining({ isActive: true }),
+            order: [["displayName", "DESC"]], limit: 5, offset: 10, distinct: true,
+        }))
+        expect(result.meta).toEqual({ page: 3, limit: 5, total: 35, totalPages: 7 })
+    })
+
+    it("keeps the existing unfiltered listing when search is empty", async () => {
+        findAndCountAll.mockResolvedValue({ rows: [], count: 0 })
+        await packagingService.listPackagings({ page: 1 }, "")
+        expect(findAndCountAll).toHaveBeenCalledWith({
+            where: { isActive: true }, order: [["displayName", "DESC"]],
+            limit: 10, offset: 0, distinct: true,
+        })
     })
 })

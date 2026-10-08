@@ -1,3 +1,4 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import RawMaterial from "../models/RawMaterial.model"
@@ -241,7 +242,7 @@ async function finalizeRawMaterialImportCandidate(
 
 
 async function processRawMaterialImportRow(
-    row: ExcelJS.Row,
+    row: ParsedRow,
     rowNumber: number,
     columnIndexByField: Map<RawMaterialImportField, number>,
     accumulators: RawMaterialImportAccumulators
@@ -277,16 +278,14 @@ async function processRawMaterialImportRow(
 }
 
 
-// Preload de todos los códigos de materia prima ya existentes (activos o no -- mismo criterio
-// que el chequeo de urlSlug de arriba, que tampoco filtra por isActive) para poder rechazar
-// duplicados-contra-la-BD con un RowIssue claro ANTES de intentar el bulkCreate, en vez de dejar
-// que Postgres reviente el batch completo con una violación de unique constraint genérica.
+// Precarga de todos los códigos existentes (activos o no) para rechazar duplicados contra la BD con
+// un RowIssue claro antes del bulkCreate, en vez de que Postgres rechace el batch completo.
 async function loadExistingRawMaterialCodes(): Promise<Set<string>> {
     const existingRawMaterials = await RawMaterial.findAll({ attributes: ["code"] })
     return new Set(existingRawMaterials.map(rawMaterial => normalizeImportText(rawMaterial.code)))
 }
 
-function validateRawMaterialImportHeaders(sheet: ExcelJS.Worksheet): Map<RawMaterialImportField, number> {
+function validateRawMaterialImportHeaders(sheet: ParsedWorksheet): Map<RawMaterialImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), RAW_MATERIAL_IMPORT_COLUMNS)
     const missingFields = REQUIRED_RAW_MATERIAL_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -299,8 +298,7 @@ function validateRawMaterialImportHeaders(sheet: ExcelJS.Worksheet): Map<RawMate
 
 
 async function persistImportedRawMaterials(candidates: (CreateRawMaterialInput & { urlSlug: string })[]): Promise<RawMaterial[]> {
-    // Unidad de costeo forzada a Libra para TODA la fila, igual que create/update individual --
-    // ver findOrCreatePoundUnit. Una sola resolución para todo el archivo (no por fila).
+    // Libra forzada para el archivo completo, una sola resolución (no por fila).
     const poundUnit = await unitService.findOrCreatePoundUnit()
     const rawMaterialRecords = candidates.map(({ translations: _translations, urlSlug, ...rest }) => ({ ...rest, urlSlug, costUnitId: poundUnit.id }))
     const createdRawMaterials = await RawMaterial.bulkCreate(rawMaterialRecords, { returning: true })
@@ -321,7 +319,7 @@ async function persistImportedRawMaterials(candidates: (CreateRawMaterialInput &
 
 
 async function bulkImportRawMaterials(buffer: Buffer): Promise<RawMaterial[]> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
     if (!sheet || sheet.rowCount <= 1) {
         throw new AppError(422, "errors.bulk_import_empty_file")
@@ -367,9 +365,7 @@ async function buildRawMaterialImportTemplate(): Promise<Buffer> {
 
     const sheet = workbook.addWorksheet("Materias Primas")
     sheet.columns = [
-        // "Código" va PRIMERO a propósito (columna de identificación de la materia prima) -- el
-        // parser en sí no depende del orden físico de columnas (mapImportHeaders matchea por
-        // nombre de encabezado), pero la plantilla descargable sí debe mostrarlo primero.
+        // "Código" va primero en la plantilla; el parser mapea por nombre de encabezado, no por posición.
         { header: RAW_MATERIAL_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: RAW_MATERIAL_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 28 },
         { header: RAW_MATERIAL_IMPORT_COLUMNS.ingredientType.header, key: "ingredientType", width: 20 },

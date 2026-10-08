@@ -1,6 +1,5 @@
 import "reflect-metadata"
 
-// Mock manual del modelo -- mismo patrón que el resto de los *.service.test.ts de este repo.
 jest.mock("../models/Unit.model", () => ({
     __esModule: true,
     default: { findAll: jest.fn(), findOne: jest.fn(), create: jest.fn() }

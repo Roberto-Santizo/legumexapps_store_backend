@@ -25,3 +25,18 @@ npm-debug.log*
 !.vscode/extensions.json
 .idea
 .DS_Store
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Local investigation helpers (not required by build or tests)
+/scripts/diagnose-*.cjs
+/scripts/inspect-*.cjs
+/scripts/**/*.py
+/scripts/start-local-no-sync.cjs
+
+# Audit output containing live catalog data
+/docs/packaging-consumption-audit-result.json
+
+# Local cleanup worktrees/backups, if created inside this repository
+/.legacy-config-cleanup/

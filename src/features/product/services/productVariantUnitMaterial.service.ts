@@ -2,7 +2,9 @@ import { Op } from "sequelize"
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { packagingService } from "../../packaging/services/packaging.service"
-import { isSameOptionGroup, resolveOptionGroupSpelling } from "../../../shared/utils/optionGroup.util"
+import { resolveOptionGroupSpelling } from "../../../shared/utils/optionGroup.util"
+import { materialGroupIdentity } from "../../../shared/utils/materialGroupIdentity.util"
+import { resolveUnitMaterialGroup } from "../../packagingGroup/services/packagingGroup.service"
 import {
     CreateProductVariantUnitMaterialInput,
     UpdateProductVariantUnitMaterialInput
@@ -18,8 +20,7 @@ async function getProductVariantUnitMaterialById(id: number): Promise<ProductVar
     return productVariantUnitMaterial
 }
 
-// Grupos de opciones (reemplaza el viejo "un solo slot swappable por nivel"): una fila con
-// optionGroup=null es receta fija (siempre se costea); las filas
+// Grupos de opciones: una fila con optionGroup=null es receta fija (siempre se costea); las filas
 // con el mismo optionGroup (comparado sin mayúsculas/espacios, ver shared/utils/optionGroup.util.ts)
 // son alternativas entre sí, y grupos distintos del mismo SKU coexisten. Todas las reglas de default
 // son POR GRUPO: la primera fila de un grupo se fuerza isDefault=true; pedir isDefault=true en otra
@@ -48,12 +49,13 @@ async function resolveIsDefaultOnWrite(
     productVariantId: number,
     optionGroup: string | null,
     requestedIsDefault: boolean,
-    excludeId: number | null
+    excludeId: number | null,
+    optionGroupId?: number | null
 ): Promise<boolean> {
     if (optionGroup === null) return false
 
     const groupSiblings = (await findActiveGroupedRows(productVariantId, excludeId))
-        .filter(row => isSameOptionGroup(row.optionGroup, optionGroup))
+        .filter(row => materialGroupIdentity(row) === materialGroupIdentity({ optionGroup, optionGroupId }))
 
     if (groupSiblings.length === 0) return true
 
@@ -71,7 +73,7 @@ async function resolveIsDefaultOnWrite(
 
 async function countOtherGroupSiblings(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<number> {
     const groupedRows = await findActiveGroupedRows(productVariantUnitMaterial.productVariantId, productVariantUnitMaterial.id)
-    return groupedRows.filter(row => isSameOptionGroup(row.optionGroup, productVariantUnitMaterial.optionGroup)).length
+    return groupedRows.filter(row => materialGroupIdentity(row) === materialGroupIdentity(productVariantUnitMaterial)).length
 }
 
 // Bloquea (no auto-promueve) eliminar/desactivar el default de un grupo mientras ese grupo tenga
@@ -88,14 +90,14 @@ async function assertDeletionNotBlockedByDefault(productVariantUnitMaterial: Pro
 
 // Mismo criterio que assertDeletionNotBlockedByDefault, para la vía de UPDATE: quitar isDefault,
 // volver la fila fija, moverla a otro grupo o a otra variante dejaría a su grupo VIEJO con
-// alternativas y CERO defaults -- estado inválido que antes solo se detectaba al cotizar. Si la
-// fila es la única de su grupo no hay nada que bloquear. Moverla a otro grupo como default sí está
-// permitido si el viejo queda vacío; resolveIsDefaultOnWrite desmarca el default del destino.
+// alternativas y CERO defaults. Si la fila es la única de su grupo no hay nada que bloquear. Moverla
+// a otro grupo como default sí está permitido; resolveIsDefaultOnWrite desmarca el default del destino.
 async function assertUpdateKeepsADefault(
     productVariantUnitMaterial: ProductVariantUnitMaterial,
     willBeProductVariantId: number,
     willBeGroup: string | null,
-    willBeDefault: boolean
+    willBeDefault: boolean,
+    willBeGroupId?: number | null
 ): Promise<void> {
     const isCurrentDefault = productVariantUnitMaterial.optionGroup !== null && productVariantUnitMaterial.isDefault
     if (!isCurrentDefault) return
@@ -103,7 +105,7 @@ async function assertUpdateKeepsADefault(
     const staysDefaultOfSameGroup =
         willBeDefault &&
         willBeProductVariantId === productVariantUnitMaterial.productVariantId &&
-        isSameOptionGroup(willBeGroup, productVariantUnitMaterial.optionGroup)
+        materialGroupIdentity({ optionGroup: willBeGroup, optionGroupId: willBeGroupId }) === materialGroupIdentity(productVariantUnitMaterial)
     if (staysDefaultOfSameGroup) return
 
     if ((await countOtherGroupSiblings(productVariantUnitMaterial)) > 0) {
@@ -115,9 +117,10 @@ async function createProductVariantUnitMaterial(
     input: CreateProductVariantUnitMaterialInput
 ): Promise<ProductVariantUnitMaterial> {
     await packagingService.assertPackagingHasRole(input.packagingId, "unit")
-    const optionGroup = await resolveOptionGroupOnWrite(input.productVariantId, input.optionGroup, null)
-    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, optionGroup, input.isDefault, null)
-    return ProductVariantUnitMaterial.create({ ...input, optionGroup, isDefault })
+    const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup)
+    const optionGroup = group.optionGroupId != null ? group.optionGroup : await resolveOptionGroupOnWrite(input.productVariantId, group.optionGroup, null)
+    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, optionGroup, input.isDefault, null, group.optionGroupId)
+    return ProductVariantUnitMaterial.create({ ...input, optionGroup, optionGroupId: group.optionGroupId, isDefault })
 }
 
 async function updateProductVariantUnitMaterial(
@@ -129,15 +132,17 @@ async function updateProductVariantUnitMaterial(
 
     const effectiveProductVariantId = input.productVariantId ?? productVariantUnitMaterial.productVariantId
     const effectiveRequestedIsDefault = input.isDefault ?? productVariantUnitMaterial.isDefault
-    const optionGroup = await resolveOptionGroupOnWrite(effectiveProductVariantId, input.optionGroup, productVariantUnitMaterial.id)
-    await assertUpdateKeepsADefault(productVariantUnitMaterial, effectiveProductVariantId, optionGroup, effectiveRequestedIsDefault)
+    const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup, productVariantUnitMaterial.optionGroupId)
+    const optionGroup = group.optionGroupId != null ? group.optionGroup : await resolveOptionGroupOnWrite(effectiveProductVariantId, group.optionGroup, productVariantUnitMaterial.id)
+    await assertUpdateKeepsADefault(productVariantUnitMaterial, effectiveProductVariantId, optionGroup, effectiveRequestedIsDefault, group.optionGroupId)
     const isDefault = await resolveIsDefaultOnWrite(
         effectiveProductVariantId,
         optionGroup,
         effectiveRequestedIsDefault,
-        productVariantUnitMaterial.id
+        productVariantUnitMaterial.id,
+        group.optionGroupId
     )
-    return productVariantUnitMaterial.update({ ...input, optionGroup, isDefault })
+    return productVariantUnitMaterial.update({ ...input, optionGroup, optionGroupId: group.optionGroupId, isDefault })
 }
 
 async function deleteProductVariantUnitMaterial(id: number): Promise<void> {

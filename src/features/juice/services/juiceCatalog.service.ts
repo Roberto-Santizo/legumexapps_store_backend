@@ -167,7 +167,7 @@ export const juiceMixService = catalogService({
         })
         const total = others.reduce((sum, row) => sum.plus(row.percentage), toDecimal(Number(input.percentage)))
         if (total.greaterThan(100)) throw new AppError(422, "errors.juice_mix_ceiling", { total: total.toString() })
-        // Under 100% is allowed while admins build the recipe. J2 must reject incomplete mixes.
+        // Under 100% is allowed while admins build the recipe; the calculation rejects incomplete mixes.
         return input
     },
 })

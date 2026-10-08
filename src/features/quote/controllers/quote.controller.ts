@@ -1,3 +1,4 @@
+import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { Request, Response, NextFunction } from "express"
 import { AppError } from "../../../shared/errors/AppError"
 import { quoteService } from "../services/quote.service"
@@ -37,9 +38,9 @@ async function destinations(_req: Request, res: Response, next: NextFunction): P
     }
 }
 
-async function indexAll(_req: Request, res: Response, next: NextFunction): Promise<void> {
+async function indexAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-        const data = await quoteService.listAllQuotes()
+        const data = await quoteService.listAllQuotes(req.query as AdminQuoteListQuery)
         res.json({ data })
     } catch (error) {
         next(error)

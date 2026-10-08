@@ -8,11 +8,8 @@ import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitM
     tableName: "packagings"
 })
 class Packaging extends BaseCatalogModel {
-    // Código manual del material (ej. SKU/referencia interna) -- lo escribe el admin a mano,
-    // nunca se autogenera. Único a nivel de columna para que no puedan existir dos materiales
-    // con el mismo código -- ver packaging.service.ts::assertCodeIsUnique para el chequeo
-    // explícito que da un error de negocio claro antes de llegar a este constraint. Mismo
-    // patrón que RawMaterial.code (ver RawMaterial.model.ts).
+    // Código manual del material (lo escribe el admin, nunca se autogenera). Único a nivel de columna;
+    // packaging.service.ts::assertCodeIsUnique da antes un error de negocio claro.
     @Column({
         type: DataType.STRING(60),
         allowNull: false,
@@ -36,15 +33,17 @@ class Packaging extends BaseCatalogModel {
     })
     declare packagingRole: string
 
-    // "packagingMaterial" (¿de qué está hecho?) se retiró del modelo -- el negocio
-    // solo necesita el rol (packagingRole) para el cálculo y la receta, nunca de qué material
-    // físico está hecho. La columna sigue físicamente en Postgres como huérfana (sequelize.sync,
-    // sin migraciones), no se botó con SQL.
     @Column({
         type: DataType.DECIMAL(10, 4),
         allowNull: true
     })
     declare unitCost: number
+
+    @Column({ type: DataType.ENUM("per_box", "per_pallet"), allowNull: true })
+    declare defaultQuantityBasis: "per_box" | "per_pallet" | null
+
+    @Column({ type: DataType.DECIMAL(10, 2), allowNull: true })
+    declare defaultQuantityValue: number | null
 
     @HasMany(() => ProductVariantUnitMaterial, "packagingId")
     declare unitMaterialUsages: ProductVariantUnitMaterial[]

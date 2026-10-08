@@ -10,6 +10,7 @@ export const createSubCategorySchema = z.object({
     categoryId: z.number().int().positive(),
     displayName: z.string().trim().min(1).max(80),
     fullDescription: z.string().trim().optional(),
+    image: z.string().nullable().optional(),
     translations: z.object({ en: subCategoryTranslationInputSchema.optional() }).optional(),
 })
 

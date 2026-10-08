@@ -5,6 +5,8 @@ import { NotFoundError } from "../../../shared/errors/AppError"
 import { CreateSubCategoryInput, UpdateSubCategoryInput, SubCategoryTranslationInput } from "../schemas/subCategory.schema"
 import { generateUniqueSlug } from "../../../shared/utils/slug.util"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
+import { resolveCatalogImage } from "../../../shared/utils/catalogImage.util"
+import { assertSubCategoryImage } from "./subCategoryImage.validation"
 
 
 async function listSubCategories(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<SubCategory>> {
@@ -38,22 +40,26 @@ async function syncEnglishTranslation(subCategoryId: number, en: SubCategoryTran
 }
 
 async function createSubCategory(input: CreateSubCategoryInput): Promise<SubCategory> {
-    const { translations, ...rest } = input
+    const { image, translations, ...rest } = input
+    assertSubCategoryImage(image)
     const urlSlug = await generateUniqueSlug(rest.displayName, async (candidate) => {
         const existing = await SubCategory.findOne({
             where: { categoryId: rest.categoryId, urlSlug: candidate },
         })
         return !!existing
     })
-    const subCategory = await SubCategory.create({ ...rest, urlSlug })
+    const imageUrl = await resolveCatalogImage(null, image, "subcategories")
+    const subCategory = await SubCategory.create({ ...rest, urlSlug, imageUrl: imageUrl ?? null })
     await syncEnglishTranslation(subCategory.id, translations?.en)
     return getSubCategoryById(subCategory.id)
 }
 
 async function updateSubCategory(id: number, input: UpdateSubCategoryInput): Promise<SubCategory> {
     const subCategory = await getSubCategoryById(id)
-    const { translations, ...rest } = input
-    await subCategory.update(rest)
+    const { image, translations, ...rest } = input
+    assertSubCategoryImage(image)
+    const imageUrl = await resolveCatalogImage(subCategory.imageUrl, image, "subcategories")
+    await subCategory.update({ ...rest, ...(imageUrl !== undefined ? { imageUrl } : {}) })
     await syncEnglishTranslation(id, translations?.en)
     return getSubCategoryById(id)
 }

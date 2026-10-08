@@ -1,32 +1,44 @@
 import { Router } from "express"
+import packagingGroupRouter from "../features/packagingGroup/routes/packagingGroup.routes"
 import categoryRouter from "../features/category/routes/category.routes"
 import subCategoryRouter from "../features/category/routes/subCategory.routes"
 import productRouter from "../features/product/routes/product.routes"
-import productTypeRouter from "../features/product-type/routes/productType.routes"
+import productPackagingImportRouter from "../features/product/routes/productPackagingImport.routes"
 import unitRouter from "../features/unit/routes/unit.routes"
 import packagingRouter from "../features/packaging/routes/packaging.routes"
 import presentationRouter from "../features/presentation/routes/presentation.routes"
+import rawMaterialRouter from "../features/rawMaterial/routes/rawMaterial.routes"
 import ingredientRouter from "../features/ingredient/routes/ingredient.routes"
 import destinationRouter from "../features/destination/routes/destination.routes"
 import productVariantRouter from "../features/product/routes/productVariant.routes"
+import productRawMaterialRouter from "../features/product/routes/productRawMaterial.routes"
 import productIngredientRouter from "../features/product/routes/productIngredient.routes"
 import productVariantPalletMaterialRouter from "../features/product/routes/productVariantPalletMaterial.routes"
 import productVariantUnitMaterialRouter from "../features/product/routes/productVariantUnitMaterial.routes"
+import productVariantIntermediateMaterialRouter from "../features/product/routes/productVariantIntermediateMaterial.routes"
 import loginRouter from "../features/accessControl/login/routes/login.routes"
 import userRouter from "../features/accessControl/user/routes/user.routes"
 import roleRouter from "../features/accessControl/roles/routes/role.routes"
 import permissionRouter from "../features/accessControl/permissions/routes/permission.routes"
 import rolePermissionRouter from "../features/accessControl/rolePermissions/routes/rolePermission.routes"
-import customerRouter from "../features/customer/routes/customer.routes"
-import customerLoginRouter from "../features/customer/routes/customerLogin.routes"
+import salespersonRouter from "../features/salesperson/routes/salesperson.routes"
+import clientRouter from "../features/client/routes/client.routes"
+import clientImportRouter from "../features/client/routes/clientImport.routes"
+import salespersonLoginRouter from "../features/salesperson/routes/salespersonLogin.routes"
 import quoteRouter from "../features/quote/routes/quote.routes"
 import adminQuoteRouter from "../features/quote/routes/adminQuote.routes"
+import adminQuoteDraftRouter from "../features/quoteDraft/routes/adminQuoteDraft.routes"
+import customQuoteRouter from "../features/customQuote/routes/customQuote.routes"
+import adminCustomQuoteRouter from "../features/customQuote/routes/adminCustomQuote.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
 import processingCostRouter from "../features/processingCost/routes/processingCost.routes"
 import leadRouter from "../features/lead/routes/lead.routes"
 import adminLeadRouter from "../features/lead/routes/adminLead.routes"
 import siteImageRouter from "../features/siteImage/routes/siteImage.routes"
 import adminSiteImageRouter from "../features/siteImage/routes/adminSiteImage.routes"
+
+import juiceRouter from "../features/juice/routes/juice.routes"
+import juiceConfigRouter from "../features/juice/routes/juiceConfig.routes"
 
 const appRouter = Router()
 
@@ -35,29 +47,41 @@ appRouter.use("/users", userRouter)
 appRouter.use("/roles", roleRouter)
 appRouter.use("/roles", rolePermissionRouter)
 appRouter.use("/permissions", permissionRouter)
-appRouter.use("/customers", customerRouter)
-appRouter.use("/customer-login", customerLoginRouter)
+appRouter.use("/salespeople", salespersonRouter)
+appRouter.use("/clients", clientRouter)
+appRouter.use("/admin/clients", clientImportRouter)
+appRouter.use("/salesperson-login", salespersonLoginRouter)
 appRouter.use("/quotes", quoteRouter)
 appRouter.use("/admin/quotes", adminQuoteRouter)
+appRouter.use("/admin/quote-drafts", adminQuoteDraftRouter)
+appRouter.use("/custom-quotes", customQuoteRouter)
+appRouter.use("/admin/custom-quotes", adminCustomQuoteRouter)
 appRouter.use("/admin/dashboard", dashboardRouter)
 appRouter.use("/leads", leadRouter)
 appRouter.use("/admin/leads", adminLeadRouter)
 appRouter.use("/site-images", siteImageRouter)
 appRouter.use("/admin/site-images", adminSiteImageRouter)
 
+appRouter.use("/admin/juices", juiceRouter)
+appRouter.use("/admin/juice-config", juiceConfigRouter)
+
 appRouter.use("/categories", categoryRouter)
 appRouter.use("/sub-categories", subCategoryRouter)
 appRouter.use("/products", productRouter)
-appRouter.use("/product-types", productTypeRouter)
+appRouter.use("/product-packaging-materials", productPackagingImportRouter)
 appRouter.use("/units", unitRouter)
 appRouter.use("/packagings", packagingRouter)
+appRouter.use("/packaging-groups", packagingGroupRouter)
 appRouter.use("/presentations", presentationRouter)
+appRouter.use("/raw-materials", rawMaterialRouter)
 appRouter.use("/ingredients", ingredientRouter)
 appRouter.use("/destinations", destinationRouter)
 appRouter.use("/processing-costs", processingCostRouter)
 appRouter.use("/product-variants", productVariantRouter)
+appRouter.use("/product-raw-materials", productRawMaterialRouter)
 appRouter.use("/product-ingredients", productIngredientRouter)
 appRouter.use("/product-variant-pallet-materials", productVariantPalletMaterialRouter)
 appRouter.use("/product-variant-unit-materials", productVariantUnitMaterialRouter)
+appRouter.use("/product-variant-intermediate-materials", productVariantIntermediateMaterialRouter)
 
 export default appRouter

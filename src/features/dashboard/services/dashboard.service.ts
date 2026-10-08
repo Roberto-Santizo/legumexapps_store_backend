@@ -1,16 +1,25 @@
 import { Op } from "sequelize"
 import Decimal from "decimal.js"
 import Quote from "../../quote/models/Quote.model"
-import Customer from "../../customer/models/Customer.model"
+import Salesperson from "../../salesperson/models/Salesperson.model"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
+import ProductTranslation from "../../product/models/ProductTranslation.model"
+import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
+import RawMaterialTranslation from "../../rawMaterial/models/RawMaterialTranslation.model"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
+import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
+import {
+    businessDayKey,
+    businessDayRangeFilter,
+    businessWeekKey,
+    inclusiveDaySpan,
+} from "../../../shared/utils/businessTime.util"
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000
 const MAX_DAILY_BUCKETS = 62
 const TOP_LIST_LIMIT = 8
 interface RawMaterialSnapshotLine {
-    ingredientId: number
+    rawMaterialId: number
     displayName: string
     lineTotal: number
 }
@@ -23,7 +32,7 @@ interface DashboardOverview {
     totalRevenue: number
     totalPallets: number
     totalUnits: number
-    uniqueCustomers: number
+    uniqueSalespeople: number
     averageQuoteValue: number
 }
 
@@ -42,8 +51,8 @@ interface DashboardTopProduct {
     totalRevenue: number
 }
 
-interface DashboardTopCustomer {
-    customerId: number
+interface DashboardTopSalesperson {
+    salespersonId: number
     name: string
     companyName: string | null
     email: string
@@ -52,42 +61,24 @@ interface DashboardTopCustomer {
     totalRevenue: number
 }
 
-interface DashboardTopIngredient {
-    ingredientId: number
+interface DashboardTopRawMaterial {
+    rawMaterialId: number
     displayName: string
     quoteCount: number
     totalCost: number
 }
 
 interface DashboardSummary {
-    range: { startDate: Date | null; endDate: Date | null }
+    // Días "YYYY-MM-DD" en hora de Guatemala, tal como llegaron en el query.
+    range: { startDate: string | null; endDate: string | null }
     overview: DashboardOverview
     trend: DashboardTrendPoint[]
     trendGranularity: "day" | "week"
+    // Ordenado por valor cotizado (suma de Quote.totalCost), NO por unidades: sumar bolsas de
+    // presentaciones distintas (500 g vs 2 kg) no es comparable. Alimenta la lista y la dona.
     topProducts: DashboardTopProduct[]
-    topProductsByRevenue: DashboardTopProduct[]
-    topCustomers: DashboardTopCustomer[]
-    topIngredients: DashboardTopIngredient[]
-}
-
-function endOfDay(date: Date): Date {
-    const result = new Date(date)
-    result.setUTCHours(23, 59, 59, 999)
-    return result
-}
-
-function dayKey(date: Date): string {
-    return date.toISOString().slice(0, 10)
-}
-
-// Lunes de la semana ISO a la que pertenece `date`, como clave "YYYY-MM-DD".
-function weekKey(date: Date): string {
-    const monday = new Date(date)
-    const day = monday.getUTCDay()
-    const diffToMonday = day === 0 ? -6 : 1 - day
-    monday.setUTCDate(monday.getUTCDate() + diffToMonday)
-    monday.setUTCHours(0, 0, 0, 0)
-    return dayKey(monday)
+    topSalespeople: DashboardTopSalesperson[]
+    topRawMaterials: DashboardTopRawMaterial[]
 }
 
 function buildOverview(quotes: Quote[]): DashboardOverview {
@@ -95,39 +86,43 @@ function buildOverview(quotes: Quote[]): DashboardOverview {
     const totalRevenue = sumMoney(quotes.map(quote => Number(quote.totalCost)))
     const totalPallets = quotes.reduce((sum, quote) => sum + Number(quote.requestedPallets), 0)
     const totalUnits = quotes.reduce((sum, quote) => sum + Number(quote.totalUnits), 0)
-    const uniqueCustomers = new Set(quotes.map(quote => quote.customerId)).size
+    const uniqueSalespeople = new Set(quotes.map(quote => quote.salespersonId)).size
 
     return {
         totalQuotes,
         totalRevenue,
         totalPallets,
         totalUnits,
-        uniqueCustomers,
+        uniqueSalespeople,
         averageQuoteValue: totalQuotes > 0 ? roundMoney(toDecimal(totalRevenue).dividedBy(totalQuotes)) : 0,
     }
 }
 
+// `quotes` es el MISMO conjunto ya filtrado por rango que usa el resto del resumen. El largo del
+// rango (y con él la granularidad) sale de los días pedidos; un extremo abierto se completa con la
+// cotización más antigua/reciente. Días y semanas se cuentan en hora de Guatemala.
 function buildTrend(
     quotes: Quote[],
-    startDate?: Date,
-    endDate?: Date
+    startDate?: string,
+    endDate?: string
 ): { granularity: "day" | "week"; points: DashboardTrendPoint[] } {
     if (quotes.length === 0) return { granularity: "day", points: [] }
 
-    const timestamps = quotes.map(quote => new Date(quote.get("createdAt") as Date).getTime())
-    const rangeStartMs = startDate ? startDate.getTime() : Math.min(...timestamps)
-    const rangeEndMs = endDate ? endOfDay(endDate).getTime() : Math.max(...timestamps)
-    const spanDays = Math.max(1, Math.ceil((rangeEndMs - rangeStartMs) / MS_PER_DAY) + 1)
+    const createdAts = quotes.map(quote => new Date(quote.get("createdAt") as Date))
+    const timestamps = createdAts.map(createdAt => createdAt.getTime())
+    const firstDay = startDate ?? businessDayKey(new Date(Math.min(...timestamps)))
+    const lastDay = endDate ?? businessDayKey(new Date(Math.max(...timestamps)))
+    const spanDays = Math.max(1, inclusiveDaySpan(firstDay, lastDay))
     const granularity: "day" | "week" = spanDays > MAX_DAILY_BUCKETS ? "week" : "day"
     const buckets = new Map<string, { count: number; revenue: Decimal }>()
-    for (const quote of quotes) {
-        const createdAt = new Date(quote.get("createdAt") as Date)
-        const key = granularity === "week" ? weekKey(createdAt) : dayKey(createdAt)
+    quotes.forEach((quote, index) => {
+        const createdAt = createdAts[index]
+        const key = granularity === "week" ? businessWeekKey(createdAt) : businessDayKey(createdAt)
         const bucket = buckets.get(key) ?? { count: 0, revenue: new Decimal(0) }
         bucket.count += 1
         bucket.revenue = bucket.revenue.plus(quote.totalCost)
         buckets.set(key, bucket)
-    }
+    })
 
     const points = Array.from(buckets.entries())
         .map(([bucketStart, value]) => ({ bucketStart, count: value.count, revenue: roundMoney(value.revenue) }))
@@ -138,6 +133,8 @@ function buildTrend(
 
 type ProductAccumulator = Omit<DashboardTopProduct, "totalRevenue"> & { totalRevenue: Decimal }
 
+// El nombre que queda aquí es el del snapshot más reciente -- solo el respaldo si el producto ya no se
+// encuentra; applyLiveProductNames lo reemplaza por el nombre vivo del catálogo.
 function groupProductsByRealId(quotes: Quote[]): DashboardTopProduct[] {
     const byProduct = new Map<number | string, ProductAccumulator>()
 
@@ -165,30 +162,24 @@ function groupProductsByRealId(quotes: Quote[]): DashboardTopProduct[] {
 
 function buildTopProducts(quotes: Quote[]): DashboardTopProduct[] {
     return groupProductsByRealId(quotes)
-        .sort((a, b) => b.totalUnits - a.totalUnits)
-        .slice(0, TOP_LIST_LIMIT)
-}
-
-function buildTopProductsByRevenue(quotes: Quote[]): DashboardTopProduct[] {
-    return groupProductsByRealId(quotes)
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
         .slice(0, TOP_LIST_LIMIT)
 }
 
-type CustomerAccumulator = Omit<DashboardTopCustomer, "totalRevenue"> & { totalRevenue: Decimal }
+type SalespersonAccumulator = Omit<DashboardTopSalesperson, "totalRevenue"> & { totalRevenue: Decimal }
 
-function buildTopCustomers(quotes: Quote[]): DashboardTopCustomer[] {
-    const byCustomer = new Map<number, CustomerAccumulator>()
+function buildTopSalespeople(quotes: Quote[]): DashboardTopSalesperson[] {
+    const bySalesperson = new Map<number, SalespersonAccumulator>()
 
     for (const quote of quotes) {
-        const customer = quote.quotingCustomer
-        if (!customer) continue
+        const salesperson = quote.quotingSalesperson
+        if (!salesperson) continue
 
-        const entry = byCustomer.get(customer.id) ?? {
-            customerId: customer.id,
-            name: customer.name,
-            companyName: customer.companyName ?? null,
-            email: customer.email,
+        const entry = bySalesperson.get(salesperson.id) ?? {
+            salespersonId: salesperson.id,
+            name: salesperson.name,
+            companyName: salesperson.companyName ?? null,
+            email: salesperson.email,
             quoteCount: 0,
             totalPallets: 0,
             totalRevenue: new Decimal(0),
@@ -196,26 +187,26 @@ function buildTopCustomers(quotes: Quote[]): DashboardTopCustomer[] {
         entry.quoteCount += 1
         entry.totalPallets += Number(quote.requestedPallets)
         entry.totalRevenue = entry.totalRevenue.plus(quote.totalCost)
-        byCustomer.set(customer.id, entry)
+        bySalesperson.set(salesperson.id, entry)
     }
 
-    return Array.from(byCustomer.values())
+    return Array.from(bySalesperson.values())
         .map(entry => ({ ...entry, totalRevenue: roundMoney(entry.totalRevenue) }))
         .sort((a, b) => b.totalRevenue - a.totalRevenue)
         .slice(0, TOP_LIST_LIMIT)
 }
 
 
-type IngredientAccumulator = Omit<DashboardTopIngredient, "totalCost"> & { totalCost: Decimal }
+type RawMaterialAccumulator = Omit<DashboardTopRawMaterial, "totalCost"> & { totalCost: Decimal }
 
-function buildTopIngredients(quotes: Quote[]): DashboardTopIngredient[] {
-    const byIngredient = new Map<number, IngredientAccumulator>()
+function buildTopRawMaterials(quotes: Quote[]): DashboardTopRawMaterial[] {
+    const byRawMaterial = new Map<number, RawMaterialAccumulator>()
 
     for (const quote of quotes) {
         const breakdown = quote.breakdown as unknown as QuoteBreakdownSnapshot
         for (const line of breakdown?.rawMaterials ?? []) {
-            const entry = byIngredient.get(line.ingredientId) ?? {
-                ingredientId: line.ingredientId,
+            const entry = byRawMaterial.get(line.rawMaterialId) ?? {
+                rawMaterialId: line.rawMaterialId,
                 displayName: line.displayName,
                 quoteCount: 0,
                 totalCost: new Decimal(0),
@@ -223,25 +214,73 @@ function buildTopIngredients(quotes: Quote[]): DashboardTopIngredient[] {
             entry.displayName = line.displayName
             entry.quoteCount += 1
             entry.totalCost = entry.totalCost.plus(line.lineTotal)
-            byIngredient.set(line.ingredientId, entry)
+            byRawMaterial.set(line.rawMaterialId, entry)
         }
     }
 
-    return Array.from(byIngredient.values())
+    return Array.from(byRawMaterial.values())
         .map(entry => ({ ...entry, totalCost: roundMoney(entry.totalCost) }))
         .sort((a, b) => b.totalCost - a.totalCost)
         .slice(0, TOP_LIST_LIMIT)
 }
 
-async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSummary> {
-    const createdAtFilter: Record<symbol, Date> = {}
-    if (startDate) createdAtFilter[Op.gte] = startDate
-    if (endDate) createdAtFilter[Op.lte] = endOfDay(endDate)
+// Nombres VIVOS del catálogo, en el idioma del admin, para las filas ya rankeadas. El snapshot guarda el
+// nombre en el idioma de quien cotizó (un panel en español podía mostrar "Pineapple chunks"). Una
+// consulta por id, solo de los ids del ranking (máximo TOP_LIST_LIMIT), sin filtrar por isActive (un
+// producto desactivado sigue teniendo nombre). Solo cambia nombres: nunca montos ni el orden.
+async function applyLiveProductNames(
+    products: DashboardTopProduct[],
+    language: ContentLanguage
+): Promise<DashboardTopProduct[]> {
+    const ids = products.map(product => product.productId).filter((id): id is number => id !== null)
+    if (ids.length === 0) return products
+
+    const rows = await Product.findAll({
+        where: { id: { [Op.in]: ids } },
+        attributes: ["id", "displayName"],
+        include: [{ model: ProductTranslation, as: "translations", attributes: ["language", "displayName"] }],
+    })
+    const liveNames = new Map(rows.map(row => [row.id, pickTranslatedName(row.displayName, row.translations, language)]))
+
+    return products.map(product => {
+        const liveName = product.productId !== null ? liveNames.get(product.productId) : undefined
+        return liveName ? { ...product, productDisplayName: liveName } : product
+    })
+}
+
+// Mismo criterio que applyLiveProductNames, por rawMaterialId.
+async function applyLiveRawMaterialNames(
+    rawMaterials: DashboardTopRawMaterial[],
+    language: ContentLanguage
+): Promise<DashboardTopRawMaterial[]> {
+    if (rawMaterials.length === 0) return rawMaterials
+
+    const rows = await RawMaterial.findAll({
+        where: { id: { [Op.in]: rawMaterials.map(rawMaterial => rawMaterial.rawMaterialId) } },
+        attributes: ["id", "displayName"],
+        include: [{ model: RawMaterialTranslation, as: "translations", attributes: ["language", "displayName"] }],
+    })
+    const liveNames = new Map(rows.map(row => [row.id, pickTranslatedName(row.displayName, row.translations, language)]))
+
+    return rawMaterials.map(rawMaterial => {
+        const liveName = liveNames.get(rawMaterial.rawMaterialId)
+        return liveName ? { ...rawMaterial, displayName: liveName } : rawMaterial
+    })
+}
+
+// startDate/endDate: días "YYYY-MM-DD" en hora de Guatemala (ver dashboard.schema.ts). `language`: el
+// del admin (Accept-Language), solo para los nombres de productos y materias primas.
+async function getSummary(
+    startDate?: string,
+    endDate?: string,
+    language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE
+): Promise<DashboardSummary> {
+    const createdAtFilter = businessDayRangeFilter(startDate, endDate)
 
     const quotes = await Quote.findAll({
-        where: Object.keys(createdAtFilter).length > 0 ? { createdAt: createdAtFilter } : {},
+        where: createdAtFilter ? { createdAt: createdAtFilter } : {},
         include: [
-            { model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] },
+            { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] },
             {
                 model: ProductVariant,
                 as: "quotedVariant",
@@ -253,16 +292,19 @@ async function getSummary(startDate?: Date, endDate?: Date): Promise<DashboardSu
     })
 
     const trend = buildTrend(quotes, startDate, endDate)
+    const [topProducts, topRawMaterials] = await Promise.all([
+        applyLiveProductNames(buildTopProducts(quotes), language),
+        applyLiveRawMaterialNames(buildTopRawMaterials(quotes), language),
+    ])
 
     return {
         range: { startDate: startDate ?? null, endDate: endDate ?? null },
         overview: buildOverview(quotes),
         trend: trend.points,
         trendGranularity: trend.granularity,
-        topProducts: buildTopProducts(quotes),
-        topProductsByRevenue: buildTopProductsByRevenue(quotes),
-        topCustomers: buildTopCustomers(quotes),
-        topIngredients: buildTopIngredients(quotes),
+        topProducts,
+        topSalespeople: buildTopSalespeople(quotes),
+        topRawMaterials,
     }
 }
 

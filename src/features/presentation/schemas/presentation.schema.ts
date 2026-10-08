@@ -4,7 +4,6 @@ import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema
 export const createPresentationSchema = z.object({
     displayLabel: z.string().trim().min(1).max(40),
     netWeightGrams: z.number().positive(),
-    categoryId: z.number().int().positive().optional(),
 })
 
 export const presentationIdParamSchema = z.object({

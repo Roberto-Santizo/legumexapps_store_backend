@@ -5,14 +5,12 @@ const ingredientTranslationInputSchema = z.object({
     displayName: z.string().trim().min(1).max(120).optional(),
 })
 
+// costUnitId NO es parte del input -- igual que RawMaterial, la unidad de costeo se fuerza
+// server-side a la Libra (ver ingredient.service.ts). costPerUnit = "costo por libra".
 export const createIngredientSchema = z.object({
     code: z.string().trim().min(1).max(60),
     displayName: z.string().trim().min(1).max(120),
-    ingredientType: z.enum(["fruit", "vegetable", "pulp", "other"]),
-    isOrganic: z.boolean().optional(),
-    isMixable: z.boolean().optional(),
     costPerUnit: z.number().nonnegative(),
-    costUnitId: z.number().int().positive(),
     translations: z.object({ en: ingredientTranslationInputSchema.optional() }).optional(),
 })
 
@@ -23,7 +21,6 @@ export const ingredientIdParamSchema = z.object({
 export const updateIngredientSchema = createIngredientSchema.partial().extend({
     code: createIngredientSchema.shape.code,
     costPerUnit: createIngredientSchema.shape.costPerUnit,
-    costUnitId: createIngredientSchema.shape.costUnitId,
 })
 
 export const ingredientQuerySchema = paginationQuerySchema.extend({

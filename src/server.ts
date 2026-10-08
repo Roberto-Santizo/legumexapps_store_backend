@@ -10,6 +10,10 @@ const server = express()
 // No exponer la versión/tecnología del framework vía el header "X-Powered-By".
 server.disable("x-powered-by")
 
+// Sin ETags: es una API JSON pura y un 304 sin body rompe el parse con zod del frontend, que siempre
+// necesita el JSON real.
+server.set("etag", false)
+
 server.set("trust proxy", 1)
 
 // Solo el frontend conocido (ver FRONTEND_URL en env) puede leer las respuestas de la API --

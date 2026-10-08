@@ -1,11 +1,17 @@
+import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
+import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { Op } from "sequelize"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
 import ProductTranslation from "../../product/models/ProductTranslation.model"
+import ProductRawMaterial from "../../product/models/ProductRawMaterial.model"
 import ProductIngredient from "../../product/models/ProductIngredient.model"
 import SubCategory from "../../category/models/SubCategory.model"
+import SubCategoryTranslation from "../../category/models/SubCategoryTranslation.model"
 import Category from "../../category/models/Category.model"
 import CategoryTranslation from "../../category/models/CategoryTranslation.model"
+import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
+import RawMaterialTranslation from "../../rawMaterial/models/RawMaterialTranslation.model"
 import Ingredient from "../../ingredient/models/Ingredient.model"
 import IngredientTranslation from "../../ingredient/models/IngredientTranslation.model"
 import Unit from "../../unit/models/Unit.model"
@@ -13,91 +19,49 @@ import Packaging from "../../packaging/models/Packaging.model"
 import Presentation from "../../presentation/models/Presentation.model"
 import ProductVariantPalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
 import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
-import ProductType from "../../product-type/models/ProductType.model"
+import ProductVariantIntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
 import Destination from "../../destination/models/Destination.model"
-import Customer from "../../customer/models/Customer.model"
+import Salesperson from "../../salesperson/models/Salesperson.model"
 import Quote from "../models/Quote.model"
-import Lead from "../../lead/models/Lead.model"
-import { leadService } from "../../lead/services/lead.service"
-import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
-import ProcessingCostTranslation from "../../processingCost/models/ProcessingCostTranslation.model"
-import { getUnitCatalogEntry } from "../../unit/constants/unitCatalog"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
-import { CalculateQuoteInput, IngredientMixLineInput, SaveQuoteInput } from "../schemas/quote.schema"
+import { CalculateQuoteInput, SalespersonQuoteInput } from "../schemas/quote.schema"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
-import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
+import { toDecimal, sumMoney } from "../../../shared/utils/money.util"
+import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
 import Decimal from "decimal.js"
+import {
+    AdjustmentLine,
+    IngredientLine,
+    IntermediateMaterialLine,
+    MIX_PERCENTAGE_TOLERANCE,
+    PalletMaterialLine,
+    PercentageCostLine,
+    ProcessingCostLine,
+    RawMaterialLine,
+    TransportLine,
+    UnitMaterialLine,
+    assembleQuoteTotals,
+    buildAdjustmentLine,
+    buildCustomizableRawMaterials,
+    buildIngredientLine,
+    buildIntermediateMaterialLine,
+    buildPalletMaterialLine,
+    buildPercentageRawMaterialLine,
+    buildPerWeightProcessingCostLines,
+    buildTransportLine,
+    buildUnitMaterialLine
+} from "./quoteCostLines"
+import { GroupedMaterialRow, bucketMaterialsByGroup, resolveMaterialsForQuote } from "./quoteMaterialSelection"
 
-const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
+// La matemática por línea (materia prima, ingredientes, empaque por nivel, costos adicionales,
+// transporte, ajuste y el total) vive en quoteCostLines.ts, y la resolución de grupos de opciones en
+// quoteMaterialSelection.ts. Este archivo es el motor de PRODUCTOS DEFINIDOS: lee esos valores de la
+// variante (SKU) y los pasa a los builders compartidos.
 
-interface RawMaterialLine {
-    ingredientId: number
-    displayName: string
-    unitCost: number
-    quantityPerUnit: number
-    totalUnits: number
-    lineTotal: number
-}
-
-interface UnitMaterialLine {
-    packagingId: number
-    displayName: string
-    unitCost: number
-    quantityPerUnit: number
-    totalUnits: number
-    lineTotal: number
-}
-
-interface IntermediatePackagingLine {
-    packagingId: number
-    displayName: string
-    unitCost: number
-    unitsPerPackage: number
-    totalUnits: number
-    packagesNeeded: number
-    lineTotal: number
-}
-
-interface ProcessingCostLine {
-    processingCostId: number
-    displayName: string
-    value: number
-    totalWeightPounds: number
-    lineTotal: number
-}
-
-interface PercentageCostLine {
-    processingCostId: number
-    displayName: string
-    value: number
-    baseAmount: number
-    lineTotal: number
-}
-
-interface PalletMaterialLine {
-    packagingId: number
-    displayName: string
-    unitCost: number
-    quantityPerPallet: number
-    requestedPallets: number
-    lineTotal: number
-}
-
-interface TransportLine {
-    destinationId: number | null
-    displayName: string
-    baseCost: number
-}
-
-interface AdjustmentLine {
-    unitCost: number
-    totalUnits: number
-    lineTotal: number
-}
-
-interface QuoteCalculation {
+export interface QuoteCalculation {
     productVariantId: number
-    // null cuando no se mandó destinationId -- ver TransportLine.destinationId arriba.
+    // null cuando no se mandó destinationId -- ver TransportLine.destinationId en quoteCostLines.ts.
     destinationId: number | null
     productDisplayName: string
     variantLabel: string | null
@@ -105,6 +69,7 @@ interface QuoteCalculation {
     totalUnits: number
     boxesPerPallet: number
     rawMaterialCost: number
+    ingredientCost: number
     unitPackagingCost: number
     intermediatePackagingCost: number
     processingCostTotal: number
@@ -115,8 +80,11 @@ interface QuoteCalculation {
     totalCost: number
     breakdown: {
         rawMaterials: RawMaterialLine[]
+        ingredients: IngredientLine[]
         unitMaterials: UnitMaterialLine[]
-        intermediatePackaging: IntermediatePackagingLine | null
+        // Array (no un único objeto o null) -- el nivel intermedio admite N filas fijas + N grupos
+        // de opciones, igual que unit/pallet.
+        intermediateMaterials: IntermediateMaterialLine[]
         processingCosts: ProcessingCostLine[]
         palletMaterials: PalletMaterialLine[]
         percentageCosts: PercentageCostLine[]
@@ -126,123 +94,48 @@ interface QuoteCalculation {
     }
 }
 
-
-const MIX_PERCENTAGE_TOLERANCE = new Decimal(0.5)
-
-function buildFixedRecipeRawMaterials(
-    productIngredients: ProductIngredient[],
-    totalUnits: number,
-    language: ContentLanguage
-): RawMaterialLine[] {
-    const totalUnitsDecimal = toDecimal(totalUnits)
-
-    return productIngredients.map(productIngredient => {
-        const ingredient = productIngredient.usedIngredient
-        const unitCost = toDecimal(ingredient?.costPerUnit ?? 0)
-        const rawQuantity = toDecimal(productIngredient.quantityValue ?? 0)
-        const quantityUnit = productIngredient.quantityUnit
-        const costUnit = ingredient?.costUnit
-
-        let quantityPerUnit = rawQuantity
-        if (quantityUnit && costUnit) {
-            if (quantityUnit.unitType !== costUnit.unitType) {
-                throw new AppError(422, "errors.product_ingredient_quantity_unit_type_mismatch", {
-                    ingredientId: productIngredient.ingredientId,
-                    quantityUnitType: quantityUnit.unitType,
-                    costUnitType: costUnit.unitType
-                })
-            }
-            quantityPerUnit = rawQuantity.times(toDecimal(quantityUnit.baseFactor)).dividedBy(toDecimal(costUnit.baseFactor))
-        }
-
-        const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnitsDecimal))
-
-        return {
-            ingredientId: productIngredient.ingredientId,
-            displayName: pickTranslatedName(ingredient?.displayName ?? "", ingredient?.translations, language),
-            unitCost: unitCost.toNumber(),
-            quantityPerUnit: quantityPerUnit.toDecimalPlaces(6).toNumber(),
-            totalUnits,
-            lineTotal
-        }
-    })
-}
-
-
-function buildCustomizableRawMaterials(
-    pool: ProductIngredient[],
-    mix: IngredientMixLineInput[] | undefined,
+// Receta fija (!Product.isCustomizable): el % de cada materia prima lo fija el admin
+// (ProductRawMaterial.percentage) y el cliente nunca puede alterarlo: input.rawMaterialMix no se lee
+// acá. Si el producto no tiene ninguna materia prima activa todavía, se devuelve $0 sin exigir peso
+// neto ni que sume 100, para no romper variantes cuya receta aún no está cargada.
+function buildFixedPercentageRawMaterials(
+    productRawMaterials: ProductRawMaterial[],
     netWeightGrams: number,
     totalUnits: number,
     language: ContentLanguage
 ): RawMaterialLine[] {
-    if (!mix || mix.length === 0) {
-        throw new AppError(422, "errors.ingredient_mix_required")
-    }
+    if (productRawMaterials.length === 0) return []
+
     if (!netWeightGrams || netWeightGrams <= 0) {
         throw new AppError(422, "errors.presentation_missing_net_weight")
     }
 
-    const poolByIngredientId = new Map(pool.map(productIngredient => [productIngredient.ingredientId, productIngredient]))
-    const seenIngredientIds = new Set<number>()
     const netWeight = toDecimal(netWeightGrams)
     const totalUnitsDecimal = toDecimal(totalUnits)
 
     let percentageTotal = new Decimal(0)
-    const rawMaterials: RawMaterialLine[] = mix.map(mixLine => {
-        if (seenIngredientIds.has(mixLine.ingredientId)) {
-            throw new AppError(422, "errors.duplicate_ingredient_in_mix", { ingredientId: mixLine.ingredientId })
-        }
-        seenIngredientIds.add(mixLine.ingredientId)
-
-        const poolEntry = poolByIngredientId.get(mixLine.ingredientId)
-        if (!poolEntry) {
-            throw new AppError(422, "errors.ingredient_not_in_pool", { ingredientId: mixLine.ingredientId })
-        }
-
-        const minPercentage = poolEntry.minPercentage !== null && poolEntry.minPercentage !== undefined ? Number(poolEntry.minPercentage) : 0
-        const maxPercentage = poolEntry.maxPercentage !== null && poolEntry.maxPercentage !== undefined ? Number(poolEntry.maxPercentage) : 100
-        if (mixLine.percentage < minPercentage || mixLine.percentage > maxPercentage) {
-            throw new AppError(422, "errors.ingredient_percentage_out_of_range", {
-                ingredientId: mixLine.ingredientId,
-                minPercentage,
-                maxPercentage
-            })
-        }
-
-        const percentage = toDecimal(mixLine.percentage)
+    const rawMaterials: RawMaterialLine[] = productRawMaterials.map(productRawMaterial => {
+        const percentage = toDecimal(productRawMaterial.percentage ?? 0)
         percentageTotal = percentageTotal.plus(percentage)
 
-        const ingredient = poolEntry.usedIngredient
-        const unitCost = toDecimal(ingredient?.costPerUnit ?? 0)
-        if (!ingredient?.costUnit) {
-            throw new AppError(422, "errors.ingredient_missing_cost_unit", { ingredientId: mixLine.ingredientId })
-        }
- 
-        if (ingredient.costUnit.unitType !== "weight") {
-            throw new AppError(422, "errors.ingredient_cost_unit_type_mismatch", {
-                ingredientId: mixLine.ingredientId,
-                unitType: ingredient.costUnit.unitType
-            })
-        }
-
-        const costUnitBaseFactor = toDecimal(ingredient.costUnit.baseFactor)
-        const gramsPerUnit = percentage.dividedBy(100).times(netWeight)
-        const quantityPerUnitDecimal = gramsPerUnit.dividedBy(costUnitBaseFactor)
-        const lineTotal = roundMoney(unitCost.times(quantityPerUnitDecimal).times(totalUnitsDecimal))
-
-        return {
-            ingredientId: mixLine.ingredientId,
-            displayName: pickTranslatedName(ingredient?.displayName ?? "", ingredient?.translations, language),
-            unitCost: unitCost.toNumber(),
-            quantityPerUnit: quantityPerUnitDecimal.toDecimalPlaces(6).toNumber(),
+        return buildPercentageRawMaterialLine(
+            productRawMaterial.rawMaterialId,
+            productRawMaterial.usedRawMaterial,
+            percentage,
+            netWeight,
             totalUnits,
-            lineTotal
-        }
+            totalUnitsDecimal,
+            language
+        )
     })
 
+    // Autoritativo (a diferencia del techo "blando" de productRawMaterial.service.ts, que solo
+    // evita GUARDAR una receta que ya se pase de 100 mientras se arma fila por fila): acá SÍ debe
+    // sumar 100 exacto (± tolerancia) porque se está cotizando de verdad. Clave de error distinta
+    // a la del mix personalizable a propósito -- el significado para quien lo lee es otro ("este
+    // producto está mal configurado", no "tu mezcla no cuadra").
     if (percentageTotal.minus(100).abs().greaterThan(MIX_PERCENTAGE_TOLERANCE)) {
-        throw new AppError(422, "errors.mix_percentage_must_total_100", { percentageTotal: percentageTotal.toDecimalPlaces(2).toNumber() })
+        throw new AppError(422, "errors.fixed_recipe_percentage_must_total_100", { percentageTotal: percentageTotal.toDecimalPlaces(2).toNumber() })
     }
 
     return rawMaterials
@@ -257,6 +150,22 @@ async function loadQuoteVariant(productVariantId: number): Promise<{ variant: Pr
                 as: "parentProduct",
                 include: [
                     {
+                        model: ProductRawMaterial,
+                        as: "productRawMaterials",
+                        where: { isActive: true },
+                        required: false,
+                        include: [
+                            {
+                                model: RawMaterial,
+                                as: "usedRawMaterial",
+                                include: [
+                                    { model: Unit, as: "costUnit" },
+                                    { model: RawMaterialTranslation, as: "translations" }
+                                ]
+                            }
+                        ]
+                    },
+                    {
                         model: ProductIngredient,
                         as: "productIngredients",
                         where: { isActive: true },
@@ -269,15 +178,13 @@ async function loadQuoteVariant(productVariantId: number): Promise<{ variant: Pr
                                     { model: Unit, as: "costUnit" },
                                     { model: IngredientTranslation, as: "translations" }
                                 ]
-                            },
-                            { model: Unit, as: "quantityUnit" }
+                            }
                         ]
                     },
                     { model: ProductTranslation, as: "translations" }
                 ]
             },
             { model: Presentation, as: "sizePresentation" },
-            { model: Packaging, as: "usedIntermediatePackaging" },
             {
                 model: ProductVariantPalletMaterial,
                 as: "palletMaterials",
@@ -291,6 +198,16 @@ async function loadQuoteVariant(productVariantId: number): Promise<{ variant: Pr
                 where: { isActive: true },
                 required: false,
                 include: [{ model: Packaging, as: "usedUnitMaterial" }]
+            },
+            {
+                // Se cargan TODAS las filas activas (fijas + de cada grupo), nunca solo
+                // isDefault:true, porque resolveMaterialsForQuote necesita el set completo para
+                // validar la elección del cliente (ver comentario ahí). Igual que unit/pallet.
+                model: ProductVariantIntermediateMaterial,
+                as: "intermediateMaterials",
+                where: { isActive: true },
+                required: false,
+                include: [{ model: Packaging, as: "usedIntermediateMaterial" }]
             }
         ]
     })
@@ -319,115 +236,62 @@ async function resolveQuoteDestination(destinationId: number | undefined): Promi
     return destination
 }
 
+function variantNetWeightGrams(variant: ProductVariant): number {
+    return Number(variant.sizePresentation?.netWeightGrams ?? 0)
+}
+
 function buildRawMaterialLines(
     variant: ProductVariant,
     input: CalculateQuoteInput,
     totalUnits: number,
     language: ContentLanguage
 ): RawMaterialLine[] {
+    const netWeightGrams = variantNetWeightGrams(variant)
+    // El cliente nunca puede alterar una receta fija: input.rawMaterialMix ni siquiera se lee acá
+    // en ese caso -- los % vienen únicamente de ProductRawMaterial.percentage (fijados por el
+    // admin), ver buildFixedPercentageRawMaterials.
     return variant.parentProduct?.isCustomizable
         ? buildCustomizableRawMaterials(
-              variant.parentProduct.productIngredients ?? [],
-              input.ingredientMix,
-              Number(variant.sizePresentation?.netWeightGrams ?? 0),
+              variant.parentProduct.productRawMaterials ?? [],
+              input.rawMaterialMix,
+              netWeightGrams,
               totalUnits,
               language
           )
-        : buildFixedRecipeRawMaterials(variant.parentProduct?.productIngredients ?? [], totalUnits, language)
+        : buildFixedPercentageRawMaterials(variant.parentProduct?.productRawMaterials ?? [], netWeightGrams, totalUnits, language)
 }
 
-function buildIntermediatePackagingLine(variant: ProductVariant, totalUnits: number): IntermediatePackagingLine | null {
-    if (!variant.usedIntermediatePackaging) return null
+// Ingredientes agregados (sal, azúcar...) -- fijados por el admin, el cliente nunca los toca, mismos
+// para receta fija y personalizable (el request no trae nada para esto). Fuera del 100% de la
+// receta: se costean como una porción EXTRA del peso neto (buildIngredientLine). Sin filas
+// activas -> [] sin exigir peso neto (misma tolerancia "no configurado" que la receta fija).
+function buildIngredientLines(variant: ProductVariant, totalUnits: number, language: ContentLanguage): IngredientLine[] {
+    const productIngredients = variant.parentProduct?.productIngredients ?? []
+    if (productIngredients.length === 0) return []
 
-    if (!variant.unitsPerIntermediatePackage || variant.unitsPerIntermediatePackage <= 0) {
-        throw new AppError(422, "errors.intermediate_packaging_missing_units")
-    }
-    const unitCost = toDecimal(variant.usedIntermediatePackaging.unitCost ?? 0)
-    const packagesNeeded = Math.ceil(totalUnits / variant.unitsPerIntermediatePackage)
-    return {
-        packagingId: variant.usedIntermediatePackaging.id,
-        displayName: variant.usedIntermediatePackaging.displayName,
-        unitCost: unitCost.toNumber(),
-        unitsPerPackage: variant.unitsPerIntermediatePackage,
-        totalUnits,
-        packagesNeeded,
-        lineTotal: roundMoney(unitCost.times(packagesNeeded))
-    }
-}
-
-async function buildPerWeightProcessingCostLines(
-    variant: ProductVariant,
-    totalUnits: number,
-    language: ContentLanguage
-): Promise<ProcessingCostLine[]> {
-    const activeProcessingCosts = await ProcessingCost.findAll({
-        where: { isActive: true, calculationType: "per_weight" },
-        include: [{ model: ProcessingCostTranslation, as: "translations" }]
-    })
-
-    const perWeightProcessingCosts = activeProcessingCosts.filter(processingCost => processingCost.calculationType === "per_weight")
-    if (perWeightProcessingCosts.length === 0) return []
-
-
-    const netWeightGrams = Number(variant.sizePresentation?.netWeightGrams ?? 0)
-    if (netWeightGrams <= 0) {
+    const netWeightGrams = variantNetWeightGrams(variant)
+    if (!netWeightGrams || netWeightGrams <= 0) {
         throw new AppError(422, "errors.presentation_missing_net_weight")
     }
 
-    const totalWeightGrams = toDecimal(netWeightGrams).times(totalUnits)
-    const totalWeightPounds = totalWeightGrams.dividedBy(GRAMS_PER_POUND)
+    const netWeight = toDecimal(netWeightGrams)
+    const totalUnitsDecimal = toDecimal(totalUnits)
 
-    return perWeightProcessingCosts.map(processingCost => {
-        const value = toDecimal(processingCost.value)
-        const lineTotal = roundMoney(value.times(totalWeightPounds))
-        return {
-            processingCostId: processingCost.id,
-            displayName: pickTranslatedName(processingCost.displayName, processingCost.translations, language),
-            value: value.toNumber(),
-            totalWeightPounds: totalWeightPounds.toDecimalPlaces(6).toNumber(),
-            lineTotal
-        }
-    })
+    return [...productIngredients]
+        .sort((a, b) => (a.id ?? 0) - (b.id ?? 0))
+        .map(productIngredient =>
+            buildIngredientLine(
+                productIngredient.ingredientId,
+                productIngredient.usedIngredient,
+                productIngredient.grams,
+                productIngredient.referenceNetWeightGrams,
+                netWeight,
+                totalUnits,
+                totalUnitsDecimal,
+                language
+            )
+        )
 }
-
-
-async function buildPercentageCostLines(percentageBase: number, language: ContentLanguage): Promise<PercentageCostLine[]> {
-    const activePercentageCosts = await ProcessingCost.findAll({
-        where: { isActive: true, calculationType: "percentage" },
-        include: [{ model: ProcessingCostTranslation, as: "translations" }]
-    })
-    const percentageOnlyCosts = activePercentageCosts.filter(processingCost => processingCost.calculationType === "percentage")
-    const percentageBaseDecimal = toDecimal(percentageBase)
-    return percentageOnlyCosts.map(processingCost => {
-        const value = toDecimal(processingCost.value)
-        const lineTotal = roundMoney(percentageBaseDecimal.times(value).dividedBy(100))
-        return {
-            processingCostId: processingCost.id,
-            displayName: pickTranslatedName(processingCost.displayName, processingCost.translations, language),
-            value: value.toNumber(),
-            baseAmount: percentageBase,
-            lineTotal
-        }
-    })
-}
-
-function buildTransportLine(destination: Destination | null, language: ContentLanguage): { transportCost: number; transport: TransportLine } {
-    const transportCost = destination ? roundMoney(toDecimal(destination.baseCost)) : 0
-    const transport: TransportLine = destination
-        ? { destinationId: destination.id, displayName: destination.displayName, baseCost: transportCost }
-        : { destinationId: null, displayName: language === "en" ? "No destination" : "Sin destino", baseCost: 0 }
-    return { transportCost, transport }
-}
-
-function buildAdjustmentLine(variant: ProductVariant, totalUnits: number): { adjustmentCost: number; adjustment: AdjustmentLine | null } {
-    const additionalCostPerUnit = toDecimal(variant.parentProduct?.additionalCostPerUnit ?? 0)
-    const adjustmentCost = roundMoney(additionalCostPerUnit.times(totalUnits))
-    const adjustment: AdjustmentLine | null = additionalCostPerUnit.greaterThan(0)
-        ? { unitCost: additionalCostPerUnit.toNumber(), totalUnits, lineTotal: adjustmentCost }
-        : null
-    return { adjustmentCost, adjustment }
-}
-
 
 function buildVariantLabel(variant: ProductVariant, language: ContentLanguage): string {
     const unitsPerBoxLabel = language === "en" ? `${variant.bagsPerBox} units` : `${variant.bagsPerBox} und`
@@ -450,59 +314,70 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     const rawMaterials = buildRawMaterialLines(variant, input, totalUnits, language)
     const rawMaterialCost = sumMoney(rawMaterials.map(line => line.lineTotal))
 
-    const unitMaterials: UnitMaterialLine[] = (variant.unitMaterials ?? []).map(unitMaterial => {
-        const unitCost = toDecimal(unitMaterial.usedUnitMaterial?.unitCost ?? 0)
-        const quantityPerUnit = toDecimal(unitMaterial.quantityPerUnit ?? 1)
-        const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnits))
-        return {
-            packagingId: unitMaterial.packagingId,
-            displayName: unitMaterial.usedUnitMaterial?.displayName ?? "",
-            unitCost: unitCost.toNumber(),
-            quantityPerUnit: quantityPerUnit.toNumber(),
-            totalUnits,
-            lineTotal
-        }
-    })
+    const ingredients = buildIngredientLines(variant, totalUnits, language)
+    const ingredientCost = sumMoney(ingredients.map(line => line.lineTotal))
+
+    const resolvedUnitMaterials = resolveMaterialsForQuote(variant.unitMaterials ?? [], input.selectedUnitMaterialIds, "unit")
+    const unitMaterials = resolvedUnitMaterials.map(unitMaterial =>
+        buildUnitMaterialLine(
+            unitMaterial.packagingId,
+            unitMaterial.usedUnitMaterial,
+            unitMaterial.optionGroup,
+            unitMaterial.quantityPerUnit ?? 1,
+            totalUnits
+        )
+    )
     const unitPackagingCost = sumMoney(unitMaterials.map(line => line.lineTotal))
 
-    const intermediatePackaging = buildIntermediatePackagingLine(variant, totalUnits)
-    const intermediatePackagingCost = intermediatePackaging?.lineTotal ?? 0
+    const resolvedIntermediateMaterials = resolveMaterialsForQuote(
+        variant.intermediateMaterials ?? [],
+        input.selectedIntermediateMaterialIds,
+        "intermediate"
+    )
+    const intermediateMaterials = resolvedIntermediateMaterials.map(material =>
+        buildIntermediateMaterialLine(
+            material.packagingId,
+            material.usedIntermediateMaterial,
+            material.optionGroup,
+            variant.unitsPerIntermediatePackage,
+            totalUnits
+        )
+    )
+    const intermediatePackagingCost = sumMoney(intermediateMaterials.map(line => line.lineTotal))
 
-    const processingCosts = await buildPerWeightProcessingCostLines(variant, totalUnits, language)
+    const processingCosts = await buildPerWeightProcessingCostLines(variantNetWeightGrams(variant), totalUnits, language)
     const processingCostTotal = sumMoney(processingCosts.map(line => line.lineTotal))
 
-    const palletMaterials: PalletMaterialLine[] = (variant.palletMaterials ?? []).map(palletMaterial => {
-        const unitCost = toDecimal(palletMaterial.usedPalletMaterial?.unitCost ?? 0)
-        const quantityPerPallet = toDecimal(palletMaterial.quantityValue ?? 0)
-        const lineTotal = roundMoney(unitCost.times(quantityPerPallet).times(requestedPallets))
-        return {
-            packagingId: palletMaterial.packagingId,
-            displayName: palletMaterial.usedPalletMaterial?.displayName ?? "",
-            unitCost: unitCost.toNumber(),
-            quantityPerPallet: quantityPerPallet.toNumber(),
-            requestedPallets,
-            lineTotal
-        }
-    })
+    const resolvedPalletMaterials = resolveMaterialsForQuote(variant.palletMaterials ?? [], input.selectedPalletMaterialIds, "pallet")
+    const palletMaterials = resolvedPalletMaterials.map(palletMaterial =>
+        buildPalletMaterialLine(
+            palletMaterial.packagingId,
+            palletMaterial.usedPalletMaterial,
+            palletMaterial.optionGroup,
+            toDecimal(palletMaterial.quantityValue ?? 0).times(palletMaterial.quantityBasis === "per_box" ? variant.boxesPerPallet : 1).toString(),
+            requestedPallets
+        )
+    )
     const palletMaterialCost = sumMoney(palletMaterials.map(line => line.lineTotal))
 
-    const percentageBase = sumMoney([rawMaterialCost, processingCostTotal, unitPackagingCost, intermediatePackagingCost, palletMaterialCost])
-    const percentageCosts = await buildPercentageCostLines(percentageBase, language)
-    const percentageCostTotal = sumMoney(percentageCosts.map(line => line.lineTotal))
-
     const { transportCost, transport } = buildTransportLine(destination, language)
-    const { adjustmentCost, adjustment } = buildAdjustmentLine(variant, totalUnits)
+    const { adjustmentCost, adjustment } = buildAdjustmentLine(variant.parentProduct?.additionalCostPerUnit, totalUnits)
 
-    const totalCost = sumMoney([
-        rawMaterialCost,
-        unitPackagingCost,
-        intermediatePackagingCost,
-        processingCostTotal,
-        palletMaterialCost,
-        percentageCostTotal,
-        transportCost,
-        adjustmentCost
-    ])
+    // ingredientCost entra en la base igual que la materia prima (los "Costos adicionales" %
+    // también aplican a los ingredientes) -- la base y el total se definen en assembleQuoteTotals.
+    const { percentageCosts, percentageCostTotal, totalCost } = await assembleQuoteTotals(
+        {
+            rawMaterialCost,
+            ingredientCost,
+            unitPackagingCost,
+            intermediatePackagingCost,
+            processingCostTotal,
+            palletMaterialCost,
+            transportCost,
+            adjustmentCost
+        },
+        language
+    )
 
     const variantLabel = buildVariantLabel(variant, language)
 
@@ -515,6 +390,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         totalUnits,
         boxesPerPallet: variant.boxesPerPallet,
         rawMaterialCost,
+        ingredientCost,
         unitPackagingCost,
         intermediatePackagingCost,
         processingCostTotal,
@@ -525,8 +401,9 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         totalCost,
         breakdown: {
             rawMaterials,
+            ingredients,
             unitMaterials,
-            intermediatePackaging,
+            intermediateMaterials,
             processingCosts,
             palletMaterials,
             percentageCosts,
@@ -537,21 +414,77 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     }
 }
 
+// Grupos de opciones: el menú de alternativas de un nivel para que
+// el cliente elija al cotizar, ya agrupado por el backend -- un chooser por grupo (ej. "Caja" y
+// "Esquinero" en paletización). Solo filas con optionGroup (las fijas nunca son una "opción",
+// siempre se costean solas). `id` es el id de la FILA del join
+// (ProductVariantUnitMaterial/IntermediateMaterial/PalletMaterial), el mismo que
+// calculateQuoteSchema.selectedXMaterialIds espera -- no el packagingId.
+interface QuotableMaterialOption {
+    id: number
+    packagingId: number
+    displayName: string
+    unitCost: number
+    isDefault: boolean
+}
+
+interface QuotableMaterialOptionGroup {
+    group: string
+    groupId?: number
+    options: QuotableMaterialOption[]
+}
+
+// Mismo agrupamiento que resolveMaterialsForQuote (bucketMaterialsByGroup), así el menú que ve el
+// cliente y lo que el motor acepta nunca pueden divergir.
+function buildMaterialOptionGroups<T extends GroupedMaterialRow & { packagingId: number }>(
+    rows: T[],
+    packagingOf: (row: T) => Packaging | undefined
+): QuotableMaterialOptionGroup[] {
+    const { groups } = bucketMaterialsByGroup(rows)
+    return [...groups.values()].map(bucket => ({
+        group: bucket.label,
+        ...(bucket.rows[0]?.optionGroupId != null ? { groupId: bucket.rows[0].optionGroupId } : {}),
+        options: bucket.rows.map(row => ({
+            id: row.id as number,
+            packagingId: row.packagingId,
+            displayName: packagingOf(row)?.displayName ?? "",
+            unitCost: Number(packagingOf(row)?.unitCost ?? 0),
+            isDefault: row.isDefault
+        }))
+    }))
+}
+
 interface QuotableVariant {
     id: number
-    skuCode: string | null
     boxesPerPallet: number
     bagsPerBox: number
     presentationLabel: string | null
+    // Peso neto por bolsa/unidad en gramos, expuesto para que el frontend calcule el peso total del
+    // pedido sin tocar calculateQuote. null si la Presentation no tiene el dato (defensivo).
+    netWeightGrams: number | null
     packagingLabel: string | null
+    unitMaterialOptionGroups: QuotableMaterialOptionGroup[]
+    intermediateMaterialOptionGroups: QuotableMaterialOptionGroup[]
+    palletMaterialOptionGroups: QuotableMaterialOptionGroup[]
 }
 
-interface QuotableIngredientOption {
-    ingredientId: number
+interface QuotableRawMaterialOption {
+    rawMaterialId: number
     displayName: string
     isOrganic: boolean
     minPercentage: number
     maxPercentage: number
+}
+
+// Receta fija (!isCustomizable): el % lo fija el admin y el cliente nunca lo puede alterar (ver
+// buildFixedPercentageRawMaterials en este mismo archivo) -- pero SÍ debe poder VER qué está
+// cotizando (ej. "100% Piña" / "50% Banano · 50% Fresa"). Distinto de QuotableRawMaterialOption
+// (el pool editable del mix personalizable) a propósito: son conceptos diferentes, no la misma
+// forma con un campo de más.
+interface QuotableFixedRawMaterial {
+    rawMaterialId: number
+    displayName: string
+    percentage: number
 }
 
 interface QuotableProduct {
@@ -559,12 +492,15 @@ interface QuotableProduct {
     displayName: string
     isOrganic: boolean
     isCustomizable: boolean
-    productTypeName: string | null
     imageUrl: string | null
     categoryId: number
     categoryName: string
     categoryImageUrl: string | null
-    ingredientPool: QuotableIngredientOption[]
+    subCategoryId: number
+    subCategoryName: string
+    subCategoryImageUrl: string | null
+    rawMaterialPool: QuotableRawMaterialOption[]
+    fixedRecipe: QuotableFixedRawMaterial[]
     variants: QuotableVariant[]
 }
 
@@ -577,7 +513,14 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 model: ProductVariant,
                 as: "productVariants",
                 required: true,
-                where: { isActive: true, boxesPerPallet: { [Op.not]: null }, bagsPerBox: { [Op.not]: null } },
+                // presentationId ya es NOT NULL a nivel de columna; este filtro es defensa en profundidad, igual
+                // que boxesPerPallet/bagsPerBox.
+                where: {
+                    isActive: true,
+                    presentationId: { [Op.not]: null },
+                    boxesPerPallet: { [Op.not]: null },
+                    bagsPerBox: { [Op.not]: null }
+                },
                 include: [
                     { model: Presentation, as: "sizePresentation" },
                     {
@@ -586,28 +529,41 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                         where: { isActive: true },
                         required: false,
                         include: [{ model: Packaging, as: "usedUnitMaterial" }]
+                    },
+                    {
+                        model: ProductVariantIntermediateMaterial,
+                        as: "intermediateMaterials",
+                        where: { isActive: true },
+                        required: false,
+                        include: [{ model: Packaging, as: "usedIntermediateMaterial" }]
+                    },
+                    {
+                        model: ProductVariantPalletMaterial,
+                        as: "palletMaterials",
+                        where: { isActive: true },
+                        required: false,
+                        include: [{ model: Packaging, as: "usedPalletMaterial" }]
                     }
                 ]
             },
-            { model: ProductType, as: "parentProductType" },
             {
                 model: SubCategory,
                 as: "parentSubCategory",
-                include: [{
+                include: [{ model: SubCategoryTranslation, as: "translations" }, {
                     model: Category,
                     as: "parentCategory",
                     include: [{ model: CategoryTranslation, as: "translations" }]
                 }]
             },
             {
-                model: ProductIngredient,
-                as: "productIngredients",
+                model: ProductRawMaterial,
+                as: "productRawMaterials",
                 required: false,
                 where: { isActive: true },
                 include: [{
-                    model: Ingredient,
-                    as: "usedIngredient",
-                    include: [{ model: IngredientTranslation, as: "translations" }]
+                    model: RawMaterial,
+                    as: "usedRawMaterial",
+                    include: [{ model: RawMaterialTranslation, as: "translations" }]
                 }]
             },
             { model: ProductTranslation, as: "translations" }
@@ -623,35 +579,59 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             displayName: pickTranslatedName(plain.displayName, plain.translations, language),
             isOrganic: plain.isOrganic,
             isCustomizable: plain.isCustomizable,
-            productTypeName: plain.parentProductType?.displayName ?? null,
             imageUrl: plain.imageUrl ?? null,
             categoryId: category?.id ?? 0,
             categoryName: pickTranslatedName(category?.displayName ?? "", category?.translations, language),
             categoryImageUrl: category?.imageUrl ?? null,
-            ingredientPool: plain.isCustomizable
-                ? (plain.productIngredients ?? []).map((productIngredient: ProductIngredient) => ({
-                      ingredientId: productIngredient.ingredientId,
-                      displayName: pickTranslatedName(productIngredient.usedIngredient?.displayName ?? "", productIngredient.usedIngredient?.translations, language),
-                      isOrganic: productIngredient.usedIngredient?.isOrganic ?? false,
-                      minPercentage: productIngredient.minPercentage !== null && productIngredient.minPercentage !== undefined
-                          ? Number(productIngredient.minPercentage)
+            subCategoryId: plain.subCategoryId,
+            subCategoryName: pickTranslatedName(plain.parentSubCategory?.displayName ?? "", plain.parentSubCategory?.translations, language),
+            subCategoryImageUrl: plain.parentSubCategory?.imageUrl ?? null,
+            rawMaterialPool: plain.isCustomizable
+                ? (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
+                      rawMaterialId: productRawMaterial.rawMaterialId,
+                      displayName: pickTranslatedName(productRawMaterial.usedRawMaterial?.displayName ?? "", productRawMaterial.usedRawMaterial?.translations, language),
+                      isOrganic: productRawMaterial.usedRawMaterial?.isOrganic ?? false,
+                      minPercentage: productRawMaterial.minPercentage !== null && productRawMaterial.minPercentage !== undefined
+                          ? Number(productRawMaterial.minPercentage)
                           : 0,
-                      maxPercentage: productIngredient.maxPercentage !== null && productIngredient.maxPercentage !== undefined
-                          ? Number(productIngredient.maxPercentage)
+                      maxPercentage: productRawMaterial.maxPercentage !== null && productRawMaterial.maxPercentage !== undefined
+                          ? Number(productRawMaterial.maxPercentage)
                           : 100
                   }))
                 : [],
+            // El cliente no puede editar una receta fija, pero sí debe ver qué está cotizando --
+            // ver comentario de QuotableFixedRawMaterial arriba.
+            fixedRecipe: plain.isCustomizable
+                ? []
+                : (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
+                      rawMaterialId: productRawMaterial.rawMaterialId,
+                      displayName: pickTranslatedName(productRawMaterial.usedRawMaterial?.displayName ?? "", productRawMaterial.usedRawMaterial?.translations, language),
+                      percentage: productRawMaterial.percentage !== null && productRawMaterial.percentage !== undefined
+                          ? Number(productRawMaterial.percentage)
+                          : 0
+                  })),
             variants: (plain.productVariants ?? []).map((variant: ProductVariant) => ({
                 id: variant.id,
-                skuCode: variant.skuCode ?? null,
                 boxesPerPallet: variant.boxesPerPallet as number,
                 bagsPerBox: variant.bagsPerBox as number,
                 presentationLabel: variant.sizePresentation?.displayLabel ?? null,
+                // Presentation.netWeightGrams es DECIMAL: pg lo devuelve como string pese al tipo TS del modelo,
+                // así que se castea con Number(...) como el resto de DECIMAL de este DTO.
+                netWeightGrams: variant.sizePresentation?.netWeightGrams != null ? Number(variant.sizePresentation.netWeightGrams) : null,
+                // Muestra lo que se costea por defecto (filas fijas + el default de cada grupo). Un grupo sin
+                // default se omite acá sin reventar; el guard autoritativo vive en calculateQuote.
                 packagingLabel:
                     (variant.unitMaterials ?? [])
+                        .filter(unitMaterial => normalizeOptionGroup(unitMaterial.optionGroup) === null || unitMaterial.isDefault)
                         .map(unitMaterial => unitMaterial.usedUnitMaterial?.displayName)
                         .filter(Boolean)
-                        .join(" + ") || null
+                        .join(" + ") || null,
+                unitMaterialOptionGroups: buildMaterialOptionGroups(variant.unitMaterials ?? [], row => row.usedUnitMaterial),
+                intermediateMaterialOptionGroups: buildMaterialOptionGroups(
+                    variant.intermediateMaterials ?? [],
+                    row => row.usedIntermediateMaterial
+                ),
+                palletMaterialOptionGroups: buildMaterialOptionGroups(variant.palletMaterials ?? [], row => row.usedPalletMaterial)
             }))
         }
     })
@@ -662,13 +642,16 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 }
 
 
-async function saveQuote(customerId: number, input: SaveQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date; leadId: number }> {
-    const calculation = await calculateQuote(input, language)
-    const lead = await leadService.findOrCreateLeadForQuote(input.leadContact)
+// Una cotización guardada no captura ni vincula un prospecto (Lead).
+// draftKey (opcional, solo del wizard del representante) no participa del cálculo ni del Quote.create:
+// se separa antes de calcular y solo se usa DESPUÉS de crear la cotización, para marcar el borrador
+// como convertido (best-effort: si eso falla, la cotización ya quedó guardada y se devuelve igual).
+async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
+    const { draftKey, ...calculationInput } = input
+    const calculation = await calculateQuote(calculationInput, language)
 
     const quote = await Quote.create({
-        customerId,
-        leadId: lead.id,
+        salespersonId,
         productVariantId: calculation.productVariantId,
         destinationId: calculation.destinationId,
         productDisplayName: calculation.productDisplayName,
@@ -676,6 +659,7 @@ async function saveQuote(customerId: number, input: SaveQuoteInput, language: Co
         requestedPallets: calculation.requestedPallets,
         totalUnits: calculation.totalUnits,
         rawMaterialCost: calculation.rawMaterialCost,
+        ingredientCost: calculation.ingredientCost,
         unitPackagingCost: calculation.unitPackagingCost,
         intermediatePackagingCost: calculation.intermediatePackagingCost,
         processingCostTotal: calculation.processingCostTotal,
@@ -687,20 +671,28 @@ async function saveQuote(customerId: number, input: SaveQuoteInput, language: Co
         breakdown: calculation.breakdown
     })
 
+    if (draftKey) {
+        try {
+            await quoteDraftService.markConverted(draftKey, salespersonId, quote.id)
+        } catch (error) {
+            console.error("[quoteDraft] no se pudo marcar el borrador como convertido", error)
+        }
+    }
+
     return {
         ...calculation,
         id: quote.id,
-        createdAt: quote.get("createdAt") as Date,
-        leadId: lead.id
+        createdAt: quote.get("createdAt") as Date
     }
 }
 
 
-async function listAllQuotes(): Promise<Quote[]> {
+async function listAllQuotes(filters: AdminQuoteListQuery = {}): Promise<Quote[]> {
+    const createdAt = businessDayRangeFilter(filters.startDate, filters.endDate)
     return Quote.findAll({
+        ...(createdAt ? { where: { createdAt } } : {}),
         include: [
-            { model: Customer, as: "quotingCustomer", attributes: ["id", "name", "companyName", "email"] },
-            { model: Lead, as: "quotedLead", required: false, attributes: ["id", "fullName", "companyName", "email"] }
+            { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] }
         ],
         order: [["createdAt", "DESC"]]
     })

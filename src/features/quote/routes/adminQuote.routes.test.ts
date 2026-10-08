@@ -2,6 +2,8 @@
 jest.mock("../../../config/env", () => ({
     env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" }
 }))
+jest.mock("../../customQuote/services/catalogQuoteDiscovery.service", () => ({ discoverCatalog: jest.fn() }))
+jest.mock("../../customQuote/services/catalogQuote.service", () => ({ previewAdminCatalogQuote: jest.fn(), confirmCatalogQuote: jest.fn() }))
 jest.mock("../services/quote.service", () => ({
     quoteService: {
         calculateQuote: jest.fn(),
@@ -14,13 +16,49 @@ jest.mock("../services/quote.service", () => ({
 jest.mock("../../../shared/services/email.service", () => ({
     emailService: { sendMailWithAttachment: jest.fn() }
 }))
+jest.mock("../../quoteDraft/services/quoteDraft.service", () => ({
+    quoteDraftService: { upsertFromCalculation: jest.fn(), markConverted: jest.fn(), listDrafts: jest.fn() }
+}))
 
 import request from "supertest"
 import jwt from "jsonwebtoken"
 import { buildTestApp } from "../../../shared/test-utils/testApp"
 import adminQuoteRouter from "./adminQuote.routes"
 import { quoteService } from "../services/quote.service"
+import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { emailService } from "../../../shared/services/email.service"
+import { discoverCatalog } from "../../customQuote/services/catalogQuoteDiscovery.service"
+import { previewAdminCatalogQuote, confirmCatalogQuote } from "../../customQuote/services/catalogQuote.service"
+
+describe("admin customizable calculator", () => {
+    const input = { categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", isOrganic: false, requestedPallets: 2, rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }
+    const preview = "/api/admin/quotes/catalog-preview"
+    const catalog = "/api/admin/quotes/catalog-configurations"
+    it("requires staff and quotes:calculate for both catalog and calculation", async () => {
+        for (const [token, status] of [["", 401], [salespersonToken, 401], [staffToken(["quotes:view"]), 403]] as const) {
+            expect((await request(app).get(catalog).set("Authorization", `Bearer ${token}`)).status).toBe(status)
+            expect((await request(app).post(preview).set("Authorization", `Bearer ${token}`).send(input)).status).toBe(status)
+        }
+        expect(previewAdminCatalogQuote).not.toHaveBeenCalled()
+        expect(discoverCatalog).not.toHaveBeenCalled()
+    })
+    it("discovers and calculates without customer confirmation or quote/draft writes", async () => {
+        const auth = `Bearer ${staffToken(["quotes:calculate"])}`
+        ;(discoverCatalog as jest.Mock).mockResolvedValue({ categories: [] })
+        ;(previewAdminCatalogQuote as jest.Mock).mockResolvedValue({ totalCost: 284, requestedPallets: 2 })
+        expect((await request(app).get(catalog).set("Authorization", auth)).body.data).toEqual({ categories: [] })
+        const response = await request(app).post(preview).set("Authorization", auth).set("Accept-Language", "en").send(input)
+        expect(response.status).toBe(200)
+        expect(response.body.data.totalCost).toBe(284)
+        expect(previewAdminCatalogQuote).toHaveBeenCalledWith(expect.objectContaining(input), "en")
+        expect(confirmCatalogQuote).not.toHaveBeenCalled()
+        expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+        const invalid = await request(app).post(preview).set("Authorization", auth).send({ ...input, totalCost: 1 })
+        expect(invalid.status).toBe(400)
+        expect(previewAdminCatalogQuote).toHaveBeenCalledTimes(1)
+    })
+})
 
 const app = buildTestApp("/api/admin/quotes", adminQuoteRouter)
 
@@ -28,7 +66,7 @@ function staffToken(permissions: string[]): string {
     return jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions }, "test-secret")
 }
 
-const customerToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
+const salespersonToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const validQuoteBody = { productVariantId: 10, destinationId: 900, requestedPallets: 1 }
 
 describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
@@ -41,7 +79,7 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
         it("rechaza un token de cliente (type customer) con 401 -- este router es solo para staff", async () => {
             const res = await request(app)
                 .post("/api/admin/quotes/preview")
-                .set("Authorization", `Bearer ${customerToken}`)
+                .set("Authorization", `Bearer ${salespersonToken}`)
                 .send(validQuoteBody)
             expect(res.status).toBe(401)
         })
@@ -82,6 +120,23 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
             expect(res.status).toBe(200)
             expect(res.body).toEqual({ data: { totalCost: 284, breakdown: { rawMaterials: [] } } })
             expect(quoteService.calculateQuote).toHaveBeenCalledWith(validQuoteBody, "es")
+            expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        })
+
+        it("nunca escribe un borrador (cotización sin finalizar), aunque el body traiga un draftKey", async () => {
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 })
+            const token = staffToken(["quotes:calculate"])
+
+            const res = await request(app)
+                .post("/api/admin/quotes/preview")
+                .set("Authorization", `Bearer ${token}`)
+                .send({ ...validQuoteBody, draftKey: "3f1c2b8e-9d4a-4c6b-8e2f-1a2b3c4d5e6f" })
+
+            expect(res.status).toBe(200)
+            // calculateQuoteSchema (admin) no conoce draftKey: zod lo descarta antes del service.
+            expect(quoteService.calculateQuote).toHaveBeenCalledWith(validQuoteBody, "es")
+            expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
+            expect(quoteDraftService.markConverted).not.toHaveBeenCalled()
             expect(quoteService.saveQuote).not.toHaveBeenCalled()
         })
 
@@ -145,5 +200,19 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
                 attachment: { buffer: pdfContent, fileName: "cotizacion.pdf", contentType: "application/pdf" }
             })
         })
+    })
+})
+
+describe("GET fixed quotes date filtering", () => {
+    beforeEach(() => (quoteService.listAllQuotes as jest.Mock).mockClear().mockResolvedValue([]))
+    it("forwards validated dates to the existing listing service", async () => {
+        const response = await request(app).get("/api/admin/quotes?startDate=2026-10-01&endDate=2026-10-07").set("Authorization", `Bearer ${staffToken(["quotes:view"])}`)
+        expect(response.status).toBe(200)
+        expect(quoteService.listAllQuotes).toHaveBeenCalledWith({ startDate: "2026-10-01", endDate: "2026-10-07" })
+    })
+    it.each(["startDate=2026-10-08&endDate=2026-10-07", "startDate=2026-02-30", "endDate=2026-10-07T00:00:00Z"])("rejects invalid ranges before querying: %s", async query => {
+        const response = await request(app).get(`/api/admin/quotes?${query}`).set("Authorization", `Bearer ${staffToken(["quotes:view"])}`)
+        expect(response.status).toBe(400)
+        expect(quoteService.listAllQuotes).not.toHaveBeenCalled()
     })
 })

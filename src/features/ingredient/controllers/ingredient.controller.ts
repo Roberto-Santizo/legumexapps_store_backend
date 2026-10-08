@@ -60,7 +60,7 @@ async function destroy(req: Request, res: Response, next: NextFunction): Promise
 
 const EXCEL_MIME_TYPES = new Set([
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-    "application/vnd.ms-excel", 
+    "application/vnd.ms-excel",
 ])
 
 async function bulkImport(req: Request, res: Response, next: NextFunction): Promise<void> {

@@ -15,8 +15,15 @@ export class NotFoundError extends AppError {
     }
 }
 
+export class ExcelImportParseError extends AppError {
+    constructor(public readonly cause: unknown, public readonly fallbackCause?: unknown) {
+        super(422, "errors.bulk_import_unreadable_xlsx")
+    }
+}
+
 
 export interface RowIssue {
+    sheet?: string
     row: number
     field: string
     key: string

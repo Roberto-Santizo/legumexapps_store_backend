@@ -2,7 +2,7 @@ import { z } from "zod"
 import { ValidationError as SequelizeValidationError, UniqueConstraintError } from "sequelize"
 import { Request, Response, NextFunction } from "express"
 import { errorHandler } from "./errorHandler"
-import { AppError, NotFoundError } from "../errors/AppError"
+import { AppError, ExcelImportParseError, NotFoundError } from "../errors/AppError"
 
 function fakeRes(): Response {
     const res = {} as Response
@@ -38,6 +38,17 @@ describe("errorHandler", () => {
 
         expect(res.status).toHaveBeenCalledWith(422)
         expect(res.json).toHaveBeenCalledWith({ message: "errors.pallet_not_configured" })
+    })
+
+    it("retains parser causes and returns only a controlled 422 message without an expected-error stack", () => {
+        const cause = new TypeError("Cannot read properties of undefined (reading 'sheets')")
+        const res = fakeRes()
+        const error = new ExcelImportParseError(cause, new Error("Fallback failed"))
+        errorHandler(error, fakeReq(), res, next)
+        expect(error.cause).toBe(cause)
+        expect(consoleErrorSpy).not.toHaveBeenCalled()
+        expect(res.status).toHaveBeenCalledWith(422)
+        expect(res.json).toHaveBeenCalledWith({ message: "errors.bulk_import_unreadable_xlsx" })
     })
 
     it("resuelve el nombre del recurso en NotFoundError antes de traducir el mensaje final", () => {

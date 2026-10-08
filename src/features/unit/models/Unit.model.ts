@@ -1,7 +1,7 @@
 import { Table, Column, DataType, HasMany } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
+import RawMaterial from "../../rawMaterial/models/RawMaterial.model";
 import Ingredient from "../../ingredient/models/Ingredient.model";
-import ProductIngredient from "../../product/models/ProductIngredient.model";
 
 @Table({
     tableName: "units"
@@ -32,11 +32,11 @@ class Unit extends BaseCatalogModel {
     })
     declare baseFactor: number
 
+    @HasMany(() => RawMaterial, "costUnitId")
+    declare costRawMaterials: RawMaterial[]
+
     @HasMany(() => Ingredient, "costUnitId")
     declare costIngredients: Ingredient[]
-
-    @HasMany(() => ProductIngredient, "quantityUnitId")
-    declare quantityIngredients: ProductIngredient[]
 }
 
 export default Unit;

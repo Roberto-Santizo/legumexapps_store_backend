@@ -4,6 +4,10 @@ import Ingredient from "../../ingredient/models/Ingredient.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductIngredientInput, UpdateProductIngredientInput } from "../schemas/productIngredient.schema"
 
+// Ingredientes agregados (sal, azúcar...) -- a diferencia de productRawMaterial.service.ts NO hay
+// regla de 100% ni diferencia entre receta fija y personalizable: el admin los fija y el cliente
+// nunca los toca, en ambos tipos de producto. Opcionales: un producto sin filas cotiza $0 acá.
+
 async function listProductIngredients(): Promise<ProductIngredient[]> {
     return ProductIngredient.findAll({ where: { isActive: true }, order: [["displayOrder", "DESC"]] })
 }
@@ -14,54 +18,39 @@ async function getProductIngredientById(id: number): Promise<ProductIngredient> 
     return productIngredient
 }
 
-
-async function assertIngredientIsMixableIfNeeded(productId: number, ingredientId: number): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (!product?.isCustomizable) return
-
-    const ingredient = await Ingredient.findOne({ where: { id: ingredientId } })
-    if (!ingredient?.isMixable) {
-        throw new AppError(422, "errors.ingredient_not_mixable", { ingredientId })
-    }
+async function assertProductExists(productId: number): Promise<void> {
+    const product = await Product.findOne({ where: { id: productId, isActive: true } })
+    if (!product) throw new NotFoundError("Product", productId)
 }
 
-
-async function assertIngredientIsOrganicCompatibleIfNeeded(productId: number, ingredientId: number): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (!product?.isOrganic) return
-
-    const ingredient = await Ingredient.findOne({ where: { id: ingredientId } })
-    if (!ingredient?.isOrganic && ingredient?.ingredientType !== "other") {
-        throw new AppError(422, "errors.ingredient_not_organic_compatible", { ingredientId })
-    }
+async function assertIngredientIsActive(ingredientId: number): Promise<void> {
+    const ingredient = await Ingredient.findOne({ where: { id: ingredientId, isActive: true } })
+    if (!ingredient) throw new NotFoundError("Ingredient", ingredientId)
 }
 
-async function assertQuantityValueIfFixedRecipe(productId: number, quantityValue: number | null | undefined): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (product?.isCustomizable) return
-
-    if (quantityValue === null || quantityValue === undefined || quantityValue <= 0) {
-        throw new AppError(422, "errors.product_ingredient_quantity_required")
+// Guard contra errores de tipeo: más gramos que el peso de la presentación sería >100% del peso.
+function assertGramsWithinReference(grams: number, referenceNetWeightGrams: number): void {
+    if (grams > referenceNetWeightGrams) {
+        throw new AppError(422, "errors.product_ingredient_grams_exceed_reference", { grams, referenceNetWeightGrams })
     }
 }
 
 async function createProductIngredient(input: CreateProductIngredientInput): Promise<ProductIngredient> {
-    await assertIngredientIsMixableIfNeeded(input.productId, input.ingredientId)
-    await assertIngredientIsOrganicCompatibleIfNeeded(input.productId, input.ingredientId)
-    await assertQuantityValueIfFixedRecipe(input.productId, input.quantityValue)
+    assertGramsWithinReference(input.grams, input.referenceNetWeightGrams)
+    await assertProductExists(input.productId)
+    await assertIngredientIsActive(input.ingredientId)
     return ProductIngredient.create(input)
 }
 
 async function updateProductIngredient(id: number, input: UpdateProductIngredientInput): Promise<ProductIngredient> {
     const productIngredient = await getProductIngredientById(id)
-    const effectiveProductId = input.productId ?? productIngredient.productId
-    if (input.ingredientId !== undefined) {
-        await assertIngredientIsMixableIfNeeded(effectiveProductId, input.ingredientId)
-        await assertIngredientIsOrganicCompatibleIfNeeded(effectiveProductId, input.ingredientId)
+    assertGramsWithinReference(input.grams, input.referenceNetWeightGrams)
+    if (input.productId !== undefined && input.productId !== productIngredient.productId) {
+        await assertProductExists(input.productId)
     }
-
-    const effectiveQuantityValue = input.quantityValue !== undefined ? input.quantityValue : productIngredient.quantityValue
-    await assertQuantityValueIfFixedRecipe(effectiveProductId, effectiveQuantityValue)
+    if (input.ingredientId !== undefined) {
+        await assertIngredientIsActive(input.ingredientId)
+    }
     return productIngredient.update(input)
 }
 

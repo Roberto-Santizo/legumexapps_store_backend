@@ -1,15 +1,9 @@
-// Traducción de contenido de catálogo (Category/SubCategory/Product/Ingredient) -- NO confundir
+// Traducción de contenido de catálogo (Category/SubCategory/Product/RawMaterial) -- NO confundir
 // con src/config/i18n.ts, que traduce textos fijos de la UI/mensajes de error (req.t(...)).
 //
-// Decisión de diseño: el español NUNCA vive en una tabla de traducciones. Las columnas base
-// (Category.displayName, Product.displayName, etc.) YA SON el contenido en español -- así nació
-// el dato y así se sigue escribiendo desde los formularios admin. Las tablas *Translation solo
-// guardan overrides para idiomas ADICIONALES (hoy: inglés). Ventajas de esto sobre el patrón
-// "es y en viven los dos en la tabla de traducciones":
-//   - Cero backfill de datos existentes (el contenido español ya está en su lugar).
-//   - Cero riesgo sobre las columnas NOT NULL que ya existen en producción.
-//   - Se preserva la ventaja real del patrón (agregar un idioma nuevo mañana = filas nuevas,
-//     no columnas nuevas).
+// El español nunca vive en una tabla de traducciones: las columnas base (Category.displayName,
+// Product.displayName, etc.) son el contenido en español. Las tablas *Translation solo guardan
+// overrides para idiomas adicionales (hoy: inglés); agregar un idioma = filas nuevas, no columnas.
 export type ContentLanguage = "es" | "en"
 
 export const DEFAULT_CONTENT_LANGUAGE: ContentLanguage = "es"
@@ -30,7 +24,7 @@ interface NamedTranslationRow {
 
 // Si language==="es" ni se mira el arreglo de traducciones (ver nota arriba: el español vive en
 // baseName). Si no hay fila para el idioma pedido (admin no cargó la traducción todavía), cae a
-// baseName en vez de mostrar vacío -- nunca se pierde el nombre del producto/categoría/ingrediente.
+// baseName en vez de mostrar vacío -- nunca se pierde el nombre del producto/categoría/materia prima.
 export function pickTranslatedName(
     baseName: string,
     translations: NamedTranslationRow[] | undefined,

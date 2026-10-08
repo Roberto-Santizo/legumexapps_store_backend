@@ -1,7 +1,9 @@
-import { Op, WhereOptions } from "sequelize"
+import { literal, Op, WhereOptions } from "sequelize"
 import Product from "../models/Product.model"
+import ProductVariant from "../models/ProductVariant.model"
 import ProductTranslation from "../models/ProductTranslation.model"
-import { AppError, NotFoundError } from "../../../shared/errors/AppError"
+import Client from "../../client/models/Client.model"
+import { NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductInput, UpdateProductInput, ProductTranslationInput } from "../schemas/product.schema"
 import { generateUniqueSlug } from "../../../shared/utils/slug.util"
 import { resolveCatalogImage } from "../../../shared/utils/catalogImage.util"
@@ -9,20 +11,38 @@ import { paginate, PaginatedResult, PaginationParams } from "../../../shared/uti
 
 const IMAGE_FOLDER = "products"
 
+// Incluido donde se lee/devuelve un Product, para que el form de edición preseleccione el Cliente y
+// los listados muestren su nombre sin un segundo round-trip.
+const CLIENT_INCLUDE = { model: Client, as: "client" as const, attributes: ["id", "name"] }
+
 async function findActiveProduct(id: number): Promise<Product> {
     const product = await Product.findOne({
         where: { id, isActive: true },
-        include: [{ model: ProductTranslation, as: "translations" }]
+        include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE]
     })
     if (!product) throw new NotFoundError("Product", id)
     return product
 }
 
 async function listProducts(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Product>> {
-    const where: WhereOptions = search ? { displayName: { [Op.iLike]: `%${search}%` } } : {}
+    // EXISTS filters parent rows before pagination without multiplying rows by matching SKUs.
+    const where: WhereOptions = search ? {
+        [Op.or]: [
+            { displayName: { [Op.iLike]: `%${search}%` } },
+            literal(`EXISTS (SELECT 1 FROM "productVariants" AS "skuVariant" WHERE "skuVariant"."productId" = "Product"."id" AND "skuVariant"."skuCode" ILIKE ${Product.sequelize!.escape(`%${search.replace(/[\\%_]/g, "\\$&")}%`)})`),
+        ],
+    } : {}
     return paginate(
         Product,
-        { where, order: [["isActive", "DESC"], ["displayName", "ASC"]], include: [{ model: ProductTranslation, as: "translations" }] },
+        {
+            where,
+            order: [["createdAt", "DESC"], ["id", "DESC"]],
+            include: [
+                { model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE,
+                // One batch for the page, including inactive SKUs; never a request per product.
+                { model: ProductVariant, as: "productVariants", attributes: ["id", "productId", "skuCode"], separate: true, order: [["id", "ASC"]] },
+            ]
+        },
         pagination
     )
 }
@@ -41,22 +61,16 @@ async function syncEnglishTranslation(productId: number, en: ProductTranslationI
     await translation.update({ displayName: en.displayName })
 }
 
-// Case-insensitive (Op.iLike) a propósito -- a diferencia de Packaging.code/Ingredient.code
-// (cuyo chequeo de negocio es exacto), acá el usuario pidió explícitamente que "MP-001" y
-// "mp-001" cuenten como el mismo código. El índice físico (products_codigo_unique, ver
-// Product.model.ts) sigue siendo case-sensitive -- queda como defensa en profundidad para la
-// ventana de carrera entre este chequeo y el INSERT/UPDATE real, no como la regla de negocio.
-async function assertCodigoIsUnique(codigo: string, excludeId?: number): Promise<void> {
-    const where: WhereOptions = excludeId
-        ? { codigo: { [Op.iLike]: codigo }, id: { [Op.ne]: excludeId } }
-        : { codigo: { [Op.iLike]: codigo } }
-    const existing = await Product.findOne({ where })
-    if (existing) throw new AppError(409, "errors.product_codigo_already_exists", { codigo })
+// Un clientId que no resuelve a un Client activo se trata como "no encontrado": un Cliente
+// desactivado no es una referencia válida para un Producto.
+async function assertClientExists(clientId: number): Promise<void> {
+    const client = await Client.findOne({ where: { id: clientId, isActive: true } })
+    if (!client) throw new NotFoundError("Client", clientId)
 }
 
 async function createProduct(input: CreateProductInput): Promise<Product> {
     const { image, translations, ...rest } = input
-    await assertCodigoIsUnique(rest.codigo)
+    await assertClientExists(rest.clientId)
     const urlSlug = await generateUniqueSlug(rest.displayName, async (candidate) => {
         const existing = await Product.findOne({ where: { urlSlug: candidate } })
         return !!existing
@@ -70,7 +84,7 @@ async function createProduct(input: CreateProductInput): Promise<Product> {
 async function updateProduct(id: number, input: UpdateProductInput): Promise<Product> {
     const product = await findActiveProduct(id)
     const { image, translations, ...rest } = input
-    if (rest.codigo) await assertCodigoIsUnique(rest.codigo, id)
+    if (rest.clientId) await assertClientExists(rest.clientId)
     const imageUrl = await resolveCatalogImage(product.imageUrl, image, IMAGE_FOLDER)
     await product.update({ ...rest, ...(imageUrl !== undefined ? { imageUrl } : {}) })
     await syncEnglishTranslation(id, translations?.en)
@@ -86,7 +100,7 @@ async function deleteProduct(id: number): Promise<void> {
 async function setProductStatus(id: number, isActive: boolean): Promise<Product> {
     const product = await Product.findOne({
         where: { id },
-        include: [{ model: ProductTranslation, as: "translations" }]
+        include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE]
     })
     if (!product) throw new NotFoundError("Product", id)
     await product.update({ isActive })

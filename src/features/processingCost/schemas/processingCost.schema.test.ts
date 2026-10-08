@@ -1,7 +1,6 @@
 import { createProcessingCostSchema, updateProcessingCostSchema } from "./processingCost.schema"
 
-// Mismo estilo que quote.schema.test.ts: safeParse(...).success, sin mockear nada -- estos son
-// tests puros de forma de dato, no de lógica de negocio (esa vive en quote.service.test.ts).
+// Tests puros de forma de dato con safeParse(...).success, sin mocks.
 
 function validCreateInput() {
     return {
@@ -39,16 +38,14 @@ describe("createProcessingCostSchema", () => {
         })
     })
 
-    // "value" es el campo que alimenta directamente el cálculo (quote.service.ts multiplica esto
-    // por el peso total en libras) -- este es exactamente el tipo de campo que el bug histórico
-    // "costos en millones" (ver context.md) demuestra que NO puede quedar con un fallback en
-    // silencio: debe rechazarse explícito si no es un número válido y no negativo.
+    // "value" alimenta directamente el cálculo: debe rechazarse explícitamente si no es un número válido
+    // y no negativo, nunca quedar con un fallback silencioso.
     describe("value -- campo crítico para el cálculo, no puede colar un valor inválido en silencio", () => {
         it("rechaza un value negativo", () => {
             expect(createProcessingCostSchema.safeParse({ ...validCreateInput(), value: -0.01 }).success).toBe(false)
         })
 
-        it("acepta 0 como value -- mismo criterio que costPerUnit/baseCost/unitCost en el resto del repo (.nonnegative(), no .positive()); un costo adicional en Q0 es una fila desactivable, no un error de captura", () => {
+        it("acepta 0 como value -- mismo criterio que costPerUnit/baseCost/unitCost en el resto del repo (.nonnegative(), no .positive()); un costo adicional en USD 0 es una fila desactivable, no un error de captura", () => {
             expect(createProcessingCostSchema.safeParse({ ...validCreateInput(), value: 0 }).success).toBe(true)
         })
 
@@ -94,7 +91,7 @@ describe("createProcessingCostSchema", () => {
     })
 
     // Tope de cordura SOLO para calculationType "percentage" (ver MAX_PERCENTAGE_VALUE en
-    // processingCost.schema.ts) -- "value" es un campo compartido con "per_weight" (Q/libra, sin
+    // processingCost.schema.ts) -- "value" es un campo compartido con "per_weight" (USD/libra, sin
     // techo natural), así que el límite es condicional al tipo, no del campo en general.
     describe("value -- tope de 100 SOLO aplica a calculationType 'percentage', per_weight no tiene techo", () => {
         it("rechaza un value de 'percentage' por encima de 100", () => {
@@ -112,7 +109,7 @@ describe("createProcessingCostSchema", () => {
             expect(result.success).toBe(true)
         })
 
-        it("un value de 'per_weight' por encima de 100 SÍ se acepta -- el tope no aplica a ese tipo (es un monto en Q/libra, no un porcentaje)", () => {
+        it("un value de 'per_weight' por encima de 100 SÍ se acepta -- el tope no aplica a ese tipo (es un monto en USD/libra, no un porcentaje)", () => {
             const result = createProcessingCostSchema.safeParse({ ...validCreateInput(), calculationType: "per_weight", value: 500 })
             expect(result.success).toBe(true)
         })
@@ -125,12 +122,8 @@ describe("createProcessingCostSchema", () => {
 })
 
 describe("updateProcessingCostSchema -- value/calculationType deben seguir siendo requeridos también al editar", () => {
-    // Patrón documentado del repo: updateXSchema = createXSchema.partial().extend({ campoCritico:
-    // createXSchema.shape.campoCritico }) -- si esto se rompiera (alguien quita el .extend()), un
-    // PUT que omita "value" dejaría el costo existente con lo que Sequelize decida no tocar, pero
-    // peor aún, un PUT que sí mande otros campos sin querer podría no validar "value" como
-    // requerido. Este test falla fuerte si updateProcessingCostSchema alguna vez vuelve a ser un
-    // simple .partial() sin el .extend().
+    // updateXSchema = createXSchema.partial().extend({ campoCritico }): este test falla si
+    // updateProcessingCostSchema vuelve a ser un simple .partial() y "value" deja de ser requerido.
     it("rechaza un update que solo trae displayName (sin value ni calculationType)", () => {
         const result = updateProcessingCostSchema.safeParse({ displayName: "Nuevo nombre" })
         expect(result.success).toBe(false)

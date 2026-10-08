@@ -1,7 +1,6 @@
 import { Table, Column, DataType, HasMany } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import SubCategory from "./SubCategory.model";
-import Presentation from "../../presentation/models/Presentation.model";
 import CategoryTranslation from "./CategoryTranslation.model";
 
 @Table({
@@ -34,9 +33,6 @@ class Category extends BaseCatalogModel {
 
     @HasMany(() => SubCategory, "categoryId")
     declare subCategories: SubCategory[]
-
-    @HasMany(() => Presentation, "categoryId")
-    declare linkedPresentations: Presentation[]
 
     @HasMany(() => CategoryTranslation, "categoryId")
     declare translations: CategoryTranslation[]

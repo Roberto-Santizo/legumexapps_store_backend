@@ -3,7 +3,7 @@ import Unit from "../models/Unit.model";
 import { AppError, NotFoundError } from "../../../shared/errors/AppError";
 import { CreateUnitInput, UpdateUnitInput } from "../schemas/unit.schema";
 import { generateUniqueSlug } from "../../../shared/utils/slug.util";
-import { getUnitCatalogEntry } from "../constants/unitCatalog";
+import { getUnitCatalogEntry, UnitCatalogEntry } from "../constants/unitCatalog";
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util";
 
 async function listUnits(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Unit>> {
@@ -24,8 +24,7 @@ function resolveCatalogEntry(unitKey: string) {
     return catalogEntry;
 }
 
-async function createUnit(input: CreateUnitInput): Promise<Unit> {
-    const catalogEntry = resolveCatalogEntry(input.unitKey);
+async function createUnitFromCatalogEntry(catalogEntry: UnitCatalogEntry): Promise<Unit> {
     const unitCode = await generateUniqueSlug(catalogEntry.displayName, async (candidate) => {
         const existing = await Unit.findOne({ where: { unitCode: candidate } });
         return !!existing;
@@ -36,6 +35,11 @@ async function createUnit(input: CreateUnitInput): Promise<Unit> {
         baseFactor: catalogEntry.baseFactor,
         unitCode,
     });
+}
+
+async function createUnit(input: CreateUnitInput): Promise<Unit> {
+    const catalogEntry = resolveCatalogEntry(input.unitKey);
+    return createUnitFromCatalogEntry(catalogEntry);
 }
 
 async function updateUnit(id: number, input: UpdateUnitInput): Promise<Unit> {
@@ -52,10 +56,28 @@ async function deleteUnit(id: number): Promise<void> {
     await unit.update({ isActive: false });
 }
 
+// La libra de RawMaterial/Ingredient se fija en el servidor. `Unit` no se siembra al arrancar, así que
+// en una BD nueva puede no existir: esta función la busca y, si no existe, la crea desde el catálogo.
+// El match es por unitType + baseFactor (453.592, único en el catálogo), no por displayName.
+const POUND_MATCH_TOLERANCE = 0.0001
+
+async function findOrCreatePoundUnit(): Promise<Unit> {
+    const poundCatalogEntry = resolveCatalogEntry("pound");
+
+    const weightUnits = await Unit.findAll({ where: { unitType: poundCatalogEntry.unitType, isActive: true } });
+    const existingPoundUnit = weightUnits.find(
+        unit => Math.abs(Number(unit.baseFactor) - poundCatalogEntry.baseFactor) < POUND_MATCH_TOLERANCE
+    );
+    if (existingPoundUnit) return existingPoundUnit;
+
+    return createUnitFromCatalogEntry(poundCatalogEntry);
+}
+
 export const unitService = {
     listUnits,
     getUnitById,
     createUnit,
     updateUnit,
     deleteUnit,
+    findOrCreatePoundUnit,
 }

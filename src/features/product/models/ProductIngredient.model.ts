@@ -2,8 +2,12 @@ import { Table, Column, DataType, ForeignKey, BelongsTo } from "sequelize-typesc
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Product from "./Product.model";
 import Ingredient from "../../ingredient/models/Ingredient.model";
-import Unit from "../../unit/models/Unit.model";
 
+// Ingrediente agregado a un producto (sal, azúcar...) -- NO participa del 100% de la receta base
+// (ProductRawMaterial), es una línea de costo aparte (quoteService.buildIngredientLines). Se
+// guarda tal cual lo escribe el admin -- "40 g en una presentación de 2000 g" -- sin redondear a
+// un %: el motor deriva el % (grams / referenceNetWeightGrams × 100) con decimal.js al cotizar y lo
+// aplica al peso neto de la presentación cotizada, así escala por presentación igual que la receta.
 @Table({
     tableName: "productIngredients",
     indexes: [
@@ -29,29 +33,18 @@ class ProductIngredient extends BaseCatalogModel {
     declare ingredientId: number
 
     @Column({
+        type: DataType.DECIMAL(10, 3),
+        allowNull: false
+    })
+    declare grams: number
+
+    // Peso neto (g) de la presentación en la que se midieron los `grams` de arriba -- mismo tipo que
+    // Presentation.netWeightGrams.
+    @Column({
         type: DataType.DECIMAL(10, 2),
-        allowNull: true
+        allowNull: false
     })
-    declare quantityValue: number
-
-    @ForeignKey(() => Unit)
-    @Column({
-        type: DataType.INTEGER,
-        allowNull: true
-    })
-    declare quantityUnitId: number
-
-    @Column({
-        type: DataType.DECIMAL(5, 2),
-        allowNull: true
-    })
-    declare minPercentage: number
-
-    @Column({
-        type: DataType.DECIMAL(5, 2),
-        allowNull: true
-    })
-    declare maxPercentage: number
+    declare referenceNetWeightGrams: number
 
     @Column({
         type: DataType.INTEGER,
@@ -65,9 +58,6 @@ class ProductIngredient extends BaseCatalogModel {
 
     @BelongsTo(() => Ingredient, "ingredientId")
     declare usedIngredient: Ingredient
-
-    @BelongsTo(() => Unit, "quantityUnitId")
-    declare quantityUnit: Unit
 }
 
 export default ProductIngredient;

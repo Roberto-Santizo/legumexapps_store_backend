@@ -1,7 +1,5 @@
-// Prueba de contrato HTTP para el RBAC en sí -- authorize.test.ts ya prueba el middleware
-// aislado, esto prueba que quedó CABLEADO correctamente en la ruta real (permiso equivocado,
-// ruta sin proteger, etc. no se detectan con un test unitario del middleware solo). Mismo patrón
-// que destination.routes.test.ts.
+// Prueba de contrato HTTP del RBAC: verifica que el permiso quedó cableado en la ruta real (un test
+// unitario del middleware no detecta un permiso equivocado o una ruta sin proteger).
 jest.mock("../../../config/env", () => ({
     env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" }
 }))
@@ -34,8 +32,8 @@ describe("processingCostRouter (HTTP) — RBAC cableado en la ruta real", () => 
     })
 
     it("GET / con token de cliente (tipo incorrecto) -> 401, no 403", async () => {
-        const customerToken = jwt.sign({ sub: 1, type: "customer" }, "test-secret")
-        const res = await request(app).get("/api/processing-costs").set("Authorization", `Bearer ${customerToken}`)
+        const salespersonToken = jwt.sign({ sub: 1, type: "customer" }, "test-secret")
+        const res = await request(app).get("/api/processing-costs").set("Authorization", `Bearer ${salespersonToken}`)
         expect(res.status).toBe(401)
     })
 

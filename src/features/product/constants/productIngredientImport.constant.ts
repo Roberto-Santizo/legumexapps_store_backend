@@ -1,0 +1,32 @@
+
+// Carga masiva de Ingredientes por producto (opcional). Una fila por (Producto, Ingrediente).
+export type ProductIngredientImportField =
+    | "productSku"
+    | "ingredientCode"
+    | "grams"
+    | "referenceNetWeightGrams"
+
+interface ImportColumnDef {
+    header: string
+    aliases: string[]
+}
+
+// Aliases ya normalizados con normalizeImportText (minúsculas, sin acentos).
+export const PRODUCT_INGREDIENT_IMPORT_COLUMNS: Record<ProductIngredientImportField, ImportColumnDef> = {
+    productSku: { header: "SKU de una variante del producto", aliases: ["sku de una variante del producto", "sku", "codigo sku"] },
+    ingredientCode: { header: "Código Ingrediente", aliases: ["codigo ingrediente", "ingrediente"] },
+    grams: { header: "Gramos", aliases: ["gramos", "g", "grams"] },
+    referenceNetWeightGrams: {
+        header: "Peso de referencia (g)",
+        aliases: ["peso de referencia (g)", "peso de referencia", "peso referencia", "reference weight"]
+    },
+}
+
+export const REQUIRED_PRODUCT_INGREDIENT_IMPORT_FIELDS: ProductIngredientImportField[] = [
+    "productSku",
+    "ingredientCode",
+    "grams",
+    "referenceNetWeightGrams",
+]
+
+export const MAX_PRODUCT_INGREDIENT_IMPORT_ROWS = 5000

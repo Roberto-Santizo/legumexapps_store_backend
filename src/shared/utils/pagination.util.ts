@@ -1,9 +1,7 @@
 import { FindAttributeOptions, FindOptions, Includeable, Model, ModelStatic, Order, WhereOptions } from "sequelize"
 
-// Ver pagination.schema.ts: page/limit son opt-in. Cuando el caller no pide una página en
-// particular, este util se comporta exactamente como el findAll() que ya usaba cada service
-// (mismo shape de respuesta, { data }, sin meta) -- es lo que mantiene a los *Select.component.tsx
-// del front funcionando sin tocarlos, ya que siguen pegándole al mismo endpoint sin mandar page.
+// page/limit son opt-in (ver pagination.schema.ts): sin page, devuelve la lista completa con la misma
+// forma { data } y sin meta, que es lo que consumen los selects del frontend.
 export interface PaginationParams {
     page?: number
     limit?: number

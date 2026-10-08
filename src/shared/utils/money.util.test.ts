@@ -1,10 +1,8 @@
 import Decimal from "decimal.js"
 import { toDecimal, roundMoney, sumMoney } from "./money.util"
 
-// Este archivo no tenía pruebas propias -- es el único punto de redondeo/conversión monetaria
-// de todo el motor de cálculo (ver comentario de cabecera en money.util.ts). Cualquier bug acá
-// se propaga silenciosamente a quoteService.calculateQuote y a cualquier otra feature que sume
-// dinero (dashboardService).
+// money.util.ts es el único punto de redondeo/conversión monetaria del motor: un bug acá se propaga
+// a calculateQuote y a cualquier otra feature que sume dinero.
 
 describe("toDecimal", () => {
     it("convierte null a Decimal(0)", () => {
@@ -46,9 +44,8 @@ describe("roundMoney", () => {
     })
 
     it("redondea half-up también para negativos (away from zero, no half-up hacia +infinito)", () => {
-        // Nunca deberían aparecer costos negativos en el dominio real, pero roundMoney no debe
-        // comportarse de forma sorpresiva si algún día se usa para una resta (ej. descuentos,
-        // Fase 5 pendiente según la memoria del proyecto).
+        // Nunca deberían aparecer costos negativos, pero roundMoney no debe comportarse de forma
+        // sorpresiva si se usa para una resta (ej. descuentos).
         expect(roundMoney(new Decimal("-1.00005"))).toBe(-1.0001)
     })
 

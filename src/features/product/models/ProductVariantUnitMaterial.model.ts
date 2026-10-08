@@ -2,6 +2,7 @@ import { Table, Column, DataType, ForeignKey, BelongsTo } from "sequelize-typesc
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import ProductVariant from "./ProductVariant.model";
 import Packaging from "../../packaging/models/Packaging.model";
+import PackagingGroup from "../../packagingGroup/models/PackagingGroup.model";
 
 @Table({
     tableName: "productVariantUnitMaterials",
@@ -35,6 +36,28 @@ class ProductVariantUnitMaterial extends BaseCatalogModel {
         defaultValue: 1
     })
     declare quantityPerUnit: number
+
+    // Etiqueta compatible de grupos anteriores, conservada para snapshots y lectores existentes.
+    // Nuevas asociaciones se identifican por optionGroupId, no por esta etiqueta mutable.
+    @Column({
+        type: DataType.STRING(60),
+        allowNull: true
+    })
+    declare optionGroup: string | null
+
+    @ForeignKey(() => PackagingGroup)
+    @Column({ type: DataType.INTEGER, allowNull: true })
+    declare optionGroupId: number | null
+
+    @BelongsTo(() => PackagingGroup, "optionGroupId")
+    declare optionGroupCatalog: PackagingGroup
+
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    })
+    declare isDefault: boolean
 
     @BelongsTo(() => ProductVariant, "productVariantId")
     declare parentProductVariant: ProductVariant

@@ -1,35 +1,36 @@
 import z from "zod"
-import { quoteLeadContactSchema } from "../../lead/schemas/lead.schema"
 
-const ingredientMixLineSchema = z.object({
-    ingredientId: z.number().int().positive(),
+const rawMaterialMixLineSchema = z.object({
+    rawMaterialId: z.number().int().positive(),
     percentage: z.number().min(0).max(100).multipleOf(0.01),
 })
 
 export const calculateQuoteSchema = z.object({
     productVariantId: z.number().int().positive(),
-    // Opcional (2026-09-10): transporte "apagado" temporalmente -- el cliente ya no elige
-    // destino en su cotizador (ver quoteCalculatorForm.component.tsx), así que este campo puede
-    // no llegar en el body. Si SÍ llega, sigue validado igual que antes (entero positivo).
-    // quoteService.calculateQuote resuelve transporte a $0 cuando falta. El admin (cotizador
-    // interno) sigue pudiendo mandarlo -- mismo schema para ambas rutas.
+    // Opcional: transporte apagado temporalmente para el representante; si llega, se valida igual.
+    // calculateQuote resuelve el transporte a $0 cuando falta. El admin puede seguir mandándolo.
     destinationId: z.number().int().positive().optional(),
     requestedPallets: z.number().int().min(1),
-    ingredientMix: z.array(ingredientMixLineSchema).optional(),
+    rawMaterialMix: z.array(rawMaterialMixLineSchema).optional(),
+    // Grupos de opciones: un array POR NIVEL (los ids de fila solo son únicos dentro de su tabla) con
+    // los ids de FILA elegidos, uno por grupo -- no el packagingId. El servicio lee el grupo de cada
+    // fila, valida que pertenezca a este SKU y nivel y que no haya dos del mismo grupo. Un grupo sin id
+    // enviado usa su default.
+    selectedUnitMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
+    selectedIntermediateMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
+    selectedPalletMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
 })
 
-// Solo para POST /quotes (guardar, cliente) -- NO para POST /admin/quotes/preview, que sigue
-// validando contra calculateQuoteSchema tal cual (el admin no captura datos de prospecto, ver
-// adminQuoteCalculatorPage.tsx). leadContact es REQUERIDO acá (a diferencia de
-// calculateQuoteSchema, que el admin también usa): cada cotización nueva del cliente debe quedar
-// registrada contra un Lead (ver quoteService.saveQuote / leadService.findOrCreateLeadForQuote).
-export const saveQuoteSchema = calculateQuoteSchema.extend({
-    leadContact: quoteLeadContactSchema,
+// SOLO para las rutas del representante (POST /quotes/preview y POST /quotes): draftKey identifica el
+// intento de cotización en curso (UUID generado por el wizard) para registrar el borrador y marcarlo
+// convertido al guardar. Opcional. calculateQuoteSchema (rutas admin) no lo tiene.
+export const salespersonQuoteSchema = calculateQuoteSchema.extend({
+    draftKey: z.string().uuid().optional(),
 })
 
-export type IngredientMixLineInput = z.infer<typeof ingredientMixLineSchema>
+export type RawMaterialMixLineInput = z.infer<typeof rawMaterialMixLineSchema>
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
-export type SaveQuoteInput = z.infer<typeof saveQuoteSchema>
+export type SalespersonQuoteInput = z.infer<typeof salespersonQuoteSchema>
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),
     subject: z.string().min(1).max(200),

@@ -1,30 +1,28 @@
 import z from "zod"
 
+// Ingrediente agregado a un producto (sal, azúcar...) -- gramos medidos sobre una presentación de
+// referencia, ver ProductIngredient.model.ts. grams > referenceNetWeightGrams se rechaza en el
+// servicio (productIngredient.service.ts::assertGramsWithinReference), porque en un update hay que
+// comparar contra los valores efectivos (fila guardada + input), no solo el body.
 const productIngredientShape = {
     productId: z.number().int().positive(),
     ingredientId: z.number().int().positive(),
-    quantityValue: z.number().optional(),
-    quantityUnitId: z.number().int().positive().optional(),
-    minPercentage: z.number().min(0).max(100).optional(),
-    maxPercentage: z.number().min(0).max(100).optional(),
+    grams: z.number().positive(),
+    referenceNetWeightGrams: z.number().positive(),
     displayOrder: z.number().int().optional(),
 }
 
-const refineMinMax = (data: { minPercentage?: number; maxPercentage?: number }) =>
-    data.minPercentage === undefined || data.maxPercentage === undefined || data.minPercentage <= data.maxPercentage
-
-export const createProductIngredientSchema = z.object(productIngredientShape).refine(refineMinMax, {
-    message: "minPercentage debe ser menor o igual a maxPercentage",
-    path: ["minPercentage"],
-})
+export const createProductIngredientSchema = z.object(productIngredientShape)
 
 export const productIngredientIdParamSchema = z.object({
     id: z.string().regex(/^\d+$/),
 })
 
-export const updateProductIngredientSchema = z.object(productIngredientShape).partial().refine(refineMinMax, {
-    message: "minPercentage debe ser menor o igual a maxPercentage",
-    path: ["minPercentage"],
+// grams/referenceNetWeightGrams alimentan calculateQuote -- se recuperan como requeridos dentro del
+// .partial() (convención del repo para campos del cálculo), así un PUT nunca los deja vacíos por omisión.
+export const updateProductIngredientSchema = createProductIngredientSchema.partial().extend({
+    grams: createProductIngredientSchema.shape.grams,
+    referenceNetWeightGrams: createProductIngredientSchema.shape.referenceNetWeightGrams,
 })
 
 export type CreateProductIngredientInput = z.infer<typeof createProductIngredientSchema>

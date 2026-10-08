@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express"
 import { ValidationError as SequelizeValidationError, UniqueConstraintError } from "sequelize"
 import { ZodError } from "zod"
 import { MulterError } from "multer"
-import { AppError, BulkImportError } from "../errors/AppError"
+import { AppError, BulkImportError, ExcelImportParseError } from "../errors/AppError"
 
 export function errorHandler(error: unknown, req: Request, res: Response, _next: NextFunction): void {
 
@@ -17,6 +17,7 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
         res.status(error.statusCode).json({
             message: req.t(error.key),
             details: error.rowIssues.map(issue => ({
+                ...(issue.sheet ? { sheet: issue.sheet } : {}),
                 row: issue.row,
                 field: issue.field,
                 message: req.t(issue.key, issue.params)
@@ -26,6 +27,12 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
     }
 
     if (error instanceof AppError) {
+        if (error instanceof ExcelImportParseError && process.env.NODE_ENV === "development") {
+            console.debug("Excel import parsers failed", {
+                primary: error.cause instanceof Error ? error.cause.name : "unknown",
+                fallback: error.fallbackCause instanceof Error ? error.fallbackCause.name : "not attempted",
+            })
+        }
         const resource = error.params?.resource
         const params = resource
             ? { ...error.params, resource: req.t(`resources.${resource}`, { defaultValue: resource }) }

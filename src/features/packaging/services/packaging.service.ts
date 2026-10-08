@@ -1,9 +1,9 @@
+import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Packaging from "../models/Packaging.model"
-import { productVariantService } from "../../product/services/productVariant.service"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
-import { CreatePackagingInput, PackagingSkuUsageItem, UpdatePackagingInput, createPackagingSchema } from "../schemas/packaging.schema"
+import { CreatePackagingInput, UpdatePackagingInput, createPackagingSchema, packagingDefaultsSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
 import {
     ImportCellValue,
@@ -24,7 +24,15 @@ import {
 } from "../constants/packagingImport.constant"
 
 async function listPackagings(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Packaging>> {
-    const where: WhereOptions = { isActive: true, ...(search ? { displayName: { [Op.iLike]: `%${search}%` } } : {}) }
+    const where: WhereOptions = {
+        isActive: true,
+        ...(search ? {
+            [Op.or]: [
+                { displayName: { [Op.iLike]: `%${search}%` } },
+                { code: { [Op.iLike]: `%${search}%` } },
+            ],
+        } : {}),
+    }
     return paginate(Packaging, { where, order: [["displayName", "DESC"]] }, pagination)
 }
 
@@ -34,10 +42,8 @@ async function getPackagingById(id: number): Promise<Packaging> {
     return packaging
 }
 
-// El código es manual (nunca se autogenera) y único -- se rechaza con un error de negocio claro
-// ANTES de llegar al unique constraint de la columna (que daría el 409 genérico
-// "errors.unique_constraint" vía errorHandler, menos útil para el admin). Mismo patrón que
-// ingredient.service.ts::assertCodeIsUnique.
+// El código es manual y único: se rechaza con un error de negocio claro ANTES de llegar al unique
+// constraint de la columna (que daría el 409 genérico "errors.unique_constraint").
 async function assertCodeIsUnique(code: string, excludeId?: number): Promise<void> {
     const where: WhereOptions = excludeId ? { code, id: { [Op.ne]: excludeId } } : { code }
     const existing = await Packaging.findOne({ where })
@@ -52,7 +58,12 @@ async function createPackaging(input: CreatePackagingInput): Promise<Packaging> 
 async function updatePackaging(id: number, input: UpdatePackagingInput): Promise<Packaging> {
     const packaging = await getPackagingById(id)
     if (input.code) await assertCodeIsUnique(input.code, id)
-    return packaging.update(input)
+    const values = input.packagingRole !== "pallet"
+        ? { ...input, defaultQuantityBasis: null, defaultQuantityValue: null }
+        : { ...input }
+    const effective = packagingDefaultsSchema.safeParse({ defaultQuantityBasis: packaging.defaultQuantityBasis, defaultQuantityValue: packaging.defaultQuantityValue == null ? null : Number(packaging.defaultQuantityValue), ...values })
+    if (!effective.success) throw new AppError(422, "errors.packaging_consumption_defaults")
+    return packaging.update(values)
 }
 
 async function deletePackaging(id: number): Promise<void> {
@@ -60,12 +71,8 @@ async function deletePackaging(id: number): Promise<void> {
     await packaging.update({ isActive: false })
 }
 
-// Defensa en profundidad para los joins de materiales de variante (ProductVariantUnitMaterial
-// "unit" / ProductVariantPalletMaterial "pallet"): hasta ahora el filtro por rol solo vivía en
-// el <select> del frontend (PackagingSelect/PalletMaterialSelect), nunca se revalidaba acá --
-// un cliente que mandara un packagingId de otro rol por fuera de la UI (ej. un material de
-// palet como si fuera empaque individual) se aceptaba en silencio. Mismo criterio que el resto
-// del repo: nunca confiar solo en el filtro de la UI para algo que alimenta el cálculo/catálogo.
+// Defensa en profundidad: un packagingId de otro rol (ej. un material de palet como empaque
+// individual) se rechaza aunque venga por fuera de la UI, porque alimenta el cálculo.
 async function assertPackagingHasRole(packagingId: number, expectedRole: string): Promise<Packaging> {
     const packaging = await getPackagingById(packagingId)
     if (packaging.packagingRole !== expectedRole) {
@@ -76,70 +83,6 @@ async function assertPackagingHasRole(packagingId: number, expectedRole: string)
         })
     }
     return packaging
-}
-
-// Filtro "Empaques de este SKU" (2026-09-13, solo lectura): reusa
-// productVariantService.findVariantConfigBySkuCode (misma búsqueda case-insensitive y el mismo
-// 404 "errors.product_variant_sku_not_found" que ya usa el autofill de variantes) en vez de
-// duplicar el query de ProductVariant + sus joins -- acá solo se aplana el resultado a una lista
-// de materiales con rol + cantidad, enriquecida con code/unitCost (findVariantConfigBySkuCode no
-// los trae porque su consumidor, el autofill del form de variante, no los necesita).
-function toUnitCostNumber(packaging: Packaging | undefined): number | null {
-    // Packaging.unitCost es DECIMAL en Postgres -- igual que en quoteService (ver toDecimal en
-    // money.util.ts), Sequelize puede devolverlo como string, y esta respuesta es solo de
-    // lectura/display, así que basta un Number() explícito en vez de pasar el string crudo (el
-    // schema de respuesta lo tipa z.number(), no z.coerce.number()).
-    if (packaging?.unitCost == null) return null
-    return Number(packaging.unitCost)
-}
-
-async function listPackagingUsageBySkuCode(skuCode: string): Promise<PackagingSkuUsageItem[]> {
-    const variantConfig = await productVariantService.findVariantConfigBySkuCode(skuCode)
-
-    const packagingIds = new Set<number>([
-        ...variantConfig.unitMaterials.map(material => material.packagingId),
-        ...variantConfig.palletMaterials.map(material => material.packagingId),
-        ...(variantConfig.intermediatePackagingId ? [variantConfig.intermediatePackagingId] : []),
-    ])
-    const packagings = await Packaging.findAll({ where: { id: { [Op.in]: Array.from(packagingIds) } } })
-    const packagingById = new Map(packagings.map(packaging => [packaging.id, packaging]))
-
-    const items: PackagingSkuUsageItem[] = [
-        ...variantConfig.unitMaterials.map(material => ({
-            packagingId: material.packagingId,
-            code: packagingById.get(material.packagingId)?.code ?? "",
-            displayName: material.displayName,
-            packagingRole: "unit" as const,
-            unitCost: toUnitCostNumber(packagingById.get(material.packagingId)),
-            quantity: material.quantity,
-        })),
-        ...variantConfig.palletMaterials.map(material => ({
-            packagingId: material.packagingId,
-            code: packagingById.get(material.packagingId)?.code ?? "",
-            displayName: material.displayName,
-            packagingRole: "pallet" as const,
-            unitCost: toUnitCostNumber(packagingById.get(material.packagingId)),
-            quantity: material.quantity,
-        })),
-    ]
-
-    // El empaque intermedio no viene como fila en unitMaterials/palletMaterials -- es un campo
-    // suelto en la variante (intermediatePackagingId + unitsPerIntermediatePackage), ver
-    // ProductVariant.model.ts. Solo se agrega si ambos están presentes (misma consistencia que
-    // assertIntermediatePackagingConsistency en productVariant.service.ts).
-    if (variantConfig.intermediatePackagingId && variantConfig.unitsPerIntermediatePackage != null) {
-        const intermediatePackaging = packagingById.get(variantConfig.intermediatePackagingId)
-        items.push({
-            packagingId: variantConfig.intermediatePackagingId,
-            code: intermediatePackaging?.code ?? "",
-            displayName: intermediatePackaging?.displayName ?? "",
-            packagingRole: "intermediate",
-            unitCost: toUnitCostNumber(intermediatePackaging),
-            quantity: variantConfig.unitsPerIntermediatePackage,
-        })
-    }
-
-    return items
 }
 
 type PackagingRowValidation = {
@@ -170,9 +113,7 @@ function buildPackagingImportCandidate(fields: {
     rawUnitCost: ImportCellValue
 }) {
     return {
-        // String(...) y no el mismo trim condicional que displayName: un código entrado sin
-        // formato de texto en Excel puede llegar como number -- hay que forzarlo a string siempre
-        // para no romper el schema (code es string). Mismo criterio que ingredient.service.ts.
+        // String(...) siempre: un código entrado sin formato de texto en Excel puede llegar como number.
         code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         packagingRole: fields.resolvedRole,
@@ -206,10 +147,8 @@ function finalizePackagingImportCandidate(
     existingCodesByNormalized: Set<string>,
     rowIssues: RowIssue[]
 ): CreatePackagingInput | null {
-    // A diferencia de displayName (no es único a nivel de columna, solo se revisa dentro del
-    // archivo), code SÍ es único en la BD -- se reportan ambos problemas si aplican, en vez de
-    // cortar en el primero, para que el admin vea todos los errores de la fila de una vez. Mismo
-    // criterio que ingredient.service.ts::finalizeIngredientImportCandidate.
+    // code SÍ es único en la BD (displayName solo se revisa dentro del archivo); se reportan ambos
+    // problemas para que el admin vea todos los errores de la fila de una vez.
     let hasIssue = false
 
     const normalizedName = normalizeImportText(validated.displayName)
@@ -252,7 +191,7 @@ function finalizePackagingImportCandidate(
 }
 
 function processPackagingImportRow(
-    row: ExcelJS.Row,
+    row: ParsedRow,
     rowNumber: number,
     columnIndexByField: Map<PackagingImportField, number>,
     firstRowByNormalizedName: Map<string, number>,
@@ -268,7 +207,15 @@ function processPackagingImportRow(
     const ctx: PackagingRowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
 
     const resolvedRole = resolvePackagingRoleField(rawRole, ctx)
-    const candidate = buildPackagingImportCandidate({ rawCode, rawDisplayName, resolvedRole, rawUnitCost })
+    const baseCandidate = buildPackagingImportCandidate({ rawCode, rawDisplayName, resolvedRole, rawUnitCost })
+    const rawBasis = readImportCell(row, columnIndexByField.get("defaultQuantityBasis"))
+    const rawValue = readImportCell(row, columnIndexByField.get("defaultQuantityValue"))
+    const hasRule = rawBasis != null && rawBasis !== "" || rawValue != null && rawValue !== ""
+    const basisMap: Record<string, string> = { "por caja": "per_box", "por pallet": "per_pallet", per_box: "per_box", per_pallet: "per_pallet" }
+    const candidate = { ...baseCandidate, ...(hasRule ? {
+        defaultQuantityBasis: rawBasis == null || rawBasis === "" ? null : basisMap[normalizeImportText(rawBasis)] ?? String(rawBasis),
+        defaultQuantityValue: rawValue == null || rawValue === "" ? null : Number(rawValue),
+    } : {}) }
 
     const { validated, issues: zodIssues } = collectPackagingZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
     ctx.rowIssues.push(...zodIssues)
@@ -284,16 +231,14 @@ function processPackagingImportRow(
     )
 }
 
-// Preload de todos los códigos de material ya existentes (activos o no) para poder rechazar
-// duplicados-contra-la-BD con un RowIssue claro ANTES de intentar el bulkCreate, en vez de dejar
-// que Postgres reviente el batch completo con una violación de unique constraint genérica. Mismo
-// patrón que ingredient.service.ts::loadExistingIngredientCodes.
+// Precarga de todos los códigos existentes (activos o no) para rechazar duplicados contra la BD con
+// un RowIssue claro antes del bulkCreate, en vez de que Postgres rechace el batch completo.
 async function loadExistingPackagingCodes(): Promise<Set<string>> {
     const existingPackagings = await Packaging.findAll({ attributes: ["code"] })
     return new Set(existingPackagings.map(packaging => normalizeImportText(packaging.code)))
 }
 
-function validatePackagingImportHeaders(sheet: ExcelJS.Worksheet): Map<PackagingImportField, number> {
+function validatePackagingImportHeaders(sheet: ParsedWorksheet): Map<PackagingImportField, number> {
     const columnIndexByField = mapImportHeaders(sheet.getRow(1), PACKAGING_IMPORT_COLUMNS)
     const missingFields = REQUIRED_PACKAGING_IMPORT_FIELDS.filter(field => !columnIndexByField.has(field))
     if (missingFields.length > 0) {
@@ -305,7 +250,7 @@ function validatePackagingImportHeaders(sheet: ExcelJS.Worksheet): Map<Packaging
 }
 
 async function bulkImportPackagings(buffer: Buffer): Promise<Packaging[]> {
-    const workbook = await loadWorkbookFromBuffer(buffer)
+    const workbook: ParsedWorkbook = await loadWorkbookFromBuffer(buffer)
     const sheet = workbook.worksheets[0]
     if (!sheet || sheet.rowCount <= 1) {
         throw new AppError(422, "errors.bulk_import_empty_file")
@@ -349,13 +294,13 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
 
     const sheet = workbook.addWorksheet("Empaques")
     sheet.columns = [
-        // "Código" va PRIMERO a propósito (columna de identificación del material) -- el
-        // parser en sí no depende del orden físico de columnas (mapImportHeaders matchea por
-        // nombre de encabezado), pero la plantilla descargable sí debe mostrarlo primero.
+        // "Código" va primero en la plantilla; el parser mapea por nombre de encabezado, no por posición.
         { header: PACKAGING_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: PACKAGING_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.packagingRole.header, key: "packagingRole", width: 34 },
         { header: PACKAGING_IMPORT_COLUMNS.unitCost.header, key: "unitCost", width: 20 },
+        { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityBasis.header, key: "defaultQuantityBasis", width: 26 },
+        { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityValue.header, key: "defaultQuantityValue", width: 26 },
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
@@ -374,9 +319,13 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         code: "CAJ-001",
         displayName: "Caja corrugada master",
         packagingRole: PACKAGING_ROLE_LABELS.pallet,
-        unitCost: 2
+        unitCost: 2, defaultQuantityBasis: "POR CAJA", defaultQuantityValue: 1
     })
 
+    for (const [code, displayName, quantity] of [["ESQ-001", "Esquinero", 4], ["TAR-001", "Tarima", 1], ["STR-001", "Stretch", 93.3]] as const) {
+        sheet.addRow({ code, displayName, packagingRole: PACKAGING_ROLE_LABELS.pallet, unitCost: 0, defaultQuantityBasis: "POR PALLET", defaultQuantityValue: quantity })
+    }
+    for (let row = 2; row <= MAX_PACKAGING_IMPORT_ROWS + 1; row++) sheet.getCell(row, 5).dataValidation = { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] }
     const helpSheet = workbook.addWorksheet("Valores permitidos")
     helpSheet.columns = [{ header: `${PACKAGING_IMPORT_COLUMNS.packagingRole.header} (valores permitidos)`, key: "role", width: 42 }]
     helpSheet.getRow(1).font = { bold: true }
@@ -384,6 +333,7 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     helpSheet.addRow({})
     helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}" es un texto libre (letras, números y símbolos) que tú defines -- debe ser único, no puede repetirse entre materiales ni dentro del mismo archivo.` })
 
+    helpSheet.addRow({ role: "Forma de consumo: POR CAJA / POR PALLET. Cantidad positiva, máximo dos decimales. Ambos campos completos o ambos vacíos; solamente para paletización. Configure esta regla antes de asociar un material nuevo. Los ejemplos son configuración explícita, no reglas por nombre." })
     return writeWorkbookToBuffer(workbook)
 }
 
@@ -394,7 +344,6 @@ export const packagingService = {
     updatePackaging,
     deletePackaging,
     assertPackagingHasRole,
-    listPackagingUsageBySkuCode,
     bulkImportPackagings,
     buildPackagingImportTemplate,
 }

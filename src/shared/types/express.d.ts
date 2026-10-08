@@ -7,13 +7,13 @@ export interface AuthenticatedUser {
     permissions: string[]
 }
 
-export interface AuthenticatedCustomer {
+export interface AuthenticatedSalesperson {
     id: number
 }
 
 declare module "express" {
     interface Request {
         user?: AuthenticatedUser
-        customer?: AuthenticatedCustomer
+        salesperson?: AuthenticatedSalesperson
     }
 }

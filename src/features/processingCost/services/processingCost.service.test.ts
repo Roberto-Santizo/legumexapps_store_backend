@@ -1,8 +1,6 @@
 import "reflect-metadata"
 
-// Mock manual de los 2 modelos que toca este service -- mismo patrón que ingredient.service.ts
-// (create/update/delete no necesitan una BD real, solo objetos planos con la forma que el
-// service espera de vuelta).
+// Mock manual de los 2 modelos que toca este service (objetos planos, sin BD real).
 jest.mock("../models/ProcessingCost.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn(), create: jest.fn() }

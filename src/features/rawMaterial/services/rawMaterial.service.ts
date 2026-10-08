@@ -30,7 +30,15 @@ import {
 } from "../constants/rawMaterialImport.constant"
 
 async function listRawMaterials(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<RawMaterial>> {
-    const where: WhereOptions = { isActive: true, ...(search ? { displayName: { [Op.iLike]: `%${search}%` } } : {}) }
+    const where: WhereOptions = {
+        isActive: true,
+        ...(search ? {
+            [Op.or]: [
+                { displayName: { [Op.iLike]: `%${search}%` } },
+                { code: { [Op.iLike]: `%${search}%` } },
+            ],
+        } : {}),
+    }
     return paginate(
         RawMaterial,
         { where, order: [["displayName", "DESC"]], include: [{ model: RawMaterialTranslation, as: "translations" }] },

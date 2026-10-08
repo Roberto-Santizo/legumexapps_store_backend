@@ -1,6 +1,7 @@
 import { Router } from "express"
 import multer from "multer"
 import { productController } from "../controllers/Product.controller"
+import { exportProductCatalog } from "../controllers/productExport.controller"
 import { validate } from "../../../shared/middlewares/validate"
 import { authenticate } from "../../../shared/middlewares/authenticate"
 import { authorize } from "../../../shared/middlewares/authorize"
@@ -16,6 +17,7 @@ const upload = multer({
 productRouter.use(authenticate)
 
 productRouter.get("/", authorize("products:view"), validate(productQuerySchema, "query"), productController.index)
+productRouter.get("/export", authorize("products:view"), exportProductCatalog)
 // Carga masiva de Productos base -- ANTES de /:id para que "bulk-import" no se lea
 // como un id. Mismo permiso que el formulario de crear producto (products:create).
 productRouter.get("/bulk-import/template", authorize("products:create"), productController.downloadTemplate)

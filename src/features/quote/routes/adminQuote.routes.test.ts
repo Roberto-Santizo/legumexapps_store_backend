@@ -16,6 +16,7 @@ jest.mock("../services/quote.service", () => ({
 jest.mock("../../../shared/services/email.service", () => ({
     emailService: { sendMailWithAttachment: jest.fn() }
 }))
+jest.mock("../services/productionOrder.service", () => ({ listProductionOrders: jest.fn() }))
 jest.mock("../../quoteDraft/services/quoteDraft.service", () => ({
     quoteDraftService: { upsertFromCalculation: jest.fn(), markConverted: jest.fn(), listDrafts: jest.fn() }
 }))
@@ -29,6 +30,27 @@ import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { emailService } from "../../../shared/services/email.service"
 import { discoverCatalog } from "../../customQuote/services/catalogQuoteDiscovery.service"
 import { previewAdminCatalogQuote, confirmCatalogQuote } from "../../customQuote/services/catalogQuote.service"
+import { listProductionOrders } from "../services/productionOrder.service"
+
+describe("production reports", () => {
+    it("requires both read permissions before accessing mixed orders", async () => {
+        for (const permissions of [[], ["quotes:view"], ["customQuotes:view"]]) {
+            const response = await request(app).get("/api/admin/quotes/production-orders").set("Authorization", `Bearer ${staffToken(permissions)}`)
+            expect(response.status).toBe(403)
+        }
+        expect(listProductionOrders).not.toHaveBeenCalled()
+    })
+    it("returns persisted orders and validates dates", async () => {
+        ;(listProductionOrders as jest.Mock).mockResolvedValue([{ id: "order", lines: [] }])
+        const auth = `Bearer ${staffToken(["quotes:view", "customQuotes:view"])}`
+        const response = await request(app).get("/api/admin/quotes/production-orders?startDate=2026-10-08&endDate=2026-10-08").set("Authorization", auth)
+        expect(response.status).toBe(200)
+        expect(response.body.data).toEqual([{ id: "order", lines: [] }])
+        expect(listProductionOrders).toHaveBeenCalledWith({ startDate: "2026-10-08", endDate: "2026-10-08" })
+        const invalid = await request(app).get("/api/admin/quotes/production-orders?startDate=invalid").set("Authorization", auth)
+        expect(invalid.status).toBe(400)
+    })
+})
 
 describe("admin customizable calculator", () => {
     const input = { categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", isOrganic: false, requestedPallets: 2, rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }

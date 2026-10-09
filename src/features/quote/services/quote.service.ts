@@ -30,6 +30,7 @@ import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from ".
 import { toDecimal, sumMoney } from "../../../shared/utils/money.util"
 import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
 import Decimal from "decimal.js"
+import type { QuoteOrderIdentity } from "../schemas/quoteOrder.schema"
 import {
     AdjustmentLine,
     IngredientLine,
@@ -79,6 +80,8 @@ export interface QuoteCalculation {
     adjustmentCost: number
     totalCost: number
     breakdown: {
+        order?: QuoteOrderIdentity
+        production?: { productId: number; skuCode: string; kind: "fixed" | "customizable"; boxesPerPallet: number; bagsPerBox: number; netWeightGrams: number | null }
         rawMaterials: RawMaterialLine[]
         ingredients: IngredientLine[]
         unitMaterials: UnitMaterialLine[]
@@ -400,6 +403,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         adjustmentCost,
         totalCost,
         breakdown: {
+            production: { productId: variant.productId, skuCode: variant.skuCode, kind: variant.parentProduct.isCustomizable ? "customizable" : "fixed", boxesPerPallet: variant.boxesPerPallet, bagsPerBox: variant.bagsPerBox, netWeightGrams: variant.sizePresentation?.netWeightGrams == null ? null : Number(variant.sizePresentation.netWeightGrams) },
             rawMaterials,
             ingredients,
             unitMaterials,
@@ -647,8 +651,9 @@ async function listQuoteDestinations(): Promise<Destination[]> {
 // se separa antes de calcular y solo se usa DESPUÉS de crear la cotización, para marcar el borrador
 // como convertido (best-effort: si eso falla, la cotización ya quedó guardada y se devuelve igual).
 async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
-    const { draftKey, ...calculationInput } = input
+    const { draftKey, order, ...calculationInput } = input
     const calculation = await calculateQuote(calculationInput, language)
+    if (order) calculation.breakdown.order = order
 
     const quote = await Quote.create({
         salespersonId,

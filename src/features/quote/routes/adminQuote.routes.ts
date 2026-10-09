@@ -19,6 +19,7 @@ const adminQuoteRouter = Router()
 adminQuoteRouter.use(authenticate)
 
 adminQuoteRouter.get("/", authorize("quotes:view"), validate(adminQuoteListQuerySchema, "query"), quoteController.indexAll)
+adminQuoteRouter.get("/production-orders", authorize("quotes:view"), authorize("customQuotes:view"), validate(adminQuoteListQuerySchema, "query"), quoteController.productionOrders)
 
 adminQuoteRouter.get("/products", authorize("quotes:calculate"), quoteController.products)
 adminQuoteRouter.get("/catalog-configurations", authorize("quotes:calculate"), adminCatalogQuoteController.catalog)

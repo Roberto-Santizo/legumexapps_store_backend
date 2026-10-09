@@ -1,4 +1,11 @@
-import { calculateQuoteSchema } from "./quote.schema"
+import { calculateQuoteSchema, salespersonQuoteSchema } from "./quote.schema"
+
+test("mixed order identity requires a valid UUID and nonempty bounded customer name", () => {
+    const input = { productVariantId: 10, requestedPallets: 1 }
+    const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientName: " Customer A " }
+    expect(salespersonQuoteSchema.parse({ ...input, order }).order?.clientName).toBe("Customer A")
+    for (const invalid of [{ ...order, id: "invalid" }, { ...order, clientName: " " }, { ...order, clientName: "x".repeat(151) }]) expect(salespersonQuoteSchema.safeParse({ ...input, order: invalid }).success).toBe(false)
+})
 
 
 function validInput() {

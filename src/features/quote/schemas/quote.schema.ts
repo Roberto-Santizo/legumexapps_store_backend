@@ -1,4 +1,5 @@
 import z from "zod"
+import { quoteOrderSchema } from "./quoteOrder.schema"
 
 const rawMaterialMixLineSchema = z.object({
     rawMaterialId: z.number().int().positive(),
@@ -26,6 +27,7 @@ export const calculateQuoteSchema = z.object({
 // convertido al guardar. Opcional. calculateQuoteSchema (rutas admin) no lo tiene.
 export const salespersonQuoteSchema = calculateQuoteSchema.extend({
     draftKey: z.string().uuid().optional(),
+    order: quoteOrderSchema.optional(),
 })
 
 export type RawMaterialMixLineInput = z.infer<typeof rawMaterialMixLineSchema>

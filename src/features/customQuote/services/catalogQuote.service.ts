@@ -11,6 +11,7 @@ import type { CatalogQuoteInput } from "../schemas/catalogQuote.schema"
 import { availableRawMaterials, loadCatalogContext } from "./catalogQuoteDiscovery.service"
 import { configurationIdentity, decimalString, digest, validConfiguration } from "./catalogQuoteIdentity"
 import { materialGroupIdentity } from "../../../shared/utils/materialGroupIdentity.util"
+import type { QuoteOrderIdentity } from "../../quote/schemas/quoteOrder.schema"
 
 const failure = (key: string, status = 422): never => { throw new AppError(status, `errors.catalog_quote_${key}`) }
 const secret = () => { const value = process.env.JWT_SECRET; if (!value) return failure("unavailable", 503); return value }
@@ -97,7 +98,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
         bagsPerBox: variant.bagsPerBox, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null,
         destinationId: null, productDisplayName, variantLabel, requestedPallets: input.requestedPallets, totalUnits, boxesPerPallet: variant.boxesPerPallet,
         ...subtotals, percentageCostTotal, totalCost, configuration,
-        breakdown: { rawMaterials, ingredients: [], unitMaterials, intermediateMaterials, palletMaterials, processingCosts, percentageCosts,
+        breakdown: { production: { kind: "customizable" as const, boxesPerPallet: variant.boxesPerPallet, bagsPerBox: variant.bagsPerBox, netWeightGrams: weight }, order: undefined as QuoteOrderIdentity | undefined, rawMaterials, ingredients: [], unitMaterials, intermediateMaterials, palletMaterials, processingCosts, percentageCosts,
             transport: { destinationId: null, displayName: language === "en" ? "No destination" : "Sin destino", baseCost: 0 }, adjustment: null, language } }
 }
 
@@ -133,7 +134,7 @@ export async function previewCatalogQuote(salespersonId: number, input: CatalogQ
     })
 }
 
-export async function confirmCatalogQuote(salespersonId: number, request: { input: CatalogQuoteInput; previewToken: string; confirmationKey: string }, language: ContentLanguage) {
+export async function confirmCatalogQuote(salespersonId: number, request: { input: CatalogQuoteInput; previewToken: string; confirmationKey: string; order?: QuoteOrderIdentity }, language: ContentLanguage) {
     let claims: jwt.JwtPayload
     try {
         const value = jwt.verify(request.previewToken, secret(), { algorithms: ["HS256"], audience: "catalog-quote-confirm" })
@@ -148,12 +149,14 @@ export async function confirmCatalogQuote(salespersonId: number, request: { inpu
         if (existing) {
             const saved = existing.toJSON() as Calculation & { id: number; status: string; createdAt: Date; confirmationRequestHash?: string }
             if (saved.confirmationRequestHash !== claims.inputHash) return failure("preview_invalid", 409)
+            if (JSON.stringify(saved.breakdown.order) !== JSON.stringify(request.order)) return failure("preview_invalid", 409)
             return { ...publicResult(saved), id: saved.id, status: saved.status, createdAt: saved.createdAt }
         }
         let calculation: Calculation
         try { calculation = await calculateCatalogQuote(request.input, language, transaction) }
         catch (error) { if (error instanceof AppError && (error.statusCode === 422 || error.statusCode === 404)) return failure("changed", 409); throw error }
         if (calculation.configuration.snapshot.calculationVersion !== claims.version) return failure("changed", 409)
+        calculation.breakdown.order = request.order
         const row = await CustomQuote.create({ ...calculation, configuration: { ...calculation.configuration, snapshot: { ...calculation.configuration.snapshot, capturedAt: new Date().toISOString() } },
             salespersonId, status: "new", confirmationKey: request.confirmationKey, confirmationRequestHash: claims.inputHash }, { transaction })
         return { ...publicResult({ ...calculation, configuration: row.configuration as Calculation["configuration"] }), id: row.id, status: row.status, createdAt: row.get("createdAt") }

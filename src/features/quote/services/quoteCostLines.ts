@@ -22,6 +22,10 @@ const GRAMS_PER_POUND = getUnitCatalogEntry("pound")!.baseFactor
 
 export interface RawMaterialLine {
     rawMaterialId: number
+    code?: string
+    percentage?: number
+    gramsPerUnit?: number
+    quantityUnit?: string
     displayName: string
     unitCost: number
     quantityPerUnit: number
@@ -35,6 +39,8 @@ export interface RawMaterialLine {
 // (gramsPerUnit), además del costo.
 export interface IngredientLine {
     ingredientId: number
+    code?: string
+    quantityUnit?: string
     displayName: string
     grams: number
     referenceNetWeightGrams: number
@@ -50,6 +56,7 @@ export interface IngredientLine {
 // "Caja: caja de envío" aunque el admin renombre el grupo después.
 export interface UnitMaterialLine {
     packagingId: number
+    code?: string
     displayName: string
     optionGroup: string | null
     unitCost: number
@@ -60,6 +67,7 @@ export interface UnitMaterialLine {
 
 export interface IntermediateMaterialLine {
     packagingId: number
+    code?: string
     displayName: string
     optionGroup: string | null
     unitCost: number
@@ -87,6 +95,7 @@ export interface PercentageCostLine {
 
 export interface PalletMaterialLine {
     packagingId: number
+    code?: string
     displayName: string
     optionGroup: string | null
     unitCost: number
@@ -176,6 +185,10 @@ export function buildPercentageRawMaterialLine(
 
     return {
         rawMaterialId,
+        code: rawMaterial.code,
+        percentage: percentage.toNumber(),
+        gramsPerUnit: percentage.dividedBy(100).times(netWeight).toDecimalPlaces(6).toNumber(),
+        quantityUnit: rawMaterial.costUnit?.unitCode,
         displayName: pickTranslatedName(rawMaterial?.displayName ?? "", rawMaterial?.translations, language),
         unitCost: unitCost.toNumber(),
         quantityPerUnit: quantityPerUnitDecimal.toDecimalPlaces(6).toNumber(),
@@ -288,6 +301,8 @@ export function buildIngredientLine(
 
     return {
         ingredientId,
+        code: ingredient?.code,
+        quantityUnit: ingredient?.costUnit?.unitCode,
         displayName: pickTranslatedName(ingredient?.displayName ?? "", ingredient?.translations, language),
         grams: grams.toNumber(),
         referenceNetWeightGrams: referenceNetWeightGrams.toNumber(),
@@ -312,6 +327,7 @@ export function buildUnitMaterialLine(
     const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnits))
     return {
         packagingId,
+        code: packaging?.code,
         displayName: packaging?.displayName ?? "",
         optionGroup: normalizeOptionGroup(optionGroup),
         unitCost: unitCost.toNumber(),
@@ -339,6 +355,7 @@ export function buildIntermediateMaterialLine(
     const packagesNeeded = Math.ceil(totalUnits / unitsPerIntermediatePackage)
     return {
         packagingId,
+        code: packaging?.code,
         displayName: packaging?.displayName ?? "",
         optionGroup: normalizeOptionGroup(optionGroup),
         unitCost: unitCost.toNumber(),
@@ -363,6 +380,7 @@ export function buildPalletMaterialLine(
     const lineTotal = roundMoney(unitCost.times(quantityPerPallet).times(requestedPallets))
     return {
         packagingId,
+        code: packaging?.code,
         displayName: packaging?.displayName ?? "",
         optionGroup: normalizeOptionGroup(optionGroup),
         unitCost: unitCost.toNumber(),

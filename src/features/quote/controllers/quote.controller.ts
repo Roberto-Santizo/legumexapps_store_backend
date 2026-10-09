@@ -6,6 +6,12 @@ import { emailService } from "../../../shared/services/email.service"
 import { resolveContentLanguage } from "../../../shared/utils/translation.util"
 import { SalespersonQuoteInput, SendQuotePdfEmailInput } from "../schemas/quote.schema"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
+import { listProductionOrders } from "../services/productionOrder.service"
+
+async function productionOrders(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try { res.json({ data: await listProductionOrders(req.query as AdminQuoteListQuery) }) }
+    catch (error) { next(error) }
+}
 
 async function save(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -114,6 +120,7 @@ async function sendPdfEmail(req: Request, res: Response, next: NextFunction): Pr
 }
 
 export const quoteController = {
+    productionOrders,
     products,
     destinations,
     save,

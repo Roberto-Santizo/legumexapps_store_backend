@@ -203,6 +203,23 @@ describe("quoteService.calculateQuote", () => {
     })
 
     describe("receta fija (producto no personalizable, pivote a % 2026-09-19)", () => {
+        it("freezes product SKU, material codes, recipe grams and order customer in the saved breakdown", async () => {
+            mockVariantFindOne.mockResolvedValue({
+                id: 10, productId: 8, skuCode: "PTC3010111", boxesPerPallet: 20, bagsPerBox: 2,
+                parentProduct: { isActive: true, isCustomizable: false, displayName: "Pineapple", productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { code: "MP001", displayName: "Pineapple", costPerUnit: 2, costUnit: { unitCode: "kilogram", unitType: "weight", baseFactor: 1000 } } }] },
+                sizePresentation: { displayLabel: "500 g", netWeightGrams: 500 },
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { code: "EMP001", displayName: "Bag", unitCost: 1 } }],
+                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { code: "EMP002", displayName: "Pallet", unitCost: 5 } }],
+            })
+            mockQuoteCreate.mockResolvedValueOnce({ id: 99, get: () => new Date("2026-10-08T12:00:00Z") })
+            const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientName: "Customer A" }
+            const result = await quoteService.saveQuote(42, { productVariantId: 10, requestedPallets: 2, order })
+            expect(result.breakdown.production).toMatchObject({ skuCode: "PTC3010111", productId: 8, boxesPerPallet: 20, bagsPerBox: 2, netWeightGrams: 500 })
+            expect(result.breakdown.rawMaterials[0]).toMatchObject({ code: "MP001", percentage: 100, gramsPerUnit: 500, quantityUnit: "kilogram" })
+            expect(result.breakdown.unitMaterials[0].code).toBe("EMP001")
+            expect(result.breakdown.palletMaterials[0].code).toBe("EMP002")
+            expect(mockQuoteCreate.mock.calls.at(-1)[0].breakdown.order).toEqual(order)
+        })
         // La receta fija usa la misma matemática %->gramos->costo que el mix personalizable; el % lo fija el
         // admin. Convención de este archivo: con una sola materia prima activa se usa percentage:100,
         // costUnit.baseFactor=1 y netWeightGrams = la cantidad por unidad buscada, así

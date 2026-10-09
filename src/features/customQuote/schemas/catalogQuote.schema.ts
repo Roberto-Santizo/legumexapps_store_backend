@@ -1,4 +1,5 @@
 import z from "zod"
+import { quoteOrderSchema } from "../../quote/schemas/quoteOrder.schema"
 
 export const catalogQuoteInputSchema = z.strictObject({
     categoryId: z.number().int().positive(),
@@ -19,5 +20,6 @@ export const catalogQuoteConfirmSchema = z.strictObject({
     input: catalogQuoteInputSchema,
     previewToken: z.string().min(1).max(4096),
     confirmationKey: z.string().uuid(),
+    order: quoteOrderSchema.optional(),
 })
 export type CatalogQuoteInput = z.infer<typeof catalogQuoteInputSchema>

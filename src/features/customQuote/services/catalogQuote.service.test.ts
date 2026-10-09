@@ -150,6 +150,17 @@ it("confirms snapshot, removes internal source data from client and retries idem
     const retry = await confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key }, "en")
     expect(retry.id).toBe(confirmed.id); expect(CustomQuote.create).toHaveBeenCalledTimes(1)
 })
+it("persists mixed order identity and rejects retries that change its customer", async () => {
+    const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientName: "Customer A" }
+    const preview = await previewCatalogQuote(42, input, "en")
+    await confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key, order }, "en")
+    const saved = mock(CustomQuote.create).mock.calls[0][0]
+    expect(saved.breakdown.order).toEqual(order)
+    expect(saved.breakdown.production).toMatchObject({ kind: "customizable" })
+    mock(CustomQuote.findOne).mockResolvedValue({ toJSON: () => ({ ...saved, id: 88, createdAt: new Date() }) })
+    await expect(confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key, order: { ...order, clientName: "Customer B" } }, "en")).rejects.toMatchObject({ statusCode: 409 })
+    expect(CustomQuote.create).toHaveBeenCalledTimes(1)
+})
 it.each(["rawCost", "packagingCost", "alternativeCost", "default", "weight", "additionalCost"])("preview/confirm conflicts after %s changes", async mode => {
     const { materials, variant } = fixture(); const preview = await previewCatalogQuote(42, input, "en")
     if (mode === "rawCost") materials[0].costPerUnit = "2"

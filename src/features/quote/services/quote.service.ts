@@ -1,3 +1,4 @@
+import { packagingNames, packagingName } from "../../../shared/utils/packagingName.util"
 import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
 import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { Op } from "sequelize"
@@ -428,6 +429,7 @@ interface QuotableMaterialOption {
     id: number
     packagingId: number
     displayName: string
+    displayNameEn?: string | null
     unitCost: number
     isDefault: boolean
 }
@@ -451,7 +453,7 @@ function buildMaterialOptionGroups<T extends GroupedMaterialRow & { packagingId:
         options: bucket.rows.map(row => ({
             id: row.id as number,
             packagingId: row.packagingId,
-            displayName: packagingOf(row)?.displayName ?? "",
+            ...packagingNames(packagingOf(row)),
             unitCost: Number(packagingOf(row)?.unitCost ?? 0),
             isDefault: row.isDefault
         }))
@@ -627,7 +629,7 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                 packagingLabel:
                     (variant.unitMaterials ?? [])
                         .filter(unitMaterial => normalizeOptionGroup(unitMaterial.optionGroup) === null || unitMaterial.isDefault)
-                        .map(unitMaterial => unitMaterial.usedUnitMaterial?.displayName)
+                        .map(unitMaterial => packagingName(unitMaterial.usedUnitMaterial, language))
                         .filter(Boolean)
                         .join(" + ") || null,
                 unitMaterialOptionGroups: buildMaterialOptionGroups(variant.unitMaterials ?? [], row => row.usedUnitMaterial),
@@ -680,7 +682,7 @@ async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, la
         try {
             await quoteDraftService.markConverted(draftKey, salespersonId, quote.id)
         } catch (error) {
-            console.error("[quoteDraft] no se pudo marcar el borrador como convertido", error)
+            console.error("[quoteDraft] no se pudo marcar el borrador como convertido; detalles sensibles omitidos")
         }
     }
 

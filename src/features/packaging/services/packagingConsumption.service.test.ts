@@ -1,7 +1,7 @@
 import { createPackagingSchema, updatePackagingSchema } from "../schemas/packaging.schema"
 import { resolvePalletConsumptionRule } from "./packagingConsumption.service"
 
-const input = { code: "NO-SEMANTIC-CODE", displayName: "Unclassified", packagingRole: "pallet", unitCost: 1 }
+const input = { displayNameEn: "Material", classification: "specific", code: "NO-SEMANTIC-CODE", displayName: "Unclassified", packagingRole: "pallet", unitCost: 1 }
 it.each([["per_box", 1], ["per_pallet", 4], ["per_pallet", 1], ["per_pallet", 93.3]] as const)("validates and resolves explicit catalog consumption %s / %s", (basis, quantity) => {
     const packaging = createPackagingSchema.parse({ ...input, defaultQuantityBasis: basis, defaultQuantityValue: quantity })
     expect(resolvePalletConsumptionRule(packaging)).toEqual({ quantityBasis: basis, quantityValue: quantity })

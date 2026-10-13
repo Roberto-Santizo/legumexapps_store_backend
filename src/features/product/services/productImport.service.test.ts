@@ -562,13 +562,13 @@ describe("carga inicial conjunta", () => {
         expect(response.body.message).not.toMatch(/could not be read/i)
         noWrites()
     })
-    it("the actual failing user file reaches preview data/catalog validation over HTTP", async () => {
-        const buffer = await readFile(join(__dirname, "../../../shared/test-utils/fixtures/carga_masiva_PRODUCTOS_VARIANTES_EMPAQUES_exceljs_FINAL.xlsx"))
+    it("the synthetic regression file reaches preview data/catalog validation over HTTP", async () => {
+        const buffer = await readFile(join(__dirname, "../../../shared/test-utils/fixtures/synthetic-product-packaging.xlsx"))
         const app = buildTestApp("/api/products", productRouter)
         const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
         const response = await request(app).post("/api/products/bulk-import/preview")
             .set("Authorization", `Bearer ${token}`).set("Accept-Language", "en")
-            .attach("file", buffer, { filename: "carga_masiva_PRODUCTOS_VARIANTES_EMPAQUES_exceljs_FINAL.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+            .attach("file", buffer, { filename: "synthetic-product-packaging.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
         expect(response.status).toBe(200)
         expect(response.body.data.summary.errors).toBeGreaterThan(0)
         expect(response.body.data.issues.length).toBeGreaterThan(0)

@@ -6,7 +6,7 @@ import { env } from "./config/env"
 
 async function main(): Promise<void> {
     await connectDB()
-    server.listen(env.serverPort, () => {
+    server.listen(env.serverPort, "0.0.0.0", () => {
         console.log(colors.cyan.bold(`Server is running on port ${env.serverPort}`))
     })
 }

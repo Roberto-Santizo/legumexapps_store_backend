@@ -4,7 +4,7 @@ module.exports = {
     testEnvironment: "node",
     rootDir: "src",
     testMatch: ["**/*.test.ts"],
-    setupFiles: ["reflect-metadata"],
+    setupFiles: ["reflect-metadata", "<rootDir>/shared/test-utils/environment.ts"],
     clearMocks: true,
 
     // Coverage

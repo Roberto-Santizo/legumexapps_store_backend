@@ -1,3 +1,4 @@
+import { packagingNames } from "../../../shared/utils/packagingName.util"
 import { Transaction } from "sequelize"
 import jwt from "jsonwebtoken"
 import { AppError } from "../../../shared/errors/AppError"
@@ -68,7 +69,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
         const quantity = level === "unit" ? unit[index].quantityPerUnit : level === "pallet" ? pallet[index].quantityValue : 1
         const basis = level === "unit" ? "per_unit" : level === "pallet" ? pallet[index].quantityBasis : "per_intermediate"
         const effectiveQuantity = level === "intermediate" ? intermediateMaterials[index].packagesNeeded : level === "unit" ? toDecimal(quantity).times(totalUnits).toNumber() : toDecimal(palletMaterials[index].quantityPerPallet).times(input.requestedPallets).toNumber()
-        return { sourceAssociationId: row.id, packagingId: row.packagingId, displayName: packagingOf(index).displayName, level,
+        return { sourceAssociationId: row.id, packagingId: row.packagingId, ...packagingNames(packagingOf(index)), level,
             optionGroupId: row.optionGroupId ?? null, optionGroup: row.optionGroup, selectionOrigin: materialGroupIdentity(row) === null ? "fixed" : ids.includes(row.id!) ? "customer" : "default",
             quantityBasis: basis, quantityValue: Number(quantity), effectiveQuantity, unitCost: line.unitCost, lineTotal: line.lineTotal }
     })

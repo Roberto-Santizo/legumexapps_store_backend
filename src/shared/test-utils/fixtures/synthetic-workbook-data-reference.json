@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Productos y Variantes",
+    "cells": 989,
+    "sha256": "920ecc15bdd5721e32827757e7694927dbc842c7dee18b2e76af5e946bfa3b62"
+  },
+  {
+    "name": "Materiales de Empaque",
+    "cells": 916,
+    "sha256": "7300c774f8cfdb25b2b29c2f6ad02eb35aba693e621cc18ee8a334183e5e88b6"
+  },
+  {
+    "name": "INSTRUCCIONES",
+    "cells": 22,
+    "sha256": "c2b7eb5aff60e06784a5b1632f000f3d07787006ce8df813beaef70abc0d5555"
+  }
+]

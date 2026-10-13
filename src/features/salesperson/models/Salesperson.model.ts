@@ -1,4 +1,6 @@
-import { Table, Column, DataType } from "sequelize-typescript"
+import { Table, Column, DataType, BelongsToMany } from "sequelize-typescript"
+import Client from "../../client/models/Client.model"
+import RepresentativeClient from "./RepresentativeClient.model"
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel"
 
 // tableName explícito: la tabla física sigue siendo "customers" (la feature se renombró solo en
@@ -7,6 +9,9 @@ import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel"
     tableName: "customers"
 })
 class Salesperson extends BaseCatalogModel {
+    @BelongsToMany(() => Client, { through: () => RepresentativeClient, foreignKey: "representativeId", otherKey: "clientId", onDelete: "RESTRICT", onUpdate: "CASCADE" })
+    declare assignedClients: Client[]
+
     @Column({
         type: DataType.STRING(100),
         allowNull: false

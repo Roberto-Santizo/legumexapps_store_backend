@@ -54,7 +54,7 @@ describe("packagingService.bulkImportPackagings", () => {
         await packagingService.bulkImportPackagings(buffer)
 
         expect(mockBulkCreate).toHaveBeenCalledWith([
-            { code: "USD-001", displayName: "Bolsa", packagingRole: "unit", unitCost: 0.03 },
+            { code: "USD-001", displayName: "Bolsa", packagingRole: "unit", unitCost: 0.03, classification: "specific", displayNameEn: null },
         ])
     })
 
@@ -69,9 +69,9 @@ describe("packagingService.bulkImportPackagings", () => {
 
         expect(result).toHaveLength(3)
         expect(mockBulkCreate).toHaveBeenCalledWith([
-            { code: "BOL-001", displayName: "Bolsa plástica 2kg", packagingRole: "unit", unitCost: 1.25 },
-            { code: "BOL-002", displayName: "Bolsa grande 50u", packagingRole: "intermediate", unitCost: 3.5 },
-            { code: "CAJ-001", displayName: "Caja corrugada master", packagingRole: "pallet", unitCost: 2 },
+            { code: "BOL-001", displayName: "Bolsa plástica 2kg", packagingRole: "unit", unitCost: 1.25, classification: "specific", displayNameEn: null },
+            { code: "BOL-002", displayName: "Bolsa grande 50u", packagingRole: "intermediate", unitCost: 3.5, classification: "specific", displayNameEn: null },
+            { code: "CAJ-001", displayName: "Caja corrugada master", packagingRole: "pallet", unitCost: 2, classification: "specific", displayNameEn: null },
         ])
     })
 
@@ -94,7 +94,7 @@ describe("packagingService.bulkImportPackagings", () => {
 
         expect(result).toHaveLength(1)
         expect(mockBulkCreate).toHaveBeenCalledWith([
-            { code: "BOL-999", displayName: "Bolsa test", packagingRole: "unit", unitCost: 5 },
+            { code: "BOL-999", displayName: "Bolsa test", packagingRole: "unit", unitCost: 5, classification: "specific", displayNameEn: null },
         ])
     })
 
@@ -264,7 +264,8 @@ describe("packagingService.buildPackagingImportTemplate", () => {
 const BASE_CREATE_INPUT = {
     code: "BOL-001",
     displayName: "Bolsa plástica 2kg",
-    packagingRole: "unit" as const,
+    displayNameEn: "Plastic bag 2kg",
+    packagingRole: "unit" as const, classification: "specific" as const,
     unitCost: 1.25,
 }
 
@@ -415,6 +416,7 @@ describe("packagingService.listPackagings search", () => {
                 isActive: true,
                 [Op.or]: [
                     { displayName: { [Op.iLike]: `%${search}%` } },
+            { displayNameEn: { [Op.iLike]: `%${search}%` } },
                     { code: { [Op.iLike]: `%${search}%` } },
                 ],
             },
@@ -432,6 +434,7 @@ describe("packagingService.listPackagings search", () => {
         expect(findAndCountAll).toHaveBeenCalledWith(expect.objectContaining({
             where: { isActive: true, [Op.or]: [
                 { displayName: { [Op.iLike]: "%NOT-FOUND%" } },
+            { displayNameEn: { [Op.iLike]: "%NOT-FOUND%" } },
                 { code: { [Op.iLike]: "%NOT-FOUND%" } },
             ] },
         }))

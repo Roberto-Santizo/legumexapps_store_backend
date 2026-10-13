@@ -1,9 +1,11 @@
 import express from "express"
-import cors from "cors"
+import { frontendCors } from "./config/frontendCors"
 import appRouter from "./routes"
 import { errorHandler } from "./shared/middlewares/errorHandler"
 import i18next, { i18nextMiddleware } from "./config/i18n"
 import { env } from "./config/env"
+import sequelize from "./database/connection"
+import { QueryTypes } from "sequelize"
 
 const server = express()
 
@@ -18,9 +20,7 @@ server.set("trust proxy", 1)
 
 // Solo el frontend conocido (ver FRONTEND_URL en env) puede leer las respuestas de la API --
 // un origin "*" permitiría a cualquier sitio hacer requests cross-origin en nombre del usuario.
-server.use(cors({
-    origin: env.frontendUrl,
-}))
+server.use(frontendCors(env.frontendUrl))
 
 server.use(express.json({ limit: "20mb" }))
 
@@ -30,6 +30,15 @@ server.use("/api", appRouter)
 
 server.get("/", (_req, res) => {
     res.json({ message: "Legumex Quote API" })
+})
+
+server.get("/health/ready", async (_req, res) => {
+    try {
+        await sequelize.query("SELECT 1 AS ready", { type: QueryTypes.SELECT, retry: { max: 0 } })
+        res.json({ status: "ready" })
+    } catch {
+        res.status(503).json({ status: "unavailable" })
+    }
 })
 
 server.use(errorHandler)

@@ -112,5 +112,6 @@ describe("errorHandler", () => {
         expect(res.status).toHaveBeenCalledWith(500)
         expect(res.json).toHaveBeenCalledWith({ message: "errors.internal" })
         expect(consoleErrorSpy).toHaveBeenCalled()
+        expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("detalles internos sensibles")
     })
 })

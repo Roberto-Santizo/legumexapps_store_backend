@@ -6,10 +6,13 @@
   "author": "Luis Alfredo Gonzalez @codeWithLuis",
   "main": "dist/index.js",
   "scripts": {
+    "db:migrate": "node scripts/migrate.cjs",
+    "db:bootstrap": "node scripts/bootstrap.cjs",
+    "test:postgres": "node scripts/test-postgres.cjs",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.build.json",
+    "prestart": "node scripts/build-integrity.cjs verify",
+    "build": "node scripts/build.cjs",
     "dev": "nodemon --exec ts-node src/index.ts",
-    "dev:sync": "cross-env DB_SYNC_ALTER=true nodemon --exec ts-node src/index.ts",
     "test": "jest",
     "test:watch": "jest --watch"
   },

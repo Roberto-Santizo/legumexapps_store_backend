@@ -20,11 +20,17 @@ class Packaging extends BaseCatalogModel {
     })
     declare code: string
 
+    @Column({ type: DataType.STRING(8), allowNull: false, defaultValue: "specific", validate: { isIn: [["specific", "generic"]] } })
+    declare classification: "specific" | "generic"
+
     @Column({
         type: DataType.STRING(80),
         allowNull: false
     })
     declare displayName: string
+
+    @Column({ type: DataType.STRING(80), allowNull: true })
+    declare displayNameEn: string | null
 
     @Column({
         type: DataType.ENUM("unit", "intermediate", "pallet"),

@@ -79,7 +79,7 @@ async function previewAndTrackDraft(req: Request, res: Response, next: NextFunct
             try {
                 await quoteDraftService.upsertFromCalculation(req.salesperson.id, draftKey, calculationInput, calculation)
             } catch (draftError) {
-                console.error("[quoteDraft] no se pudo registrar el borrador", draftError)
+                console.error("[quoteDraft] no se pudo registrar el borrador; detalles sensibles omitidos")
             }
         }
 

@@ -19,6 +19,7 @@ export interface DraftCalculation {
 
 interface MaterialSnapshotLine {
     displayName: string
+    displayNameEn?: string | null
     optionGroup: string | null
 }
 

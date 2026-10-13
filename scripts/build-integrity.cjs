@@ -21,7 +21,7 @@ async function snapshot(base = root) {
     if (!outputs.includes(path.join(base, 'dist', 'index.js'))) throw new Error('Missing build entrypoint')
     const relative = name => path.relative(base, name).split(path.sep).join('/')
     const administrative = []
-    for (const name of ['scripts/build.cjs', 'scripts/migrate.cjs', 'scripts/bootstrap.cjs', 'scripts/readiness.cjs', 'scripts/readiness-approval.cjs', 'scripts/migration-targets.json']) {
+    for (const name of ['scripts/build.cjs', 'scripts/migrate.cjs', 'scripts/bootstrap.cjs', 'scripts/production-release.cjs', 'scripts/rebuild-public.sql', 'scripts/readiness.cjs', 'scripts/readiness-approval.cjs', 'scripts/migration-targets.json']) {
         const filename = path.join(base, name)
         try { await fs.access(filename); administrative.push(filename) } catch (error) { if (error.code !== 'ENOENT') throw error }
     }

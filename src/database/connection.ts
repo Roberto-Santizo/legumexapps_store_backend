@@ -23,9 +23,10 @@ export async function connectDB(): Promise<void> {
             await sequelize.query("SET LOCAL statement_timeout = '5000ms'", { transaction })
             await sequelize.query("SET LOCAL lock_timeout = '1000ms'", { transaction })
             const inspector = { query: async (sql: string) => ({ rows: await sequelize.query(sql, { type: QueryTypes.SELECT, transaction }) }) }
-            await assertApplicationRole(inspector)
+            await assertApplicationRole(inspector, env.databaseRolePolicy)
             await assertDatabaseReady(inspector, sequelize)
         })
+        if (env.databaseRolePolicy === "owner") console.warn("DB_ROLE_POLICY=owner: elevated schema/history and role-management privileges accepted; use restricted credentials when available.")
         console.log("Database verified; application startup performed no schema or seed writes")
     } catch {
         // Driver errors may contain SQL, row values, hostnames or credentials.

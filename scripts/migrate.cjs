@@ -90,6 +90,10 @@ function destination(environment, env, policy) {
     if (!connectionString) fail(`Missing ${prefix}_DATABASE_URL; no connection fallback is permitted`)
     const target = parseDestination(connectionString)
     if (environment === "production" && target.config.ssl === false) fail("Production destinations always require verified TLS")
+    if (env.DATABASE_CA_CERT) {
+        if (!target.config.ssl || !env.DATABASE_CA_CERT.includes("-----BEGIN CERTIFICATE-----")) fail("Database CA requires verified TLS and a PEM certificate")
+        target.config.ssl.ca = env.DATABASE_CA_CERT
+    }
     const authorized = env[`${prefix}_MIGRATION_TARGET_SHA256`]
     if (authorized !== target.fingerprint) fail("Database destination is not explicitly authorized")
     if (!policy || !Array.isArray(policy.productionDatabases) || !policy.productionDatabases.length || !Array.isArray(policy.targets)
@@ -165,7 +169,7 @@ async function migrate(client, plan) {
 async function run(args, env, { createClient = config => new (require("pg").Client)(config), log = console.log, now = Date.now, migrationsDirectory = directory, targetPolicy, administrativeOperation } = {}) {
     const opts = options(args)
     const plan = await readPlan(migrationsDirectory)
-    if (administrativeOperation && (administrativeOperation.name !== "bootstrap" || !/^[a-f0-9]{64}$/.test(administrativeOperation.artifact) || typeof administrativeOperation.execute !== "function")) fail("Invalid administrative operation")
+    if (administrativeOperation && (!["bootstrap", "rebuild"].includes(administrativeOperation.name) || !/^[a-f0-9]{64}$/.test(administrativeOperation.artifact) || typeof administrativeOperation.execute !== "function")) fail("Invalid administrative operation")
     const confirmation = expires => approvalDigest(target.fingerprint, plan, expires, administrativeOperation?.name, administrativeOperation?.artifact)
     if (opts["--plan"]) {
         if (opts["--approval"]) fail("Approval is not accepted in planning mode")
@@ -206,7 +210,7 @@ async function run(args, env, { createClient = config => new (require("pg").Clie
     }
     if (failure) throw failure
     if (clientError) throw new Error("PostgreSQL operation failed; sensitive details suppressed")
-    log(administrativeOperation ? "Controlled bootstrap completed" : "Database migrations are up to date")
+    log(administrativeOperation ? `Controlled ${administrativeOperation.name} completed` : "Database migrations are up to date")
 }
 
 function validateExpiry(expires, now) {
@@ -214,7 +218,7 @@ function validateExpiry(expires, now) {
     if (!expires || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(expires) || !Number.isFinite(time) || time <= now || time > now + 60 * 60 * 1000) fail("Production approval requires a future UTC expiry within one hour")
 }
 
-module.exports = { migrate, run, readPlan, destination, parseDestination, approvalDigest, ValidationError, safeError }
+module.exports = { migrate, run, readPlan, destination, parseDestination, approvalDigest, ValidationError, safeError, loadPolicy }
 // Deliberately do not load dotenv: migration secrets must be supplied explicitly.
 if (require.main === module) run(process.argv.slice(2), process.env).catch(error => {
     // Driver errors may contain credentials, SQL or connection strings.

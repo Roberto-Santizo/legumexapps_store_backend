@@ -4,6 +4,7 @@ import { parseDbSyncAlter } from "./dbSyncAlter"
 import { parseFrontendOrigin } from "./frontendOrigin"
 import { parseNodeEnv } from "./nodeEnv"
 import { parseServerPort } from "./serverPort"
+import { parseDatabaseRolePolicy } from "./databaseRolePolicy"
 
 if (process.env.NODE_ENV === undefined || process.env.NODE_ENV === "development") dotenv.config({ path: path.resolve(__dirname, ".env"), quiet: true })
 const dbSyncAlter = parseDbSyncAlter(process.env.DB_SYNC_ALTER)
@@ -23,6 +24,7 @@ export const env = {
     serverPort: parseServerPort(process.env.PORT, process.env.SERVER_PORT),
     databaseUrl: getRequiredEnv("DATABASE_URL"),
     databaseCaCert: process.env.DATABASE_CA_CERT || undefined,
+    databaseRolePolicy: parseDatabaseRolePolicy(process.env.DB_ROLE_POLICY),
     dbSyncAlter,
     jwtSecret: getRequiredEnv("JWT_SECRET"),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "8h",

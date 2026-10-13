@@ -8,17 +8,19 @@ import { env } from "../config/env"
 import { runSeeders } from "./seeders"
 import { assertApplicationRole, assertDatabaseReady } from "./schemaReadiness"
 
-const configuration = env as unknown as { nodeEnv: string; dbSyncAlter: boolean }
+const configuration = env as unknown as { nodeEnv: string; dbSyncAlter: boolean; databaseRolePolicy?: "owner" | "restricted" }
 const exitSignal = new Error("simulated process exit")
 beforeEach(() => {
     configuration.dbSyncAlter = false
     configuration.nodeEnv = "test"
+    configuration.databaseRolePolicy = "restricted"
     jest.spyOn(sequelize, "authenticate").mockResolvedValue(undefined)
     jest.spyOn(sequelize, "sync").mockResolvedValue(sequelize)
     jest.spyOn(sequelize, "query").mockResolvedValue([] as never)
     jest.spyOn(sequelize, "transaction").mockImplementation((async (_options: unknown, callback: any) => callback({ id: "readonly-fixture" })) as never)
     jest.spyOn(console, "error").mockImplementation(() => {})
     jest.spyOn(console, "log").mockImplementation(() => {})
+    jest.spyOn(console, "warn").mockImplementation(() => {})
     jest.spyOn(process, "exit").mockImplementation(() => { throw exitSignal })
     jest.mocked(assertDatabaseReady).mockReset().mockResolvedValue(undefined)
     jest.mocked(assertApplicationRole).mockReset().mockResolvedValue(undefined)
@@ -49,6 +51,16 @@ test("administrator database credentials are rejected without schema writes", as
     jest.mocked(assertApplicationRole).mockRejectedValueOnce(new Error("unsafe database role"))
     await expect(connectDB()).rejects.toBe(exitSignal)
     expect(assertDatabaseReady).not.toHaveBeenCalled()
+    expect(sequelize.sync).not.toHaveBeenCalled()
+    expect(runSeeders).not.toHaveBeenCalled()
+})
+
+test("explicit owner policy reaches role inspection without bypassing schema checks, sync or seeds", async () => {
+    configuration.databaseRolePolicy = "owner"
+    await connectDB()
+    expect(assertApplicationRole).toHaveBeenCalledWith(expect.any(Object), "owner")
+    expect(assertDatabaseReady).toHaveBeenCalledTimes(1)
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("DB_ROLE_POLICY=owner"))
     expect(sequelize.sync).not.toHaveBeenCalled()
     expect(runSeeders).not.toHaveBeenCalled()
 })

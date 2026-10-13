@@ -6,19 +6,23 @@ import { verifyMigrationHistory } from "./migrationHistory"
 import { ADMIN_ROLE_NAME, PERMISSIONS } from "./accessControlPolicy"
 import { UNIT_CATALOG } from "../features/unit/constants/unitCatalog"
 import { predicateContract } from "./schemaPredicate"
+import type { DatabaseRolePolicy } from "../config/databaseRolePolicy"
 
 export interface InspectionClient { query(sql: string): Promise<{ rows: any[] }> }
 const reject = (): never => { throw new Error("Database readiness rejected; migration, schema or bootstrap mismatch") }
 const normalized = (value: string) => value.toLowerCase().replace(/::(?:text|character varying)/g, "").replace(/[\s"()]/g, "")
 
-export async function assertApplicationRole(client: InspectionClient): Promise<void> {
+export async function assertApplicationRole(client: InspectionClient, policy: DatabaseRolePolicy = "restricted"): Promise<void> {
     const { rows } = await client.query(`SELECT r.rolsuper,r.rolcreatedb,r.rolcreaterole,r.rolreplication,r.rolbypassrls,
         has_schema_privilege(current_user,'public','CREATE') AS schema_create,
         has_table_privilege(current_user,'public.schema_migrations','INSERT,UPDATE,DELETE,TRUNCATE') AS ledger_write,
         current_setting('transaction_read_only') AS transaction_mode
         FROM pg_roles r WHERE r.rolname=current_user`)
-    if (rows.length !== 1 || rows[0].transaction_mode !== "on"
-        || ["rolsuper", "rolcreatedb", "rolcreaterole", "rolreplication", "rolbypassrls", "schema_create", "ledger_write"].some(key => rows[0][key] !== false)) return reject()
+    const flags = ["rolsuper", "rolcreatedb", "rolcreaterole", "rolreplication", "rolbypassrls", "schema_create", "ledger_write"]
+    if (!["restricted", "owner"].includes(policy) || rows.length !== 1 || rows[0].transaction_mode !== "on"
+        || flags.some(key => typeof rows[0][key] !== "boolean")) return reject()
+    const forbidden = policy === "owner" ? ["rolsuper", "rolreplication", "rolbypassrls"] : flags
+    if (forbidden.some(key => rows[0][key] !== false)) return reject()
 }
 
 export async function migrationManifest() {

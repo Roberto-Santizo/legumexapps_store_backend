@@ -89,6 +89,24 @@ test('production loopback cannot disable TLS despite target registration',async(
  await rejected(setup(local,'production'),['--env','production','--expires',expires,'--approval','not-an-approval'])
 })
 
+test('rebuild has a separate artifact-bound confirmation; migration/bootstrap tokens cannot authorize deletion',async()=>{
+ const artifact='c'.repeat(64),plan=await readPlan(),fingerprint=parseDestination(prod).fingerprint
+ for(const operation of ['migration','bootstrap']) {
+  const s=setup(prod,'production');s.deps.administrativeOperation={name:'rebuild',artifact,execute:async()=>assert.fail('Must not execute')}
+  await rejected(s,['--env','production','--expires',expires,'--approval',approvalDigest(fingerprint,plan,expires,operation,artifact)])
+ }
+ const s=setup(prod,'production');let executed=0;s.deps.administrativeOperation={name:'rebuild',artifact,execute:async()=>{executed++}}
+ await run(['--env','production','--expires',expires,'--approval',approvalDigest(fingerprint,plan,expires,'rebuild',artifact)],s.env,s.deps)
+ assert.equal(executed,1)
+})
+
+test('administrative clients retain verified TLS with the approved PEM CA',async()=>{
+ const s=setup(prod,'production'),plan=await readPlan();s.env.DATABASE_CA_CERT='-----BEGIN CERTIFICATE-----\nsynthetic\n-----END CERTIFICATE-----'
+ await run(['--env','production','--expires',expires,'--approval',approvalDigest(parseDestination(prod).fingerprint,plan,expires)],s.env,s.deps)
+ assert.deepEqual(s.calls.config.ssl,{rejectUnauthorized:true,ca:s.env.DATABASE_CA_CERT})
+ const bad=setup();bad.env.DATABASE_CA_CERT=s.env.DATABASE_CA_CERT;await rejected(bad)
+})
+
 test('bootstrap inherits destination controls and its own artifact-bound confirmation',async()=>{
  const artifact='a'.repeat(64), plan=await readPlan()
  let executed=0

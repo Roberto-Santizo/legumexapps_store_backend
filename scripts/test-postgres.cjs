@@ -132,6 +132,7 @@ async function main(args = process.argv.slice(2)) {
             ...environment, NODE_ENV: "test", DB_SYNC_ALTER: "false", FRONTEND_URL: "http://localhost:5173",
             TEST_DATABASE_URL: url(owner, password), TEST_APP_DATABASE_URL: url(app, appPassword), DATABASE_URL: url(app, appPassword),
             LEGUMEX_TEST_CLUSTER_DIR: data, LEGUMEX_ISOLATED_POSTGRES: "1",
+            LEGUMEX_TEST_POSTGRES_BIN: binaries,
             JWT_SECRET: crypto.randomBytes(32).toString("hex"), JWT_EXPIRES_IN: "8h", SERVER_PORT: "4000",
             AWS_REGION: "us-east-1", AWS_ACCESS_KEY_ID: "isolated-test", AWS_SECRET_ACCESS_KEY: "isolated-test", AWS_S3_BUCKET_NAME: "isolated-test",
             MICROSOFT_TENANT_ID: "00000000-0000-0000-0000-000000000001", MICROSOFT_CLIENT_ID: "00000000-0000-0000-0000-000000000002", MICROSOFT_CLIENT_SECRET: "isolated-test", NOREPLY_USER: "isolated@example.invalid",

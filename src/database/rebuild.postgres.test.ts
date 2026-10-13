@@ -278,4 +278,75 @@ suite("complete rebuild on an owned isolated PostgreSQL cluster (explicitly skip
             exit.mockRestore()
         }
     }, 60000)
+
+    test("explicit owner policy accepts a real schema/history owner and still starts without changing rows", async () => {
+        const { env } = await import("../config/env")
+        const configuration = env as unknown as { databaseRolePolicy?: "restricted" | "owner" }
+        const username = new URL(process.env.TEST_APP_DATABASE_URL!).username
+        const previousOwner = (await owner.query("SELECT pg_get_userbyid(nspowner) AS name FROM pg_namespace WHERE nspname='public'")).rows[0].name
+        const quote = (name: string) => '"' + name.replace(/"/g, '""') + '"'
+        const before = await rowFingerprint()
+        const exit = jest.spyOn(process, "exit").mockImplementation(() => { throw new Error("Owner startup rejected") })
+        try {
+            await owner.query(`ALTER SCHEMA public OWNER TO ${quote(username)}`)
+            await owner.query(`ALTER TABLE public.schema_migrations OWNER TO ${quote(username)}`)
+            configuration.databaseRolePolicy = "restricted"
+            await expect(connectDB()).rejects.toThrow("Owner startup rejected")
+            exit.mockClear()
+            configuration.databaseRolePolicy = "owner"
+            await connectDB()
+            await connectDB()
+            expect(exit).not.toHaveBeenCalled()
+            expect(await rowFingerprint()).toEqual(before)
+            expect((await request(server).get("/health/ready")).status).toBe(200)
+        } finally {
+            configuration.databaseRolePolicy = "restricted"
+            await owner.query(`ALTER SCHEMA public OWNER TO ${quote(previousOwner)}`)
+            await owner.query(`ALTER TABLE public.schema_migrations OWNER TO ${quote(new URL(process.env.TEST_DATABASE_URL!).username)}`)
+            exit.mockRestore()
+        }
+    }, 60000)
+
+    test("the exact prepared public-schema rebuild SQL and full migration/bootstrap chain work on this owned isolated database", async () => {
+        const { assertDatabaseReady } = await import("./schemaReadiness")
+        const { bootstrapDatabase } = await import("./bootstrap")
+        const sql = fs.readFileSync(path.resolve(__dirname, "../../scripts/rebuild-public.sql"), "utf8")
+        const ownerUrl = new URL(process.env.TEST_DATABASE_URL!)
+        const directory = path.join(path.dirname(process.env.LEGUMEX_TEST_CLUSTER_DIR!), "recovery-proof")
+        fs.mkdirSync(directory)
+        const backup = path.join(directory, "synthetic-backup.dump")
+        const { spawnSync } = require("node:child_process")
+        const { safeEnvironment } = require("../../scripts/test-postgres.cjs")
+        const { archiveInfo } = require("../../scripts/production-release.cjs")
+        const childEnv = { ...safeEnvironment(), PGHOST: ownerUrl.hostname, PGPORT: ownerUrl.port, PGDATABASE: ownerUrl.pathname.slice(1), PGUSER: ownerUrl.username, PGPASSWORD: decodeURIComponent(ownerUrl.password), PGSSLMODE: "disable" }
+        const utility = (name: string, args: string[]) => {
+            const result = spawnSync(path.join(process.env.LEGUMEX_TEST_POSTGRES_BIN!, name + (process.platform === "win32" ? ".exe" : "")), args, { env: childEnv, windowsHide: true, encoding: "utf8", timeout: 60000 })
+            if (result.error || result.status !== 0) throw new Error("Isolated recovery utility failed; raw output suppressed")
+            return result.stdout as string
+        }
+        const before = await rowFingerprint()
+        utility("pg_dump", ["--format=custom", "--no-owner", "--no-acl", "--file", backup])
+        expect(utility("pg_restore", ["--list", backup])).toContain("Format: CUSTOM")
+        const archive = await archiveInfo(backup)
+        expect(archive.bytes).toBeGreaterThan(100)
+        expect(archive.sha256).toMatch(/^[a-f0-9]{64}$/)
+        // The owned cluster identity was proven beforeAll. No production URL is accepted here.
+        await owner.query("BEGIN")
+        try {
+            await owner.query(sql)
+            await owner.query("COMMIT")
+        } catch (error) { await owner.query("ROLLBACK"); throw error }
+        expect((await owner.query("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows).toHaveLength(0)
+        // Prove recovery, not merely a readable table-of-contents. This is the
+        // synthetic owned cluster; external production URLs never reach here.
+        utility("pg_restore", ["--clean", "--if-exists", "--single-transaction", "--exit-on-error", "--no-owner", "--no-acl", "--dbname", ownerUrl.pathname.slice(1), backup])
+        expect(await rowFingerprint()).toEqual(before)
+        await owner.query("BEGIN")
+        try { await owner.query(sql); await owner.query("COMMIT") }
+        catch (error) { await owner.query("ROLLBACK"); throw error }
+        await migrate(owner)
+        await bootstrapDatabase(owner, credentials)
+        await assertDatabaseReady(owner, sequelize)
+        expect((await owner.query('SELECT count(*)::int AS total FROM public.permissions')).rows[0].total).toBe(78)
+    }, 60000)
 })

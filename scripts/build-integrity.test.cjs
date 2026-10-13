@@ -10,9 +10,9 @@ test('migration and administrative inputs participate in the build seal',async t
  if(path.dirname(path.resolve(base))!==path.resolve(os.tmpdir()) || !path.basename(base).startsWith('legumex-build-test-')) throw new Error('Unsafe test path')
  t.after(()=>fs.rm(base,{recursive:true,force:true}))
  for(const folder of ['src','dist','scripts','migrations']) await fs.mkdir(path.join(base,folder))
- for(const name of ['src/index.ts','dist/index.js','tsconfig.json','tsconfig.build.json','package.json','package-lock.json','scripts/build-integrity.cjs','scripts/bootstrap.cjs','migrations/202610110001_initial_schema.sql']) await fs.writeFile(path.join(base,name),'synthetic')
+ for(const name of ['src/index.ts','dist/index.js','tsconfig.json','tsconfig.build.json','package.json','package-lock.json','scripts/build-integrity.cjs','scripts/bootstrap.cjs','scripts/production-release.cjs','scripts/rebuild-public.sql','migrations/202610110001_initial_schema.sql']) await fs.writeFile(path.join(base,name),'synthetic')
  await run('stamp',base)
- for(const name of ['scripts/bootstrap.cjs','migrations/202610110001_initial_schema.sql']) {
+ for(const name of ['scripts/bootstrap.cjs','scripts/production-release.cjs','scripts/rebuild-public.sql','migrations/202610110001_initial_schema.sql']) {
   await fs.appendFile(path.join(base,name),' changed')
   await assert.rejects(run('verify',base))
   await run('stamp',base)

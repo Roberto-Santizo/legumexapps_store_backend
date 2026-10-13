@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express"
-import { ValidationError as SequelizeValidationError, UniqueConstraintError } from "sequelize"
+import { ValidationError as SequelizeValidationError, UniqueConstraintError, DatabaseError } from "sequelize"
 import { ZodError } from "zod"
 import { MulterError } from "multer"
 import { AppError, BulkImportError, ExcelImportParseError } from "../errors/AppError"
@@ -60,6 +60,19 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
         return
     }
 
+    if (error instanceof DatabaseError) {
+        const constraint = (error.parent as Error & { constraint?: string }).constraint
+        const keys: Record<string, string> = {
+            packaging_associations_protected: "errors.packaging_associations_protected",
+            packaging_generic_not_available: "errors.packaging_generic_not_available",
+            packaging_role_mismatch: "errors.packaging_role_mismatch",
+        }
+        if (constraint && keys[constraint]) {
+            res.status(422).json({ message: req.t(keys[constraint]) })
+            return
+        }
+    }
+
     if (error instanceof SequelizeValidationError) {
         res.status(400).json({
             message: req.t("errors.validation"),
@@ -68,6 +81,6 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
         return
     }
 
-    console.error(error)
+    console.error("Unhandled request failure; sensitive details suppressed")
     res.status(500).json({ message: req.t("errors.internal") })
 }

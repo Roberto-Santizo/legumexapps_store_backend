@@ -60,6 +60,18 @@ async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<void
 }
 
 describe("productIngredientImportService.bulkImportProductIngredients", () => {
+    it.each([[0.0001, 1000], [1, 1000.001], [10000000, 99999999.99], [1, 100000000]])(
+        "rejects unrepresentable quantities before writing (%s, %s)", async (grams, reference) => {
+            const buffer = await buildWorkbookBuffer([row(FIXED.skuCode, SAL.code, grams, reference)])
+            await expectRowIssues(buffer, [{ row: 2 }])
+        }
+    )
+    it.each([0.001, 0.01, 0.25, 0.5])("imports decimal grams %s without rounding", async grams => {
+        const result = await productIngredientImportService.bulkImportProductIngredients(
+            await buildWorkbookBuffer([row(FIXED.skuCode, SAL.code, grams, 1000.01)])
+        )
+        expect(result[0]).toMatchObject({ grams, referenceNetWeightGrams: 1000.01 })
+    })
     it("imports equivalent ingredient values through the shared fallback", async () => {
         const buffer = await prefixSpreadsheetNamespaces(await buildWorkbookBuffer([row(FIXED.skuCode, SAL.code, 5, 100)]))
         const result = await productIngredientImportService.bulkImportProductIngredients(buffer)

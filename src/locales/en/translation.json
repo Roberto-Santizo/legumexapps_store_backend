@@ -1,5 +1,8 @@
 {
   "errors": {
+    "assignment_inactive_representative": "Clients cannot be assigned to an inactive representative.",
+    "assignment_client_missing": "One or more clients do not exist. No assignments were saved.",
+    "assignment_inactive_client": "Inactive clients cannot be assigned.",
     "packaging_group_duplicate": "A group with this name already exists, including inactive groups.",
     "packaging_group_unavailable": "Select an active, existing packaging group.",
     "subcategory_image_invalid": "Select a valid PNG, JPG or WEBP image.",
@@ -17,6 +20,7 @@
       "too_small": "The value is too small",
       "too_big": "The value is too big",
       "invalid_string": "The format is invalid",
+      "not_multiple_of": "The value exceeds the allowed decimal precision",
       "custom": "Invalid value"
     },
     "invalid_credentials": "Invalid username or password",
@@ -34,8 +38,10 @@
     "mix_percentage_must_total_100": "The mix must total 100% (currently: {{percentageTotal}}%).",
     "raw_material_not_mixable": "Raw material {{rawMaterialId}} is not marked as mixable and cannot be used in a customizable product.",
     "raw_material_not_organic_compatible": "Raw material {{rawMaterialId}} is neither an organic variant nor an \"other\" type item (water, salt, sugar...), so it cannot be used in a product marked as organic.",
+    "raw_material_missing_cost": "Raw material {{rawMaterialId}} has no recorded cost. Configure it before quoting.",
     "raw_material_missing_cost_unit": "Raw material {{rawMaterialId}} has no cost unit assigned. Contact the administrator to configure it before quoting.",
     "raw_material_cost_unit_type_mismatch": "Raw material {{rawMaterialId}} has a cost unit that is not weight-based ({{unitType}}). It must be quoted in a weight unit (g, kg, lb) so its percentage of the presentation's net weight can be calculated.",
+    "ingredient_missing_cost": "Ingredient {{ingredientId}} has no recorded cost. Configure it before quoting.",
     "ingredient_missing_cost_unit": "Ingredient {{ingredientId}} has no cost unit assigned. Contact the administrator to configure it before quoting.",
     "ingredient_cost_unit_type_mismatch": "Ingredient {{ingredientId}} has a cost unit that is not weight-based ({{unitType}}). It must be costed in a weight unit so its grams can be scaled to the presentation's net weight.",
     "product_raw_material_percentage_required": "You must provide a percentage for this raw material: this is a fixed-recipe product, the percentage cannot be left blank.",
@@ -210,9 +216,13 @@
     "catalog_quote_quantity_invalid": "Invalid requested quantity.",
     "catalog_quote_unavailable": "Quotation service unavailable.",
     "catalog_quote_preview_invalid": "Refresh the quotation before confirming.",
-    "catalog_quote_changed": "Catalog or prices changed. Review a new quotation."
+    "catalog_quote_changed": "Catalog or prices changed. Review a new quotation.",
+    "packaging_generic_not_available": "Generic materials are not yet available for quote configurations.",
+    "packaging_associations_protected": "The classification or level of a material with existing associations cannot be changed.",
+    "packaging_english_name_required": "The English name is required when the file includes that column."
   },
   "success": {
+    "representative_clients_updated": "Client assignments updated.",
     "created": "{{resource}} created successfully",
     "updated": "{{resource}} updated successfully",
     "deleted": "{{resource}} deleted successfully",

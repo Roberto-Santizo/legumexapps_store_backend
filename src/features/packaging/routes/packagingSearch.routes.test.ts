@@ -23,6 +23,7 @@ it.each(["T-ME-AB083", "T-ME", "AB083", "ab083", "Tapa", "verde"])("preserves se
     expect(findAndCountAll).toHaveBeenCalledWith({
         where: { isActive: true, [Op.or]: [
             { displayName: { [Op.iLike]: `%${search}%` } },
+            { displayNameEn: { [Op.iLike]: `%${search}%` } },
             { code: { [Op.iLike]: `%${search}%` } },
         ] },
         order: [["displayName", "DESC"]], limit: 10, offset: 0, distinct: true,
@@ -34,7 +35,8 @@ it("returns zero results for NO-EXISTE", async () => {
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ data: [], meta: { page: 1, limit: 10, total: 0, totalPages: 1 } })
     expect(findAndCountAll).toHaveBeenCalledWith(expect.objectContaining({ where: {
-        isActive: true, [Op.or]: [{ displayName: { [Op.iLike]: "%NO-EXISTE%" } }, { code: { [Op.iLike]: "%NO-EXISTE%" } }],
+        isActive: true, [Op.or]: [{ displayName: { [Op.iLike]: "%NO-EXISTE%" } },
+            { displayNameEn: { [Op.iLike]: "%NO-EXISTE%" } }, { code: { [Op.iLike]: "%NO-EXISTE%" } }],
     } }))
 })
 it("trims query whitespace, preserves hyphens and passes custom page/limit", async () => {
@@ -43,7 +45,29 @@ it("trims query whitespace, preserves hyphens and passes custom page/limit", asy
     expect(res.status).toBe(200)
     expect(res.body.meta).toEqual({ page: 2, limit: 5, total: 11, totalPages: 3 })
     expect(findAndCountAll).toHaveBeenCalledWith({
-        where: { isActive: true, [Op.or]: [{ displayName: { [Op.iLike]: "%T-ME%" } }, { code: { [Op.iLike]: "%T-ME%" } }] },
+        where: { isActive: true, [Op.or]: [{ displayName: { [Op.iLike]: "%T-ME%" } },
+            { displayNameEn: { [Op.iLike]: "%T-ME%" } }, { code: { [Op.iLike]: "%T-ME%" } }] },
         order: [["displayName", "DESC"]], limit: 5, offset: 5, distinct: true,
     })
+})
+
+
+it.each([
+    [{ classification: "specific", packagingRole: "unit", status: "active" }, { classification: "specific", packagingRole: "unit", isActive: true }],
+    [{ classification: "generic", packagingRole: "pallet", status: "inactive" }, { classification: "generic", packagingRole: "pallet", isActive: false }],
+    [{ status: "all" }, {}],
+])("applies server filters %s", async (query, where) => {
+    findAndCountAll.mockResolvedValue({ rows: [], count: 0 } as never)
+    const res = await request(app).get("/api/packagings").set("Authorization", `Bearer ${token}`).query({ page: 1, ...query })
+    expect(res.status).toBe(200)
+    expect(findAndCountAll).toHaveBeenCalledWith(expect.objectContaining({ where }))
+})
+it.each([{ classification: "private" }, { packagingRole: "box" }, { status: "false" }])("rejects invalid filters %s", async query => {
+    expect((await request(app).get("/api/packagings").set("Authorization", `Bearer ${token}`).query({ page: 1, ...query })).status).toBe(400)
+    expect(findAndCountAll).not.toHaveBeenCalled()
+})
+it("rejects representative identity even with administrative permissions in token", async () => {
+    const representative = jwt.sign({ sub: 1, type: "salesperson", permissions: ["packagings:view"] }, "test-search-secret")
+    expect((await request(app).get("/api/packagings").set("Authorization", `Bearer ${representative}`)).status).toBe(401)
+    expect(findAndCountAll).not.toHaveBeenCalled()
 })

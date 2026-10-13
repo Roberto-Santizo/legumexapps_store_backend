@@ -1,3 +1,4 @@
+import { packagingNames } from "../../../shared/utils/packagingName.util"
 import Decimal from "decimal.js"
 import type { Transaction } from "sequelize"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
@@ -58,6 +59,7 @@ export interface UnitMaterialLine {
     packagingId: number
     code?: string
     displayName: string
+    displayNameEn?: string | null
     optionGroup: string | null
     unitCost: number
     quantityPerUnit: number
@@ -69,6 +71,7 @@ export interface IntermediateMaterialLine {
     packagingId: number
     code?: string
     displayName: string
+    displayNameEn?: string | null
     optionGroup: string | null
     unitCost: number
     unitsPerPackage: number
@@ -97,6 +100,7 @@ export interface PalletMaterialLine {
     packagingId: number
     code?: string
     displayName: string
+    displayNameEn?: string | null
     optionGroup: string | null
     unitCost: number
     quantityPerPallet: number
@@ -119,6 +123,7 @@ export interface AdjustmentLine {
 export const MIX_PERCENTAGE_TOLERANCE = new Decimal(0.5)
 
 interface NetWeightShareErrorKeys {
+    missingCost: string
     missingCostUnit: string
     costUnitTypeMismatch: string
     // Parámetros i18n que identifican la fila en el mensaje ({ rawMaterialId } / { ingredientId }).
@@ -138,7 +143,10 @@ export function computeNetWeightShareCost(
     totalUnitsDecimal: Decimal,
     errorKeys: NetWeightShareErrorKeys
 ): { unitCost: Decimal; quantityPerUnitDecimal: Decimal; lineTotal: number } {
-    const unitCost = toDecimal(costPerUnit ?? 0)
+    if (costPerUnit === null || costPerUnit === undefined) {
+        throw new AppError(422, errorKeys.missingCost, errorKeys.params)
+    }
+    const unitCost = toDecimal(costPerUnit)
     if (!costUnit) {
         throw new AppError(422, errorKeys.missingCostUnit, errorKeys.params)
     }
@@ -177,6 +185,7 @@ export function buildPercentageRawMaterialLine(
         netWeight,
         totalUnitsDecimal,
         {
+            missingCost: "errors.raw_material_missing_cost",
             missingCostUnit: "errors.raw_material_missing_cost_unit",
             costUnitTypeMismatch: "errors.raw_material_cost_unit_type_mismatch",
             params: { rawMaterialId }
@@ -293,6 +302,7 @@ export function buildIngredientLine(
         netWeight,
         totalUnitsDecimal,
         {
+            missingCost: "errors.ingredient_missing_cost",
             missingCostUnit: "errors.ingredient_missing_cost_unit",
             costUnitTypeMismatch: "errors.ingredient_cost_unit_type_mismatch",
             params: { ingredientId }
@@ -328,7 +338,7 @@ export function buildUnitMaterialLine(
     return {
         packagingId,
         code: packaging?.code,
-        displayName: packaging?.displayName ?? "",
+        ...packagingNames(packaging),
         optionGroup: normalizeOptionGroup(optionGroup),
         unitCost: unitCost.toNumber(),
         quantityPerUnit: quantityPerUnit.toNumber(),
@@ -356,7 +366,7 @@ export function buildIntermediateMaterialLine(
     return {
         packagingId,
         code: packaging?.code,
-        displayName: packaging?.displayName ?? "",
+        ...packagingNames(packaging),
         optionGroup: normalizeOptionGroup(optionGroup),
         unitCost: unitCost.toNumber(),
         unitsPerPackage: unitsPerIntermediatePackage,
@@ -381,7 +391,7 @@ export function buildPalletMaterialLine(
     return {
         packagingId,
         code: packaging?.code,
-        displayName: packaging?.displayName ?? "",
+        ...packagingNames(packaging),
         optionGroup: normalizeOptionGroup(optionGroup),
         unitCost: unitCost.toNumber(),
         quantityPerPallet: quantityPerPallet.toNumber(),

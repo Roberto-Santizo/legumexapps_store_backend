@@ -5,8 +5,8 @@ import { AppError } from "../../../shared/errors/AppError"
 
 async function index(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-        const { page, limit, search } = req.query as unknown as PackagingQuery
-        const result = await packagingService.listPackagings({ page, limit }, search)
+        const { page, limit, search, ...filters } = req.query as unknown as PackagingQuery
+        const result = await packagingService.listPackagings({ page, limit }, search, filters)
         res.json(result)
     } catch (error) {
         next(error)

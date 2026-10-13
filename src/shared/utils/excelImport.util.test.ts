@@ -14,15 +14,14 @@ async function fixture(names = ["Productos"]): Promise<Buffer> {
 }
 
 describe("loadWorkbookFromBuffer", () => {
-    it("recovers the actual 20007-byte failing user workbook, with default content types", async () => {
-        const buffer = await readFile(join(__dirname, "../test-utils/fixtures/carga_masiva_PRODUCTOS_VARIANTES_EMPAQUES_exceljs_FINAL.xlsx"))
-        expect(buffer.length).toBe(20007)
+    it("recovers the synthetic workbook with equivalent prefixed XML and default content types", async () => {
+        const buffer = await readFile(join(__dirname, "../test-utils/fixtures/synthetic-product-packaging.xlsx"))
         await expect(new ExcelJS.Workbook().xlsx.load(buffer as never)).rejects.toThrow("Cannot read properties of undefined (reading 'sheets')")
         const workbook = await loadWorkbookFromBuffer(buffer)
         expect(workbook.worksheets.map(sheet => [sheet.name, sheet.rowCount, sheet.columnCount])).toEqual([
             ["Productos y Variantes", 76, 14], ["Materiales de Empaque", 1001, 7], ["INSTRUCCIONES", 22, 1],
         ])
-        const reference = JSON.parse(await readFile(join(__dirname, "../test-utils/fixtures/real-workbook-data-reference.json"), "utf8")) as { name: string; cells: number; sha256: string }[]
+        const reference = JSON.parse(await readFile(join(__dirname, "../test-utils/fixtures/synthetic-workbook-data-reference.json"), "utf8")) as { name: string; cells: number; sha256: string }[]
         for (const sheet of workbook.worksheets) {
             const cells: { row: number; column: number; type: string; value: unknown }[] = []
             sheet.eachRow((row, rowNumber) => row.eachCell((cell, column) => {

@@ -219,8 +219,10 @@ describe("paridad: cotización a la medida == calculateQuote del SKU equivalente
             scenario.language
         )
 
-        // Las líneas: el breakdown completo, línea por línea (incluye transporte, ajuste e idioma).
-        expect(custom.breakdown).toEqual(defined.breakdown)
+        // Compara todas las líneas equivalentes; production describe únicamente el SKU definido.
+        const { production, ...equivalentBreakdown } = defined.breakdown
+        expect(production).toBeDefined()
+        expect(custom.breakdown).toEqual(equivalentBreakdown)
         // Los totales por concepto y el total.
         for (const field of MONEY_FIELDS) {
             expect(custom[field]).toBe(defined[field])

@@ -1,3 +1,4 @@
+import { packagingNames } from "../../../shared/utils/packagingName.util"
 import type { Transaction } from "sequelize"
 import Product from "../../product/models/Product.model"
 import ProductVariant from "../../product/models/ProductVariant.model"
@@ -53,7 +54,7 @@ export function availableRawMaterials(products: Product[], subCategoryId: number
 
 function packagingLevel<T extends { id?: number; packagingId: number; optionGroup: string | null; optionGroupId?: number | null; isDefault: boolean }>(rows: T[], packagingOf: (row: T) => Packaging) {
     const { fixedRows, groups } = bucketMaterialsByGroup(rows)
-    const option = (row: T) => ({ id: row.id!, packagingId: row.packagingId, displayName: packagingOf(row).displayName, isDefault: row.isDefault })
+    const option = (row: T) => ({ id: row.id!, packagingId: row.packagingId, ...packagingNames(packagingOf(row)), isDefault: row.isDefault })
     return { fixed: fixedRows.map(option), groups: [...groups.entries()].map(([key, group]) => ({ key, group: group.label, options: group.rows.map(option) })) }
 }
 

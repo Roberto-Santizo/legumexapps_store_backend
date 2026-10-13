@@ -27,7 +27,8 @@ class Unit extends BaseCatalogModel {
     declare unitType: string
 
     @Column({
-        type: DataType.DECIMAL(12, 6),
+        // Six decimal places are preserved; ton=1,000,000 requires seven integer digits.
+        type: DataType.DECIMAL(16, 6),
         allowNull: false
     })
     declare baseFactor: number

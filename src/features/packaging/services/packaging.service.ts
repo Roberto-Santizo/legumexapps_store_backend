@@ -3,7 +3,7 @@ import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Packaging from "../models/Packaging.model"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
-import { CreatePackagingInput, UpdatePackagingInput, createPackagingSchema, packagingDefaultsSchema } from "../schemas/packaging.schema"
+import { CreatePackagingInput, PackagingImportInput, UpdatePackagingInput, packagingDefaultsSchema, PackagingQuery, importLegacyPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
 import {
     ImportCellValue,
@@ -23,12 +23,15 @@ import {
     REQUIRED_PACKAGING_IMPORT_FIELDS,
 } from "../constants/packagingImport.constant"
 
-async function listPackagings(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Packaging>> {
+async function listPackagings(pagination?: PaginationParams, search?: string, filters: Partial<PackagingQuery> = {}): Promise<PaginatedResult<Packaging>> {
     const where: WhereOptions = {
-        isActive: true,
+        ...(filters.status === "all" ? {} : { isActive: filters.status !== "inactive" }),
+        ...(filters.classification ? { classification: filters.classification } : {}),
+        ...(filters.packagingRole ? { packagingRole: filters.packagingRole } : {}),
         ...(search ? {
             [Op.or]: [
                 { displayName: { [Op.iLike]: `%${search}%` } },
+                { displayNameEn: { [Op.iLike]: `%${search}%` } },
                 { code: { [Op.iLike]: `%${search}%` } },
             ],
         } : {}),
@@ -37,7 +40,7 @@ async function listPackagings(pagination?: PaginationParams, search?: string): P
 }
 
 async function getPackagingById(id: number): Promise<Packaging> {
-    const packaging = await Packaging.findOne({ where: { id, isActive: true } })
+    const packaging = await Packaging.findOne({ where: { id } })
     if (!packaging) throw new NotFoundError("Packaging", id)
     return packaging
 }
@@ -63,7 +66,7 @@ async function updatePackaging(id: number, input: UpdatePackagingInput): Promise
         : { ...input }
     const effective = packagingDefaultsSchema.safeParse({ defaultQuantityBasis: packaging.defaultQuantityBasis, defaultQuantityValue: packaging.defaultQuantityValue == null ? null : Number(packaging.defaultQuantityValue), ...values })
     if (!effective.success) throw new AppError(422, "errors.packaging_consumption_defaults")
-    return packaging.update(values)
+    return packaging.update({ ...values, ...(input.displayNameEn !== undefined ? { displayNameEn: input.displayNameEn?.trim() || null } : {}) })
 }
 
 async function deletePackaging(id: number): Promise<void> {
@@ -75,6 +78,8 @@ async function deletePackaging(id: number): Promise<void> {
 // individual) se rechaza aunque venga por fuera de la UI, porque alimenta el cálculo.
 async function assertPackagingHasRole(packagingId: number, expectedRole: string): Promise<Packaging> {
     const packaging = await getPackagingById(packagingId)
+    if (!packaging.isActive) throw new NotFoundError("Packaging", packagingId)
+    if (packaging.classification === "generic") throw new AppError(422, "errors.packaging_generic_not_available")
     if (packaging.packagingRole !== expectedRole) {
         throw new AppError(422, "errors.packaging_role_mismatch", {
             packagingId,
@@ -125,8 +130,8 @@ function collectPackagingZodIssues(
     candidate: unknown,
     manuallyValidatedFields: Set<string>,
     rowNumber: number
-): { validated?: CreatePackagingInput; issues: RowIssue[] } {
-    const result = createPackagingSchema.safeParse(candidate)
+): { validated?: PackagingImportInput; issues: RowIssue[] } {
+    const result = importLegacyPackagingSchema.safeParse(candidate)
     if (result.success) return { validated: result.data, issues: [] }
 
     const issues: RowIssue[] = []
@@ -140,13 +145,13 @@ function collectPackagingZodIssues(
 
 
 function finalizePackagingImportCandidate(
-    validated: CreatePackagingInput,
+    validated: PackagingImportInput,
     rowNumber: number,
     firstRowByNormalizedName: Map<string, number>,
     firstRowByNormalizedCode: Map<string, number>,
     existingCodesByNormalized: Set<string>,
     rowIssues: RowIssue[]
-): CreatePackagingInput | null {
+): PackagingImportInput | null {
     // code SÍ es único en la BD (displayName solo se revisa dentro del archivo); se reportan ambos
     // problemas para que el admin vea todos los errores de la fila de una vez.
     let hasIssue = false
@@ -198,7 +203,7 @@ function processPackagingImportRow(
     firstRowByNormalizedCode: Map<string, number>,
     existingCodesByNormalized: Set<string>,
     rowIssues: RowIssue[]
-): CreatePackagingInput | null {
+): PackagingImportInput | null {
     const rawCode = readImportCell(row, columnIndexByField.get("code"))
     const rawDisplayName = readImportCell(row, columnIndexByField.get("displayName"))
     const rawRole = readImportCell(row, columnIndexByField.get("packagingRole"))
@@ -212,7 +217,13 @@ function processPackagingImportRow(
     const rawValue = readImportCell(row, columnIndexByField.get("defaultQuantityValue"))
     const hasRule = rawBasis != null && rawBasis !== "" || rawValue != null && rawValue !== ""
     const basisMap: Record<string, string> = { "por caja": "per_box", "por pallet": "per_pallet", per_box: "per_box", per_pallet: "per_pallet" }
-    const candidate = { ...baseCandidate, ...(hasRule ? {
+    const rawClassification = readImportCell(row, columnIndexByField.get("classification"))
+    const classificationKey = rawClassification == null || String(rawClassification).trim() === "" ? "specific" : normalizeImportText(String(rawClassification))
+    const classifications: Record<string, string> = { specific: "specific", especifico: "specific", especificos: "specific", generic: "generic", generico: "generic", genericos: "generic" }
+    const rawNameEn = readImportCell(row, columnIndexByField.get("displayNameEn"))
+    const displayNameEn = rawNameEn == null || String(rawNameEn).trim() === "" ? null : typeof rawNameEn === "string" ? rawNameEn.trim() : rawNameEn
+    if (columnIndexByField.has("displayNameEn") && displayNameEn === null) ctx.rowIssues.push({ row: rowNumber, field: "displayNameEn", key: "errors.packaging_english_name_required" })
+    const candidate = { ...baseCandidate, displayNameEn, classification: classifications[classificationKey] ?? classificationKey, ...(hasRule ? {
         defaultQuantityBasis: rawBasis == null || rawBasis === "" ? null : basisMap[normalizeImportText(rawBasis)] ?? String(rawBasis),
         defaultQuantityValue: rawValue == null || rawValue === "" ? null : Number(rawValue),
     } : {}) }
@@ -265,7 +276,7 @@ async function bulkImportPackagings(buffer: Buffer): Promise<Packaging[]> {
     const existingCodesByNormalized = await loadExistingPackagingCodes()
 
     const rowIssues: RowIssue[] = []
-    const candidates: CreatePackagingInput[] = []
+    const candidates: PackagingImportInput[] = []
     const firstRowByNormalizedName = new Map<string, number>()
     const firstRowByNormalizedCode = new Map<string, number>()
 
@@ -295,7 +306,9 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     const sheet = workbook.addWorksheet("Empaques")
     sheet.columns = [
         // "Código" va primero en la plantilla; el parser mapea por nombre de encabezado, no por posición.
+        { header: PACKAGING_IMPORT_COLUMNS.classification.header, key: "classification", width: 20 },
         { header: PACKAGING_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
+        { header: PACKAGING_IMPORT_COLUMNS.displayNameEn.header, key: "displayNameEn", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.packagingRole.header, key: "packagingRole", width: 34 },
         { header: PACKAGING_IMPORT_COLUMNS.unitCost.header, key: "unitCost", width: 20 },
@@ -325,12 +338,21 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     for (const [code, displayName, quantity] of [["ESQ-001", "Esquinero", 4], ["TAR-001", "Tarima", 1], ["STR-001", "Stretch", 93.3]] as const) {
         sheet.addRow({ code, displayName, packagingRole: PACKAGING_ROLE_LABELS.pallet, unitCost: 0, defaultQuantityBasis: "POR PALLET", defaultQuantityValue: quantity })
     }
-    for (let row = 2; row <= MAX_PACKAGING_IMPORT_ROWS + 1; row++) sheet.getCell(row, 5).dataValidation = { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] }
+    for (let row = 2; row <= sheet.rowCount; row++) {
+        sheet.getRow(row).getCell("classification").value = "specific"
+        sheet.getRow(row).getCell("displayNameEn").value = ["Bag", "Intermediate bag", "Master carton", "Corner protector", "Pallet", "Stretch film"][row - 2]
+    }
+    for (let row = 2; row <= MAX_PACKAGING_IMPORT_ROWS + 1; row++) {
+        sheet.getRow(row).getCell("defaultQuantityBasis").dataValidation = { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] }
+        sheet.getRow(row).getCell("classification").dataValidation = { type: "list", allowBlank: true, formulae: ['"specific,generic"'] }
+    }
+
     const helpSheet = workbook.addWorksheet("Valores permitidos")
     helpSheet.columns = [{ header: `${PACKAGING_IMPORT_COLUMNS.packagingRole.header} (valores permitidos)`, key: "role", width: 42 }]
     helpSheet.getRow(1).font = { bold: true }
     Object.values(PACKAGING_ROLE_LABELS).forEach(label => helpSheet.addRow({ role: label }))
     helpSheet.addRow({})
+    helpSheet.addRow({ role: "Clasificación: specific/específico o generic/genérico. Columna ausente o celda vacía: specific. El código es interno, no requiere ERP." })
     helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}" es un texto libre (letras, números y símbolos) que tú defines -- debe ser único, no puede repetirse entre materiales ni dentro del mismo archivo.` })
 
     helpSheet.addRow({ role: "Forma de consumo: POR CAJA / POR PALLET. Cantidad positiva, máximo dos decimales. Ambos campos completos o ambos vacíos; solamente para paletización. Configure esta regla antes de asociar un material nuevo. Los ejemplos son configuración explícita, no reglas por nombre." })

@@ -1,5 +1,8 @@
 {
   "errors": {
+    "assignment_inactive_representative": "No se pueden asignar clientes a un representante inactivo.",
+    "assignment_client_missing": "Uno o más clientes no existen. No se guardó ninguna asignación.",
+    "assignment_inactive_client": "No se pueden asignar clientes inactivos.",
     "packaging_group_duplicate": "Ya existe un grupo con ese nombre, incluidos los inactivos.",
     "packaging_group_unavailable": "Selecciona un grupo de empaque existente y activo.",
     "subcategory_image_invalid": "Selecciona una imagen PNG, JPG o WEBP válida.",
@@ -17,6 +20,7 @@
       "too_small": "El valor es demasiado corto",
       "too_big": "El valor es demasiado largo",
       "invalid_string": "El formato no es válido",
+      "not_multiple_of": "El valor excede la precisión decimal permitida",
       "custom": "Valor inválido"
     },
     "invalid_credentials": "Usuario o contraseña inválidos",
@@ -34,8 +38,10 @@
     "mix_percentage_must_total_100": "La mezcla debe sumar 100% (actual: {{percentageTotal}}%).",
     "raw_material_not_mixable": "La materia prima {{rawMaterialId}} no está marcada como mezclable y no puede usarse en un producto personalizable.",
     "raw_material_not_organic_compatible": "La materia prima {{rawMaterialId}} no es una variante orgánica ni un insumo tipo \"otro\" (agua, sal, azúcar...), así que no puede usarse en un producto marcado como orgánico.",
+    "raw_material_missing_cost": "La materia prima {{rawMaterialId}} no tiene un costo registrado. Configúralo antes de cotizar.",
     "raw_material_missing_cost_unit": "La materia prima {{rawMaterialId}} no tiene una unidad de costeo asignada. Contacta al administrador para configurarla antes de cotizar.",
     "raw_material_cost_unit_type_mismatch": "La materia prima {{rawMaterialId}} tiene una unidad de costeo que no es de peso ({{unitType}}). Debe cotizarse en una unidad de peso (g, kg, lb) para poder calcular el % sobre el peso neto de la presentación.",
+    "ingredient_missing_cost": "El ingrediente {{ingredientId}} no tiene un costo registrado. Configúralo antes de cotizar.",
     "ingredient_missing_cost_unit": "El ingrediente {{ingredientId}} no tiene una unidad de costeo asignada. Contacta al administrador para configurarla antes de cotizar.",
     "ingredient_cost_unit_type_mismatch": "El ingrediente {{ingredientId}} tiene una unidad de costeo que no es de peso ({{unitType}}). Debe costearse en una unidad de peso para poder escalar sus gramos al peso neto de la presentación.",
     "product_raw_material_percentage_required": "Debes indicar el % de esta materia prima: es un producto de receta fija, el porcentaje no puede quedar vacío.",
@@ -210,9 +216,13 @@
     "catalog_quote_quantity_invalid": "Cantidad solicitada inválida.",
     "catalog_quote_unavailable": "Servicio de cotizaciones no disponible.",
     "catalog_quote_preview_invalid": "Actualiza la cotización antes de confirmar.",
-    "catalog_quote_changed": "El catálogo o los precios cambiaron. Revisa una nueva cotización."
+    "catalog_quote_changed": "El catálogo o los precios cambiaron. Revisa una nueva cotización.",
+    "packaging_generic_not_available": "Los materiales genéricos todavía no están disponibles para configuraciones de cotización.",
+    "packaging_associations_protected": "No se puede cambiar la clasificación o el nivel de un material con asociaciones existentes.",
+    "packaging_english_name_required": "El nombre en inglés es obligatorio cuando el archivo incluye esa columna."
   },
   "success": {
+    "representative_clients_updated": "Asignaciones de clientes actualizadas.",
     "created": "Creación de {{resource}} exitosa",
     "updated": "Actualización de {{resource}} exitosa",
     "deleted": "Eliminación de {{resource}} exitosa",

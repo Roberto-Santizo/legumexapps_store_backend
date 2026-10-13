@@ -1,5 +1,5 @@
 
-export type PackagingImportField = "code" | "displayName" | "packagingRole" | "unitCost" | "defaultQuantityBasis" | "defaultQuantityValue"
+export type PackagingImportField = "displayNameEn" | "classification" | "code" | "displayName" | "packagingRole" | "unitCost" | "defaultQuantityBasis" | "defaultQuantityValue"
 
 interface ImportColumnDef {
     header: string
@@ -9,8 +9,10 @@ interface ImportColumnDef {
 export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumnDef> = {
     // Primera columna de la plantilla a propósito (ver buildPackagingImportTemplate) -- el
     // mapeo real de columnas es por nombre de encabezado (mapImportHeaders), no por posición.
+    classification: { header: "Clasificación", aliases: ["clasificacion", "classification", "tipo de material"] },
     code: { header: "Código", aliases: ["codigo", "código", "code"] },
-    displayName: { header: "Nombre", aliases: ["nombre"] },
+    displayName: { header: "Nombre", aliases: ["nombre", "nombre (espanol)", "nombre espanol", "displayname"] },
+    displayNameEn: { header: "Nombre (Inglés)", aliases: ["nombre (ingles)", "nombre ingles", "english name", "displaynameen"] },
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
     unitCost: { header: "Costo por unidad (USD)", aliases: ["costo por unidad (usd)", "costo por unidad (q)", "costo por unidad", "costo"] },
     defaultQuantityBasis: { header: "FORMA DE CONSUMO", aliases: ["forma de consumo", "defaultquantitybasis"] },

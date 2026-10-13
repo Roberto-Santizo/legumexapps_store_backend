@@ -35,7 +35,7 @@ interface Values {
     quantityPerUnit?: number; quantityBasis?: "per_box" | "per_pallet"; quantityValue?: number
 }
 export interface PackagingImportPreviewRow {
-    row: number; skuCode: string; packagingCode: string; materialName: string
+    row: number; skuCode: string; packagingCode: string; materialName: string; materialNameEn?: string
     materialType?: string; level: string | null; group: string | null; isDefault: boolean
     quantityBasis: string | null; quantity: number | null; unitCost: number | null
     quantityPerPallet: number | null; ruleSource: "catalog" | "association" | "legacy" | "unit" | "variant" | null
@@ -134,7 +134,8 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
         const packaging = packagingMatches.length === 1 ? packagingMatches[0] : undefined
         const group = row.group ? groups.find(value => value.nameKey === optionGroupKey(row.group)) : null
         const preview: PackagingImportPreviewRow = { row: row.row, skuCode: row.skuCode, packagingCode: row.packagingCode,
-            ...(row.materialType ? { materialType: row.materialType } : {}), materialName: packaging?.displayName ?? row.materialName, level: packaging?.packagingRole ?? null,
+            ...(row.materialType ? { materialType: row.materialType } : {}), materialName: packaging?.displayName ?? row.materialName,
+            ...(packaging?.displayNameEn?.trim() ? { materialNameEn: packaging.displayNameEn } : {}), level: packaging?.packagingRole ?? null,
             group: group?.displayName ?? (row.group || null), isDefault: row.isDefault, quantityBasis: row.quantityBasis || null,
             quantity: row.quantity, unitCost: packaging?.unitCost == null ? null : Number(packaging.unitCost), action: "new", previous: null,
             quantityPerPallet: null, ruleSource: null, issues: [...row.issues], warnings: [] }

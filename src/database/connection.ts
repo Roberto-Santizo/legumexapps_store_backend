@@ -1,124 +1,35 @@
 import { Sequelize } from "sequelize-typescript"
-import PackagingGroup from "../features/packagingGroup/models/PackagingGroup.model"
-import colors from "colors"
+import { QueryTypes, Transaction } from "sequelize"
 import { env } from "../config/env"
-import { runSeeders } from "./seeders"
-import Category from "../features/category/models/Category.model"
-import CategoryTranslation from "../features/category/models/CategoryTranslation.model"
-import SubCategory from "../features/category/models/SubCategory.model"
-import SubCategoryTranslation from "../features/category/models/SubCategoryTranslation.model"
-import Product from "../features/product/models/Product.model"
-import ProductTranslation from "../features/product/models/ProductTranslation.model"
-import ProductVariant from "../features/product/models/ProductVariant.model"
-import ProductRawMaterial from "../features/product/models/ProductRawMaterial.model"
-import ProductIngredient from "../features/product/models/ProductIngredient.model"
-import ProductVariantPalletMaterial from "../features/product/models/ProductVariantPalletMaterial.model"
-import ProductVariantUnitMaterial from "../features/product/models/ProductVariantUnitMaterial.model"
-import ProductVariantIntermediateMaterial from "../features/product/models/ProductVariantIntermediateMaterial.model"
-import Unit from "../features/unit/models/Unit.model"
-import Presentation from "../features/presentation/models/Presentation.model"
-import Packaging from "../features/packaging/models/Packaging.model"
-import RawMaterial from "../features/rawMaterial/models/RawMaterial.model"
-import RawMaterialTranslation from "../features/rawMaterial/models/RawMaterialTranslation.model"
-import Ingredient from "../features/ingredient/models/Ingredient.model"
-import IngredientTranslation from "../features/ingredient/models/IngredientTranslation.model"
-import Destination from "../features/destination/models/Destination.model"
-import User from "../features/accessControl/user/models/user.model"
-import Role from "../features/accessControl/roles/models/role.model"
-import Permission from "../features/accessControl/permissions/models/permission.model"
-import RolePermission from "../features/accessControl/rolePermissions/models/rolePermission.model"
-import Salesperson from "../features/salesperson/models/Salesperson.model"
-import Client from "../features/client/models/Client.model"
-import Quote from "../features/quote/models/Quote.model"
-import QuoteDraft from "../features/quoteDraft/models/QuoteDraft.model"
-import CustomQuoteRawMaterialOption from "../features/customQuote/models/CustomQuoteRawMaterialOption.model"
-import CustomQuoteIngredientOption from "../features/customQuote/models/CustomQuoteIngredientOption.model"
-import CustomQuotePresentationOption from "../features/customQuote/models/CustomQuotePresentationOption.model"
-import CustomQuotePackagingOption from "../features/customQuote/models/CustomQuotePackagingOption.model"
-import CustomQuote from "../features/customQuote/models/CustomQuote.model"
-import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
-import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
-import Lead from "../features/lead/models/Lead.model"
-import SiteImage from "../features/siteImage/models/SiteImage.model"
+import { parseDatabaseConnection } from "../config/databaseConnection"
+import { databaseModels } from "./models"
+import { assertApplicationRole, assertDatabaseReady } from "./schemaReadiness"
 
-import JuiceRawMaterial from "../features/juice/models/JuiceRawMaterial.model"
-import Juice from "../features/juice/models/Juice.model"
-import JuicePresentation from "../features/juice/models/JuicePresentation.model"
-import JuiceMix from "../features/juice/models/JuiceMix.model"
-import JuiceSpiceMaterial from "../features/juice/models/JuiceSpiceMaterial.model"
-import JuiceSpice from "../features/juice/models/JuiceSpice.model"
-import JuiceCostConstants from "../features/juice/models/JuiceCostConstants.model"
-import JuiceClientConstantOverride from "../features/juice/models/JuiceClientConstantOverride.model"
-
-const sequelize = new Sequelize(env.databaseUrl, {
-    logging: env.nodeEnv === "development" ? console.log : false,
-    minifyAliases: true,
-    dialectOptions: {
-        ssl: {
-            require: true,
-            rejectUnauthorized: false
-        }
-    },
-    models: [
-        PackagingGroup,
-        Category,
-        CategoryTranslation,
-        SubCategory,
-        SubCategoryTranslation,
-        Product,
-        ProductTranslation,
-        ProductVariant,
-        ProductRawMaterial,
-        ProductIngredient,
-        ProductVariantPalletMaterial,
-        ProductVariantUnitMaterial,
-        ProductVariantIntermediateMaterial,
-        Unit,
-        Presentation,
-        Packaging,
-        RawMaterial,
-        RawMaterialTranslation,
-        Ingredient,
-        IngredientTranslation,
-        Destination,
-        User,
-        Role,
-        Permission,
-        RolePermission,
-        Salesperson,
-        Client,
-        Quote,
-        QuoteDraft,
-        CustomQuoteRawMaterialOption,
-        CustomQuoteIngredientOption,
-        CustomQuotePresentationOption,
-        CustomQuotePackagingOption,
-        CustomQuote,
-        ProcessingCost,
-        ProcessingCostTranslation,
-        Lead,
-        SiteImage,
-        JuiceRawMaterial,
-        Juice,
-        JuicePresentation,
-        JuiceMix,
-        JuiceSpiceMaterial,
-        JuiceSpice,
-        JuiceCostConstants,
-        JuiceClientConstantOverride,
-    ]
+const target = parseDatabaseConnection(env.databaseUrl, env.nodeEnv, env.databaseCaCert)
+const sequelize = new Sequelize(target.database, target.username, target.password, {
+    dialect: "postgres", host: target.host, port: target.port,
+    logging: false, minifyAliases: true, models: databaseModels,
+    dialectOptions: { ssl: target.ssl, options: "-c search_path=public", connectionTimeoutMillis: 10000 },
 })
 
+/** Startup only authenticates and inspects. Schema and seed writes belong to approved commands. */
 export async function connectDB(): Promise<void> {
     try {
+        if (env.dbSyncAlter) throw new Error("DB_SYNC_ALTER=true is blocked at startup")
         await sequelize.authenticate()
-        const shouldAlter = env.dbSyncAlter && env.nodeEnv !== "production"
-        await sequelize.sync({ alter: shouldAlter })
-        await runSeeders()
-        console.log(colors.green.bold("Database connection established successfully"))
-    } catch (error) {
-        console.error(colors.red.bold("Unable to connect to the database:"))
-        console.error(error)
+        await sequelize.transaction({ readOnly: true, isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, async transaction => {
+            // Sequelize's readOnly option selects a read pool; PostgreSQL still needs this statement.
+            await sequelize.query("SET TRANSACTION READ ONLY", { transaction })
+            await sequelize.query("SET LOCAL statement_timeout = '5000ms'", { transaction })
+            await sequelize.query("SET LOCAL lock_timeout = '1000ms'", { transaction })
+            const inspector = { query: async (sql: string) => ({ rows: await sequelize.query(sql, { type: QueryTypes.SELECT, transaction }) }) }
+            await assertApplicationRole(inspector)
+            await assertDatabaseReady(inspector, sequelize)
+        })
+        console.log("Database verified; application startup performed no schema or seed writes")
+    } catch {
+        // Driver errors may contain SQL, row values, hostnames or credentials.
+        console.error("Database startup rejected; verify configuration, migration history, schema and controlled bootstrap. Sensitive details suppressed.")
         process.exit(1)
     }
 }

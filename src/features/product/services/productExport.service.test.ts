@@ -39,6 +39,10 @@ it("exports all configurations, inactive alternatives, precise costs and text co
     expect(reopened.getWorksheet("Ingredientes")!.getCell("K2").value).toBe(1.234)
     expect(reopened.getWorksheet("Materias primas")!.getCell("A2").value).toBe("000123")
     expect(reopened.getWorksheet("Materias primas")!.getCell("B2").value).toBe("500 g")
+    const rawSheet = reopened.getWorksheet("Materias primas")!
+    const rawHeaders = rawSheet.getRow(1).values as string[]
+    expect(rawHeaders).not.toContain("Mezclable / Mixable")
+    expect(rawSheet.getRow(2).getCell(rawHeaders.indexOf("Costo USD por unidad / Unit cost")).value).toBe(1.2345)
     expect(reopened.getWorksheet("Materias primas")!.getColumn(5).hidden).toBe(true)
     expect(reopened.getWorksheet("Materias primas")!.getColumn(1).hidden).toBe(false)
     const bags = reopened.getWorksheet("Empaques unidad")!

@@ -42,11 +42,11 @@ function mocked(fn: unknown): jest.Mock {
 // ---- Catálogo compartido ----
 const POUND = { unitType: "weight", baseFactor: 453.592 }
 const pineapple = {
-    id: 1, displayName: "Piña", costPerUnit: "0.8500", costUnit: POUND, isMixable: true, isOrganic: false, ingredientType: "fruit",
+    id: 1, displayName: "Piña", costPerUnit: "0.8500", costUnit: POUND, isOrganic: false, ingredientType: "fruit",
     translations: [{ language: "en", displayName: "Pineapple" }]
 }
 const mango = {
-    id: 2, displayName: "Mango", costPerUnit: "1.1000", costUnit: POUND, isMixable: true, isOrganic: false, ingredientType: "fruit",
+    id: 2, displayName: "Mango", costPerUnit: "1.1000", costUnit: POUND, isOrganic: false, ingredientType: "fruit",
     translations: []
 }
 const salt = { id: 30, displayName: "Sal", costPerUnit: "0.5000", costUnit: POUND, translations: [{ language: "en", displayName: "Salt" }] }

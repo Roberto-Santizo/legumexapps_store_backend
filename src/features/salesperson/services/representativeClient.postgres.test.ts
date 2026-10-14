@@ -30,7 +30,7 @@ integration("representative clients â€” PostgreSQL", () => {
         await database.query('CREATE TABLE customers (id INTEGER PRIMARY KEY, "isActive" BOOLEAN NOT NULL)')
         await database.query('CREATE TABLE clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "isActive" BOOLEAN NOT NULL)')
         await createPackagingDatabase(database)
-        await migrate(database, (await readPlan()).filter((item: { version: string }) => item.version !== "202610110001_initial_schema.sql"))
+        await migrate(database, (await readPlan()).filter((item: { version: string }) => ["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"].includes(item.version)))
         // Test URL controls TLS; local temporary PostgreSQL has no TLS configured.
         sequelize.addHook("beforeConnect", (config: any) => {
             config.dialectOptions = {}
@@ -52,7 +52,7 @@ integration("representative clients â€” PostgreSQL", () => {
     })
 
     test("migration is versioned and replay is harmless", async () => {
-        await migrate(database, (await readPlan()).filter((item: { version: string }) => item.version !== "202610110001_initial_schema.sql"))
+        await migrate(database, (await readPlan()).filter((item: { version: string }) => ["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"].includes(item.version)))
         const result = await database.query("SELECT version FROM schema_migrations")
         expect(result.rows.map((row: { version: string }) => row.version).sort()).toEqual(["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"])
         expect((await database.query("SELECT * FROM representative_clients")).rowCount).toBe(0)
@@ -122,7 +122,7 @@ integration("representative clients â€” PostgreSQL", () => {
         await database.query("BEGIN")
         try {
             await database.query("UPDATE schema_migrations SET checksum = 'invalid'")
-            await expect(migrate(database, (await readPlan()).filter((item: { version: string }) => item.version !== "202610110001_initial_schema.sql"))).rejects.toThrow(/^Applied migration checksum mismatch$/i)
+            await expect(migrate(database, (await readPlan()).filter((item: { version: string }) => ["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"].includes(item.version)))).rejects.toThrow(/^Applied migration checksum mismatch$/i)
         } finally { await database.query("ROLLBACK") }
     })
 })

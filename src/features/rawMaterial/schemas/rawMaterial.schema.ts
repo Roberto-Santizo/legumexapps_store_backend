@@ -12,7 +12,6 @@ export const createRawMaterialSchema = z.object({
     displayName: z.string().trim().min(1).max(120),
     ingredientType: z.enum(["fruit", "vegetable", "pulp", "other"]),
     isOrganic: z.boolean().optional(),
-    isMixable: z.boolean().optional(),
     costPerUnit: z.number().nonnegative(),
     translations: z.object({ en: rawMaterialTranslationInputSchema.optional() }).optional(),
 })

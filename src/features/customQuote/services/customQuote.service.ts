@@ -145,8 +145,7 @@ async function resolveDestination(destinationId: number | undefined): Promise<De
 
 // buildCustomizableRawMaterials ya exige: mezcla no vacía, sin duplicados, solo materias primas del
 // pool, cada % dentro de su mínimo/máximo, total 100 ± 0.5 y unidad de costo por peso. Acá se suma lo
-// que en productos definidos se valida al configurar el producto: mezclable si hay más de una, y
-// compatible con orgánico si se pidió orgánico (misma regla que productRawMaterial.service.ts:
+// que en productos definidos se valida al configurar el producto: compatible con orgánico si se pidió orgánico (misma regla que productRawMaterial.service.ts:
 // variante orgánica o insumo tipo "other").
 function assertRecipeIsAllowed(
     input: CustomQuoteCalculationInput,
@@ -154,7 +153,6 @@ function assertRecipeIsAllowed(
     language: ContentLanguage
 ): void {
     const optionByRawMaterialId = new Map(rawMaterialOptions.map(option => [option.rawMaterialId, option]))
-    const isMix = input.rawMaterialMix.length > 1
 
     for (const line of input.rawMaterialMix) {
         const rawMaterial = optionByRawMaterialId.get(line.rawMaterialId)?.usedRawMaterial
@@ -162,9 +160,6 @@ function assertRecipeIsAllowed(
             throw new AppError(422, "errors.custom_quote_raw_material_not_offered", { rawMaterialId: line.rawMaterialId })
         }
         const rawMaterialName = pickTranslatedName(rawMaterial.displayName, rawMaterial.translations, language)
-        if (isMix && !rawMaterial.isMixable) {
-            throw new AppError(422, "errors.custom_quote_raw_material_not_mixable", { rawMaterial: rawMaterialName })
-        }
         if (input.isOrganic && !rawMaterial.isOrganic && rawMaterial.ingredientType !== "other") {
             throw new AppError(422, "errors.custom_quote_raw_material_not_organic_compatible", { rawMaterial: rawMaterialName })
         }

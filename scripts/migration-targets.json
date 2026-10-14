@@ -1,13 +1,19 @@
 {
-    "productionDatabases":  [
-                                "a29b53e0e26b28a78a5f82af3bbd74ac8692dd067f8ac7e4c7728ac2b40dc309"
-                            ],
-    "targets":  [
-                    {
-                        "environment":  "production",
-                        "fingerprint":  "a181893b6aebf6e86c7f1f8013e0375b9e4b2fc7a3996e21ec567ce8d4824163",
-                        "databaseFingerprint":  "a29b53e0e26b28a78a5f82af3bbd74ac8692dd067f8ac7e4c7728ac2b40dc309",
-                        "isolatedCredentialsVerified":  true
-                    }
-                ]
+  "productionDatabases": [
+    "a29b53e0e26b28a78a5f82af3bbd74ac8692dd067f8ac7e4c7728ac2b40dc309"
+  ],
+  "targets": [
+    {
+      "environment": "production",
+      "fingerprint": "a181893b6aebf6e86c7f1f8013e0375b9e4b2fc7a3996e21ec567ce8d4824163",
+      "databaseFingerprint": "a29b53e0e26b28a78a5f82af3bbd74ac8692dd067f8ac7e4c7728ac2b40dc309",
+      "isolatedCredentialsVerified": true
+    },
+    {
+      "environment": "development",
+      "fingerprint": "f535efe208c5e3552576700fbaaaab6834deff28a5a94e925aed3a8a1daed9f7",
+      "databaseFingerprint": "4fb72871933923ba10d51a2d138dd6ad78f579a8da29698c3a282859a6b5a0ab",
+      "isolatedCredentialsVerified": true
+    }
+  ]
 }

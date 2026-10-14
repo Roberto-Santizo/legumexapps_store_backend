@@ -89,15 +89,12 @@ test('production loopback cannot disable TLS despite target registration',async(
  await rejected(setup(local,'production'),['--env','production','--expires',expires,'--approval','not-an-approval'])
 })
 
-test('rebuild has a separate artifact-bound confirmation; migration/bootstrap tokens cannot authorize deletion',async()=>{
+test('destructive rebuild is no longer an administrative operation, even with a matching confirmation',async()=>{
  const artifact='c'.repeat(64),plan=await readPlan(),fingerprint=parseDestination(prod).fingerprint
- for(const operation of ['migration','bootstrap']) {
+ for(const operation of ['migration','bootstrap','rebuild']) {
   const s=setup(prod,'production');s.deps.administrativeOperation={name:'rebuild',artifact,execute:async()=>assert.fail('Must not execute')}
   await rejected(s,['--env','production','--expires',expires,'--approval',approvalDigest(fingerprint,plan,expires,operation,artifact)])
  }
- const s=setup(prod,'production');let executed=0;s.deps.administrativeOperation={name:'rebuild',artifact,execute:async()=>{executed++}}
- await run(['--env','production','--expires',expires,'--approval',approvalDigest(fingerprint,plan,expires,'rebuild',artifact)],s.env,s.deps)
- assert.equal(executed,1)
 })
 
 test('administrative clients retain verified TLS with the approved PEM CA',async()=>{

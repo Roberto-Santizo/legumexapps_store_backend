@@ -59,3 +59,14 @@ describe("unitService.findOrCreatePoundUnit", () => {
         expect(mockCreate).toHaveBeenCalledTimes(1)
     })
 })
+
+it("propagates the import transaction to pound lookup, slug lookup and creation", async () => {
+    const transaction = {} as import("sequelize").Transaction
+    mockFindAll.mockResolvedValue([])
+    mockFindOne.mockResolvedValue(null)
+    mockCreate.mockResolvedValue({ id: 99 })
+    await unitService.findOrCreatePoundUnit(transaction)
+    expect(mockFindAll).toHaveBeenLastCalledWith(expect.objectContaining({ transaction }))
+    expect(mockFindOne).toHaveBeenLastCalledWith(expect.objectContaining({ transaction }))
+    expect(mockCreate).toHaveBeenLastCalledWith(expect.any(Object), { transaction })
+})

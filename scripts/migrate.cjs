@@ -83,24 +83,34 @@ function parseDestination(connectionString) {
     }
 }
 
-function destination(environment, env, policy) {
+function connectableTarget(environment, env, connectionString) {
     if (Object.keys(env).some(key => /^PG/i.test(key))) fail("PG* variables are forbidden for migration execution")
-    const prefix = { development: "DEV", test: "TEST", production: "PROD" }[environment]
-    const connectionString = env[`${prefix}_DATABASE_URL`]
-    if (!connectionString) fail(`Missing ${prefix}_DATABASE_URL; no connection fallback is permitted`)
     const target = parseDestination(connectionString)
     if (environment === "production" && target.config.ssl === false) fail("Production destinations always require verified TLS")
     if (env.DATABASE_CA_CERT) {
         if (!target.config.ssl || !env.DATABASE_CA_CERT.includes("-----BEGIN CERTIFICATE-----")) fail("Database CA requires verified TLS and a PEM certificate")
         target.config.ssl.ca = env.DATABASE_CA_CERT
     }
+    return target
+}
+
+function destination(environment, env, policy) {
+    const prefix = { development: "DEV", test: "TEST", production: "PROD" }[environment]
+    const connectionString = env[`${prefix}_DATABASE_URL`]
+    if (!connectionString) fail(`Missing ${prefix}_DATABASE_URL; no connection fallback is permitted`)
+    const target = connectableTarget(environment, env, connectionString)
     const authorized = env[`${prefix}_MIGRATION_TARGET_SHA256`]
     if (authorized !== target.fingerprint) fail("Database destination is not explicitly authorized")
+    // DATABASE_URL is conservatively treated as a possible production identifier, never as a fallback.
+    return registeredTarget(environment, env, policy, target, ["PROD_DATABASE_URL", "DATABASE_URL"])
+}
+
+// The reviewed registry (migration-targets.json) is the destination pin for every mode.
+function registeredTarget(environment, env, policy, target, productionUrlKeys) {
     if (!policy || !Array.isArray(policy.productionDatabases) || !policy.productionDatabases.length || !Array.isArray(policy.targets)
         || policy.productionDatabases.some(value => !/^[a-f0-9]{64}$/.test(value))) fail("Reviewed production inventory and migration target registry are required")
     const production = new Set(policy.productionDatabases)
-    // DATABASE_URL is conservatively treated as a possible production identifier, never as a fallback.
-    for (const key of ["PROD_DATABASE_URL", "DATABASE_URL"]) {
+    for (const key of productionUrlKeys) {
         if (env[key]) production.add(parseDestination(env[key]).databaseFingerprint)
     }
     if (env.PROD_MIGRATION_TARGET_SHA256 === target.fingerprint && environment !== "production") fail("Nonproduction target contradicts production authorization")
@@ -116,15 +126,31 @@ function approvalDigest(target, plan, expires, operation = "migration", artifact
     return hash(JSON.stringify([`LEGUMEX production ${operation}`, target, plan.map(({ version, checksum }) => [version, checksum]), expires, ...(artifact ? [artifact] : [])]))
 }
 
+// Automatic (deploy) mode only continues an existing reviewed history: a new or rebuilt database
+// must go through the manual, approved command first.
+const DEPLOY_REQUIRED_HISTORY = [
+    "202610110001_initial_schema.sql",
+    "202610120001_representative_clients.sql",
+    "202610120002_packaging_classification.sql",
+]
+// Mass schema/data deletion is never applied automatically (DROP COLUMN stays allowed).
+const DEPLOY_FORBIDDEN_SQL = /\b(?:DROP\s+(?:TABLE|SCHEMA|DATABASE|OWNED)|TRUNCATE|DELETE\s+FROM)\b/i
+
 // One transaction per version. The lock also serializes separate deployment processes.
-async function migrate(client, plan) {
+// incrementalOnly: deploy-mode guards. dryRun: read-only session, reports pending versions, writes nothing.
+async function migrate(client, plan, { incrementalOnly = false, dryRun = false } = {}) {
     plan ??= await readPlan()
+    if (dryRun) await client.query("SET default_transaction_read_only = on")
     await client.query("SET lock_timeout = '5s'")
     await client.query("SET statement_timeout = '60s'")
     await client.query("SELECT pg_advisory_lock(174226, 1)")
     let failure
+    const pending = []
     try {
-        await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
+        if (dryRun) {
+            const ledger = await client.query("SELECT to_regclass('public.schema_migrations') AS name")
+            if (!ledger.rows[0]?.name) fail("Database has no migration history; automatic migrations only continue an existing reviewed history")
+        } else await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
             version TEXT PRIMARY KEY, checksum TEXT NOT NULL,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`)
@@ -143,9 +169,16 @@ async function migrate(client, plan) {
             }
         }
         if (history.rows.some(row => !plan.some(item => item.version === row.version))) fail("Database contains migrations absent from the manifest")
-        for (const { version, sql, checksum } of plan) {
+        pending.push(...plan.filter(item => !history.rows.some(row => row.version === item.version)))
+        if (incrementalOnly) {
+            if (DEPLOY_REQUIRED_HISTORY.some(version => !history.rows.some(row => row.version === version))) {
+                fail("Automatic migrations require the reviewed historical migrations to be recorded; use the manual command for new or rebuilt databases")
+            }
+            const destructive = pending.find(item => DEPLOY_FORBIDDEN_SQL.test(item.sql))
+            if (destructive) fail(`Automatic migrations refuse mass deletion statements (${destructive.version}); apply it with the manual approved command`)
+        }
+        for (const { version, sql, checksum } of dryRun ? [] : pending) {
             // History and checksums were validated under this same exclusive lock.
-            if (history.rows.some(row => row.version === version)) continue
             await client.query("BEGIN")
             try {
                 await client.query(sql)
@@ -164,12 +197,13 @@ async function migrate(client, plan) {
         catch { failure = cleanupFailure(failure, "advisory unlock") }
     }
     if (failure) throw failure
+    return pending.map(item => item.version)
 }
 
 async function run(args, env, { createClient = config => new (require("pg").Client)(config), log = console.log, now = Date.now, migrationsDirectory = directory, targetPolicy, administrativeOperation } = {}) {
     const opts = options(args)
     const plan = await readPlan(migrationsDirectory)
-    if (administrativeOperation && (!["bootstrap", "rebuild"].includes(administrativeOperation.name) || !/^[a-f0-9]{64}$/.test(administrativeOperation.artifact) || typeof administrativeOperation.execute !== "function")) fail("Invalid administrative operation")
+    if (administrativeOperation && (administrativeOperation.name !== "bootstrap" || !/^[a-f0-9]{64}$/.test(administrativeOperation.artifact) || typeof administrativeOperation.execute !== "function")) fail("Invalid administrative operation")
     const confirmation = expires => approvalDigest(target.fingerprint, plan, expires, administrativeOperation?.name, administrativeOperation?.artifact)
     if (opts["--plan"]) {
         if (opts["--approval"]) fail("Approval is not accepted in planning mode")
@@ -191,16 +225,20 @@ async function run(args, env, { createClient = config => new (require("pg").Clie
         validateExpiry(opts["--expires"], now())
         if (opts["--approval"] !== confirmation(opts["--expires"])) fail("Specific production operational confirmation is required (not approver authentication)")
     } else if (opts["--approval"] || opts["--expires"]) fail("Production approval options require --env production")
+    await withClient(target, createClient, client => administrativeOperation ? administrativeOperation.execute(client) : migrate(client, plan))
+    log(administrativeOperation ? `Controlled ${administrativeOperation.name} completed` : "Database migrations are up to date")
+}
+
+async function withClient(target, createClient, work) {
     const client = createClient(target.config)
     let clientError = false
     // Never log or rethrow driver error payloads. Keep the listener through end().
     client.on("error", () => { clientError = true })
-    let failure
+    let failure, result
     try {
         await client.connect()
         if (clientError) throw new Error("Client failure")
-        if (administrativeOperation) await administrativeOperation.execute(client)
-        else await migrate(client, plan)
+        result = await work(client)
         if (clientError) throw new Error("Client failure")
     } catch (error) {
         failure = error instanceof ValidationError ? error : new Error("PostgreSQL operation failed; sensitive details suppressed")
@@ -210,7 +248,45 @@ async function run(args, env, { createClient = config => new (require("pg").Clie
     }
     if (failure) throw failure
     if (clientError) throw new Error("PostgreSQL operation failed; sensitive details suppressed")
-    log(administrativeOperation ? `Controlled ${administrativeOperation.name} completed` : "Database migrations are up to date")
+    return result
+}
+
+// Automatic release step (npm start -> prestart -> scripts/release.cjs), approved by the owner on
+// 2026-10-14 to replace the per-release production token. It migrates the SAME database the
+// application uses (DATABASE_URL + NODE_ENV), pinned by the reviewed registry. Kept from the manual
+// command: verified TLS in production, PG* rejection, registry/production-inventory checks, the
+// advisory lock, prefix + checksum history checks and one transaction per migration. Added: only
+// continues the reviewed history (never creates or rebuilds a schema) and refuses mass deletion.
+// dryRun (--deploy-check) runs every check in a read-only session and only reports pending versions.
+async function deploy(env, { createClient = config => new (require("pg").Client)(config), log = console.log, migrationsDirectory = directory, targetPolicy, afterMigrate, dryRun = false } = {}) {
+    const environment = env.NODE_ENV
+    if (!["development", "test", "production"].includes(environment)) fail("NODE_ENV must be development, test or production for automatic migrations")
+    if (!env.DATABASE_URL) fail("Missing DATABASE_URL; no connection fallback is permitted")
+    if (Object.keys(process.env).some(key => /^PG/i.test(key))) fail("Ambient PG* variables are forbidden for migration execution")
+    const plan = await readPlan(migrationsDirectory)
+    const target = registeredTarget(environment, env, targetPolicy ?? await loadPolicy(), connectableTarget(environment, env, env.DATABASE_URL), ["PROD_DATABASE_URL"])
+    const pending = await withClient(target, createClient, async client => {
+        const versions = await migrate(client, plan, { incrementalOnly: true, dryRun })
+        if (!dryRun && afterMigrate) await afterMigrate(client)
+        return versions
+    })
+    if (dryRun) log(pending.length ? `Read-only check passed; pending: ${pending.join(", ")}` : "Read-only check passed; no pending migrations")
+    else log(pending.length ? `Applied migrations: ${pending.join(", ")}` : "Database migrations are up to date")
+    return pending
+}
+
+// Registry fingerprints of DATABASE_URL, computed offline; never prints the password.
+function identity(env) {
+    if (!env.DATABASE_URL) fail("Missing DATABASE_URL")
+    const target = parseDestination(env.DATABASE_URL)
+    return { host: target.config.host, port: target.config.port, database: target.config.database, user: target.config.user,
+        tls: target.config.ssl !== false, fingerprint: target.fingerprint, databaseFingerprint: target.databaseFingerprint }
+}
+
+async function cli(args, env) {
+    if (args.length === 1 && args[0] === "--identity") return console.log(JSON.stringify(identity(env), null, 2))
+    if (args.length === 1 && args[0] === "--deploy-check") return deploy(env, { dryRun: true })
+    return run(args, env)
 }
 
 function validateExpiry(expires, now) {
@@ -218,9 +294,9 @@ function validateExpiry(expires, now) {
     if (!expires || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(expires) || !Number.isFinite(time) || time <= now || time > now + 60 * 60 * 1000) fail("Production approval requires a future UTC expiry within one hour")
 }
 
-module.exports = { migrate, run, readPlan, destination, parseDestination, approvalDigest, ValidationError, safeError, loadPolicy }
+module.exports = { migrate, run, deploy, identity, readPlan, destination, parseDestination, approvalDigest, ValidationError, safeError, loadPolicy, DEPLOY_REQUIRED_HISTORY }
 // Deliberately do not load dotenv: migration secrets must be supplied explicitly.
-if (require.main === module) run(process.argv.slice(2), process.env).catch(error => {
+if (require.main === module) cli(process.argv.slice(2), process.env).catch(error => {
     // Driver errors may contain credentials, SQL or connection strings.
     console.error(safeError(error))
     process.exitCode = 1

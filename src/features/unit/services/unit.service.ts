@@ -1,4 +1,4 @@
-import { Op, WhereOptions } from "sequelize";
+import { Op, WhereOptions, Transaction } from "sequelize";
 import Unit from "../models/Unit.model";
 import { AppError, NotFoundError } from "../../../shared/errors/AppError";
 import { CreateUnitInput, UpdateUnitInput } from "../schemas/unit.schema";
@@ -24,9 +24,9 @@ function resolveCatalogEntry(unitKey: string) {
     return catalogEntry;
 }
 
-async function createUnitFromCatalogEntry(catalogEntry: UnitCatalogEntry): Promise<Unit> {
+async function createUnitFromCatalogEntry(catalogEntry: UnitCatalogEntry, transaction?: Transaction): Promise<Unit> {
     const unitCode = await generateUniqueSlug(catalogEntry.displayName, async (candidate) => {
-        const existing = await Unit.findOne({ where: { unitCode: candidate } });
+        const existing = await Unit.findOne({ where: { unitCode: candidate }, ...(transaction ? { transaction } : {}) });
         return !!existing;
     });
     return Unit.create({
@@ -34,7 +34,7 @@ async function createUnitFromCatalogEntry(catalogEntry: UnitCatalogEntry): Promi
         unitType: catalogEntry.unitType,
         baseFactor: catalogEntry.baseFactor,
         unitCode,
-    });
+    }, ...(transaction ? [{ transaction }] : []));
 }
 
 async function createUnit(input: CreateUnitInput): Promise<Unit> {
@@ -61,16 +61,16 @@ async function deleteUnit(id: number): Promise<void> {
 // El match es por unitType + baseFactor (453.592, único en el catálogo), no por displayName.
 const POUND_MATCH_TOLERANCE = 0.0001
 
-async function findOrCreatePoundUnit(): Promise<Unit> {
+async function findOrCreatePoundUnit(transaction?: Transaction): Promise<Unit> {
     const poundCatalogEntry = resolveCatalogEntry("pound");
 
-    const weightUnits = await Unit.findAll({ where: { unitType: poundCatalogEntry.unitType, isActive: true } });
+    const weightUnits = await Unit.findAll({ where: { unitType: poundCatalogEntry.unitType, isActive: true }, ...(transaction ? { transaction } : {}) });
     const existingPoundUnit = weightUnits.find(
         unit => Math.abs(Number(unit.baseFactor) - poundCatalogEntry.baseFactor) < POUND_MATCH_TOLERANCE
     );
     if (existingPoundUnit) return existingPoundUnit;
 
-    return createUnitFromCatalogEntry(poundCatalogEntry);
+    return createUnitFromCatalogEntry(poundCatalogEntry, transaction);
 }
 
 export const unitService = {

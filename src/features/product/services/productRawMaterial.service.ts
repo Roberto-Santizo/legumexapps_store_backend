@@ -19,16 +19,15 @@ async function getProductRawMaterialById(id: number): Promise<ProductRawMaterial
 }
 
 
-async function assertRawMaterialIsMixableIfNeeded(productId: number, rawMaterialId: number): Promise<void> {
+
+
+async function assertRawMaterialExistsIfNeeded(productId: number, rawMaterialId: number): Promise<void> {
     const product = await Product.findOne({ where: { id: productId } })
     if (!product?.isCustomizable) return
-
+    // Keep the original entity-existence guard; an ingredient ID cannot replace a raw-material ID.
     const rawMaterial = await RawMaterial.findOne({ where: { id: rawMaterialId } })
-    if (!rawMaterial?.isMixable) {
-        throw new AppError(422, "errors.raw_material_not_mixable", { rawMaterialId })
-    }
+    if (!rawMaterial) throw new NotFoundError("RawMaterial", rawMaterialId)
 }
-
 
 async function assertRawMaterialIsOrganicCompatibleIfNeeded(productId: number, rawMaterialId: number): Promise<void> {
     const product = await Product.findOne({ where: { id: productId } })
@@ -78,7 +77,7 @@ async function assertFixedRecipePercentageCeiling(
 }
 
 async function createProductRawMaterial(input: CreateProductRawMaterialInput): Promise<ProductRawMaterial> {
-    await assertRawMaterialIsMixableIfNeeded(input.productId, input.rawMaterialId)
+    await assertRawMaterialExistsIfNeeded(input.productId, input.rawMaterialId)
     await assertRawMaterialIsOrganicCompatibleIfNeeded(input.productId, input.rawMaterialId)
     await assertPercentageIfFixedRecipe(input.productId, input.percentage)
     await assertFixedRecipePercentageCeiling(input.productId, null, input.percentage)
@@ -89,7 +88,7 @@ async function updateProductRawMaterial(id: number, input: UpdateProductRawMater
     const productRawMaterial = await getProductRawMaterialById(id)
     const effectiveProductId = input.productId ?? productRawMaterial.productId
     if (input.rawMaterialId !== undefined) {
-        await assertRawMaterialIsMixableIfNeeded(effectiveProductId, input.rawMaterialId)
+        await assertRawMaterialExistsIfNeeded(effectiveProductId, input.rawMaterialId)
         await assertRawMaterialIsOrganicCompatibleIfNeeded(effectiveProductId, input.rawMaterialId)
     }
 

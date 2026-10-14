@@ -1,4 +1,5 @@
 jest.mock("../../product/models/Product.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
+jest.mock("../../ingredient/models/Ingredient.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn() } }))
 jest.mock("../../product/models/ProductVariant.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
 jest.mock("../../category/models/SubCategory.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 jest.mock("../../processingCost/models/ProcessingCost.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
@@ -13,6 +14,7 @@ jest.mock("../models/CustomQuotePresentationOption.model", () => ({ __esModule: 
 jest.mock("../models/CustomQuotePackagingOption.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn() } }))
 
 import Product from "../../product/models/Product.model"
+import Ingredient from "../../ingredient/models/Ingredient.model"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import SubCategory from "../../category/models/SubCategory.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
@@ -35,7 +37,7 @@ const mock = (fn: unknown) => fn as jest.Mock
 const input = catalogQuoteInputSchema.parse({ categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", isOrganic: false, requestedPallets: 2, rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 2, percentage: 50 }] })
 const key = "01234567-89ab-4cde-8abc-0123456789ab"
 function fixture() {
-    const raw = (id: number) => ({ id, isActive: true, displayName: `Fruit ${id}`, isMixable: true, isOrganic: false, ingredientType: "fruit", costPerUnit: "1", costUnitId: 1, costUnit: { id: 1, isActive: true, displayName: "Pound", unitType: "weight", baseFactor: "453.592" } })
+    const raw = (id: number) => ({ id, isActive: true, displayName: `Fruit ${id}`, isOrganic: false, ingredientType: "fruit", costPerUnit: "1", costUnitId: 1, costUnit: { id: 1, isActive: true, displayName: "Pound", unitType: "weight", baseFactor: "453.592" } })
     const materials = [raw(1), raw(2)]
     const parent = { id: 4, isActive: true, isCustomizable: false, subCategoryId: 3, additionalCostPerUnit: 999, productIngredients: [{ grams: 99 }], productRawMaterials: materials.map(row => ({ isActive: true, rawMaterialId: row.id, minPercentage: 99, maxPercentage: 99, usedRawMaterial: row })) }
     const packaging = (id: number, role: string) => ({ id, isActive: true, displayName: `Material ${id}`, unitCost: "0.5", packagingRole: role })
@@ -115,17 +117,44 @@ it.each(["inactiveVariant", "inactivePresentation", "inactivePackaging", "noDefa
     if (mode === "missingIntermediate") variant.unitsPerIntermediatePackage = 0
     expect(validConfiguration(variant as unknown as ProductVariant)).toBe(false)
 })
-it.each(["vegetable", "pulp", "organic", "nonMixable", "inactive", "badUnit"])("rejects incompatible raw material: %s", async mode => {
+it.each(["vegetable", "pulp", "organic", "inactive", "badUnit"])("rejects incompatible raw material: %s", async mode => {
     const { materials } = fixture()
     if (mode === "vegetable" || mode === "pulp") materials[1].ingredientType = mode
     if (mode === "organic") materials[1].isOrganic = true
-    if (mode === "nonMixable") materials[1].isMixable = false
     if (mode === "inactive") materials[1].isActive = false
     if (mode === "badUnit") materials[1].costUnit.baseFactor = "0"
     await expect(calculateCatalogQuote(input, "en")).rejects.toMatchObject({ statusCode: 422 })
 })
 it.each([99.99,100.01])("rejects %s percent exactly", async percentage => {
     await expect(calculateCatalogQuote({ ...input, rawMaterialMix: [{ rawMaterialId: 1, percentage }] }, "en")).rejects.toMatchObject({ key: "errors.catalog_quote_total_100" })
+})
+
+it.each([false, true, undefined])("discovers and costs eligible raw materials independently of historical isMixable=%s", async historical => {
+    const { materials } = fixture()
+    const baseline = await calculateCatalogQuote(input, "en")
+    Object.assign(materials[1], { isMixable: historical })
+    const catalog = await discoverCatalog("en")
+    expect(catalog.categories[0].subCategories[0].rawMaterials.map(row => row.rawMaterialId)).toContain(2)
+    const result = await calculateCatalogQuote(input, "en")
+    expect(result.totalCost).toBe(baseline.totalCost)
+    expect(result.breakdown).toEqual(baseline.breakdown)
+})
+
+it("category/subcategory pools cannot contain foreign raw materials or ingredient-only records", async () => {
+    const { parent, materials } = fixture()
+    const foreign = { ...materials[0], id: 999, displayName: "Foreign raw material" }
+    mock(Product.findAll).mockResolvedValue([parent, { ...parent, id: 100, subCategoryId: 99, productRawMaterials: [{ isActive: true, usedRawMaterial: foreign }] }])
+    mock(Ingredient.findAll).mockResolvedValue([{ id: 888, displayName: "Ingredient only" }, { id: 1, displayName: "Ingredient with overlapping ID" }])
+    const catalog = await discoverCatalog("en")
+    expect(catalog.categories[0].subCategories[0].rawMaterials.map(row => row.rawMaterialId)).toEqual([1, 2])
+    expect(JSON.stringify(catalog)).not.toContain("Ingredient only")
+    for (const rawMaterialId of [999, 888]) {
+        await expect(calculateCatalogQuote({ ...input, rawMaterialMix: [{ rawMaterialId, percentage: 100 }] }, "en"))
+            .rejects.toMatchObject({ statusCode: 422, key: "errors.catalog_quote_composition_invalid" })
+    }
+    await expect(calculateCatalogQuote({ ...input, categoryId: 99 }, "en")).rejects.toMatchObject({ statusCode: 422 })
+    expect(Ingredient.findAll).not.toHaveBeenCalled()
+    expect(Ingredient.findOne).not.toHaveBeenCalled()
 })
 it("rejects duplicates, wrong context and foreign packaging", async () => {
     await expect(calculateCatalogQuote({ ...input, rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 1, percentage: 50 }] }, "en")).rejects.toMatchObject({ statusCode: 422 })

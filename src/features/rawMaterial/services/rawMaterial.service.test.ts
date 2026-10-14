@@ -6,7 +6,7 @@ import { Op } from "sequelize"
 // resolver tipo/booleanos y generar slug corre real. unitService.findOrCreatePoundUnit se mockea.
 jest.mock("../models/RawMaterial.model", () => ({
     __esModule: true,
-    default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }
+    default: { sequelize: { transaction: jest.fn() }, bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), create: jest.fn() }
 }))
 jest.mock("../models/RawMaterialTranslation.model", () => ({
     __esModule: true,
@@ -46,9 +46,34 @@ async function buildWorkbookBuffer(headers: string[], rows: SheetRow[]): Promise
 // "Código" primero, igual que la plantilla real (el parser mapea por nombre de encabezado).
 const HEADERS = ["Código", "Nombre", "Tipo de materia prima", "Es la variante orgánica (Sí/No)", "Se puede mezclar (Sí/No)", "Costo por libra", "Nombre (inglés)"]
 
+const transaction = { commit: jest.fn(), rollback: jest.fn() }
+const mockTransaction = RawMaterial.sequelize!.transaction as jest.Mock
+beforeEach(() => {
+    transaction.commit.mockReset()
+    transaction.rollback.mockReset()
+    mockTransaction.mockImplementation(async callback => {
+        try { const result = await callback(transaction); transaction.commit(); return result }
+        catch (error) { transaction.rollback(); throw error }
+    })
+})
+
 const POUND_UNIT = { id: 2, displayName: "Libra" }
 
 describe("rawMaterialService.bulkImportRawMaterials", () => {
+    it.each(["materials", "translations", "unit"])("rolls back the entire import on %s failure", async stage => {
+        const error = new Error("synthetic write failure")
+        if (stage === "materials") mockBulkCreate.mockRejectedValueOnce(error)
+        if (stage === "translations") mockTranslationBulkCreate.mockRejectedValueOnce(error)
+        if (stage === "unit") mockFindOrCreatePoundUnit.mockRejectedValueOnce(error)
+        const buffer = await buildWorkbookBuffer(HEADERS, [Object.fromEntries(["SYN-001", "Synthetic", "Fruta", "No", "No", 2, "Synthetic EN"].map((value, index) => [HEADERS[index], value]))])
+        await expect(rawMaterialService.bulkImportRawMaterials(buffer)).rejects.toThrow(error)
+        expect(transaction.rollback).toHaveBeenCalledTimes(1)
+        expect(transaction.commit).not.toHaveBeenCalled()
+        expect(mockFindOrCreatePoundUnit).toHaveBeenCalledWith(transaction)
+        if (stage !== "unit") expect(mockBulkCreate.mock.calls[0][1].transaction).toBe(transaction)
+        if (stage === "translations") expect(mockTranslationBulkCreate.mock.calls[0][1].transaction).toBe(transaction)
+    })
+
     beforeEach(() => {
         mockFindOrCreatePoundUnit.mockReset()
         mockFindOrCreatePoundUnit.mockResolvedValue(POUND_UNIT)
@@ -62,6 +87,26 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
         )
         mockTranslationBulkCreate.mockReset()
         mockTranslationBulkCreate.mockResolvedValue([])
+    })
+
+    it.each(["No", "Sí", "obsolete non-boolean value"])("ignores the historical mixable column (%s) without persisting it", async legacy => {
+        const buffer = await buildWorkbookBuffer(HEADERS, [
+            { "Código": "SYN-001", "Nombre": "Synthetic raw", "Tipo de materia prima": "Fruta", "Costo por libra": 9.5, "Se puede mezclar (Sí/No)": legacy },
+        ])
+        await rawMaterialService.bulkImportRawMaterials(buffer)
+        expect(mockBulkCreate.mock.calls[0][0][0]).not.toHaveProperty("isMixable")
+        expect(mockBulkCreate.mock.calls[0][0][0]).toMatchObject({ code: "SYN-001", costPerUnit: 9.5, ingredientType: "fruit" })
+    })
+
+    it("imports a new workbook without the retired column and preserves cost/name mapping", async () => {
+        const headers = HEADERS.filter(header => !header.startsWith("Se puede mezclar"))
+        const buffer = await buildWorkbookBuffer(headers, [
+            { "Código": "SYN-001", "Nombre": "Synthetic raw", "Tipo de materia prima": "Fruta", "Costo por libra": 4.125, "Nombre (inglés)": "Synthetic EN" },
+        ])
+        await rawMaterialService.bulkImportRawMaterials(buffer)
+        expect(mockBulkCreate.mock.calls[0][0][0]).toMatchObject({ code: "SYN-001", costPerUnit: 4.125 })
+        expect(mockBulkCreate.mock.calls[0][0][0]).not.toHaveProperty("isMixable")
+        expect(mockTranslationBulkCreate).toHaveBeenCalledWith([expect.objectContaining({ displayName: "Synthetic EN" })], { transaction })
     })
 
     it("importa filas válidas resolviendo el tipo por nombre, con defaults de Sí/No aplicados, y fuerza costUnitId a la Libra", async () => {
@@ -81,9 +126,8 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
                 costPerUnit: 9.5,
                 costUnitId: POUND_UNIT.id,
                 isOrganic: false, // default (celda vacía)
-                isMixable: true, // default (celda vacía)
             })],
-            { returning: true }
+            { returning: true, transaction }
         )
     })
 
@@ -107,7 +151,7 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
 
         expect(mockTranslationBulkCreate).toHaveBeenCalledWith([
             { rawMaterialId: 1, language: "en", displayName: "Pineapple" }
-        ])
+        ], { transaction })
     })
 
     it("no crea NADA si una sola fila falla validación (todo o nada)", async () => {
@@ -149,8 +193,8 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
         await rawMaterialService.bulkImportRawMaterials(buffer)
 
         expect(mockBulkCreate).toHaveBeenCalledWith(
-            [expect.objectContaining({ isOrganic: true, isMixable: false })],
-            { returning: true }
+            [expect.objectContaining({ isOrganic: true })],
+            { returning: true, transaction }
         )
     })
 
@@ -163,7 +207,7 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
 
         expect(mockBulkCreate).toHaveBeenCalledWith(
             [expect.objectContaining({ code: "12345" })],
-            { returning: true }
+            { returning: true, transaction }
         )
     })
 
@@ -242,7 +286,7 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
                 expect.objectContaining({ urlSlug: "pina-2" }),
                 expect.objectContaining({ urlSlug: "pina-3" }),
             ],
-            { returning: true }
+            { returning: true, transaction }
         )
     })
 

@@ -31,17 +31,15 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
             mockProductFindOne.mockResolvedValue({ isCustomizable: true })
         })
 
-        it("rechaza una materia prima no mezclable (isMixable=false) en el pool de un producto personalizable", async () => {
-            mockRawMaterialFindOne.mockResolvedValue({ isMixable: false })
-
-            await expect(
-                productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, minPercentage: 0, maxPercentage: 100 } as never)
-            ).rejects.toMatchObject({ statusCode: 422, key: "errors.raw_material_not_mixable" })
-            expect(mockCreate).not.toHaveBeenCalled()
+        it.each([false, true, undefined])("accepts a raw material independently of historical isMixable=%s", async historical => {
+            mockRawMaterialFindOne.mockResolvedValue({ isMixable: historical })
+            mockCreate.mockResolvedValue({ id: 1 })
+            await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, minPercentage: 0, maxPercentage: 100 } as never)
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ productId: 1, rawMaterialId: 9 }))
         })
 
-        it("acepta una materia prima mezclable (isMixable=true)", async () => {
-            mockRawMaterialFindOne.mockResolvedValue({ isMixable: true })
+        it("acepta una materia prima del pool sin restriccion legacy", async () => {
+            mockRawMaterialFindOne.mockResolvedValue({ })
             mockCreate.mockResolvedValue({ id: 1 })
 
             await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, minPercentage: 0, maxPercentage: 100 } as never)
@@ -49,8 +47,16 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
             expect(mockCreate).toHaveBeenCalledTimes(1)
         })
 
+        it("rejects a missing raw material, including an ingredient-only ID", async () => {
+            mockRawMaterialFindOne.mockResolvedValue(null)
+            await expect(productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 888 } as never))
+                .rejects.toMatchObject({ statusCode: 404 })
+            expect(mockRawMaterialFindOne).toHaveBeenCalledWith({ where: { id: 888 } })
+            expect(mockCreate).not.toHaveBeenCalled()
+        })
+
         it("NO exige percentage en un producto customizable (usa min/maxPercentage en su lugar)", async () => {
-            mockRawMaterialFindOne.mockResolvedValue({ isMixable: true })
+            mockRawMaterialFindOne.mockResolvedValue({ })
             mockCreate.mockResolvedValue({ id: 1 })
 
             await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: undefined } as never)
@@ -82,13 +88,12 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
             ).rejects.toMatchObject({ key: "errors.product_raw_material_percentage_required" })
         })
 
-        it("acepta percentage positivo y no exige que la materia prima sea mezclable", async () => {
+        it("acepta percentage positivo en recetas fijas", async () => {
             mockCreate.mockResolvedValue({ id: 1 })
 
             await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
 
             expect(mockCreate).toHaveBeenCalledTimes(1)
-            // En receta fija ni siquiera se debería consultar isMixable -- la materia prima no se mezcla.
             expect(mockRawMaterialFindOne).not.toHaveBeenCalled()
         })
     })
@@ -143,7 +148,7 @@ describe("productRawMaterialService.createProductRawMaterial -- producto orgáni
     })
 
     it("rechaza una materia prima convencional (isOrganic=false, ingredientType='fruit') en un producto orgánico", async () => {
-        mockRawMaterialFindOne.mockResolvedValue({ isMixable: true, isOrganic: false, ingredientType: "fruit" })
+        mockRawMaterialFindOne.mockResolvedValue({ isOrganic: false, ingredientType: "fruit" })
 
         await expect(
             productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
@@ -152,7 +157,7 @@ describe("productRawMaterialService.createProductRawMaterial -- producto orgáni
     })
 
     it("acepta la variante orgánica de una materia prima (isOrganic=true)", async () => {
-        mockRawMaterialFindOne.mockResolvedValue({ isMixable: true, isOrganic: true, ingredientType: "fruit" })
+        mockRawMaterialFindOne.mockResolvedValue({ isOrganic: true, ingredientType: "fruit" })
         mockCreate.mockResolvedValue({ id: 1 })
 
         await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
@@ -161,7 +166,7 @@ describe("productRawMaterialService.createProductRawMaterial -- producto orgáni
     })
 
     it("acepta un insumo tipo 'other' (agua, sal, azúcar...) aunque no esté marcado orgánico -- no tiene variante orgánica/convencional", async () => {
-        mockRawMaterialFindOne.mockResolvedValue({ isMixable: true, isOrganic: false, ingredientType: "other" })
+        mockRawMaterialFindOne.mockResolvedValue({ isOrganic: false, ingredientType: "other" })
         mockCreate.mockResolvedValue({ id: 1 })
 
         await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)

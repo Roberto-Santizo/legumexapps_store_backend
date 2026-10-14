@@ -30,7 +30,7 @@ function mocked(fn: unknown): jest.Mock {
 const POUND = { unitType: "weight", baseFactor: 453.592 }
 
 function rawMaterial(id: number, displayName: string, overrides: Record<string, unknown> = {}) {
-    return { id, displayName, costPerUnit: "1.0000", costUnit: POUND, isMixable: true, isOrganic: false, ingredientType: "fruit", translations: [], ...overrides }
+    return { id, displayName, costPerUnit: "1.0000", costUnit: POUND, isOrganic: false, ingredientType: "fruit", translations: [], ...overrides }
 }
 
 function packagingOption(id: number, role: string, overrides: Record<string, unknown> = {}) {
@@ -71,7 +71,7 @@ beforeEach(() => {
     mocked(CustomQuoteRawMaterialOption.findAll).mockResolvedValue([
         { id: 1, rawMaterialId: 1, minPercentage: null, maxPercentage: null, usedRawMaterial: rawMaterial(1, "Piña", { translations: [{ language: "en", displayName: "Pineapple" }] }) },
         { id: 2, rawMaterialId: 2, minPercentage: "10.00", maxPercentage: "50.00", usedRawMaterial: rawMaterial(2, "Mango") },
-        { id: 3, rawMaterialId: 3, minPercentage: null, maxPercentage: null, usedRawMaterial: rawMaterial(3, "Cobertura", { isMixable: false }) },
+        { id: 3, rawMaterialId: 3, minPercentage: null, maxPercentage: null, usedRawMaterial: rawMaterial(3, "Raw material C", {}) },
         { id: 4, rawMaterialId: 4, minPercentage: null, maxPercentage: null, usedRawMaterial: rawMaterial(4, "Fresa orgánica", { isOrganic: true }) },
         { id: 5, rawMaterialId: 5, minPercentage: null, maxPercentage: null, usedRawMaterial: rawMaterial(5, "Agua", { ingredientType: "other" }) },
     ])
@@ -152,9 +152,11 @@ describe("receta", () => {
             .rejects.toMatchObject({ statusCode: 422, key: "errors.custom_quote_raw_material_not_offered", params: { rawMaterialId: 99 } })
     })
 
-    it("una materia prima no mezclable dentro de una mezcla -> 422 con su nombre", async () => {
-        await expect(calculate({ rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 3, percentage: 50 }] }))
-            .rejects.toMatchObject({ statusCode: 422, key: "errors.custom_quote_raw_material_not_mixable", params: { rawMaterial: "Cobertura" } })
+    it("accepts a mixture without retired metadata with unchanged cost conversion", async () => {
+        const baseline = await calculate({ rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 2, percentage: 50 }] })
+        const result = await calculate({ rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 3, percentage: 50 }] })
+        expect(result.breakdown.rawMaterials).toHaveLength(2)
+        expect(result.totalCost).toBe(baseline.totalCost)
     })
 
     it("una materia prima no mezclable sola al 100% se permite", async () => {

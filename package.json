@@ -7,10 +7,12 @@
   "main": "dist/index.js",
   "scripts": {
     "db:migrate": "node scripts/migrate.cjs",
+    "db:deploy-check": "node scripts/migrate.cjs --deploy-check",
+    "db:identity": "node scripts/migrate.cjs --identity",
     "db:bootstrap": "node scripts/bootstrap.cjs",
     "test:postgres": "node scripts/test-postgres.cjs",
     "start": "node dist/index.js",
-    "prestart": "node scripts/build-integrity.cjs verify",
+    "prestart": "node scripts/release.cjs",
     "build": "node scripts/build.cjs",
     "dev": "nodemon --exec ts-node src/index.ts",
     "test": "jest",

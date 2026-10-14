@@ -46,11 +46,11 @@ const FIXED = { id: 1, skuCode: "JUGO-PINA", isCustomizable: false, isOrganic: f
 const MIX = { id: 2, skuCode: "SMOOTHIE", isCustomizable: true, isOrganic: false }
 const ORGANIC_FIXED = { id: 3, skuCode: "JUGO-ORG", isCustomizable: false, isOrganic: true }
 
-const PINA = { id: 10, code: "MP-PINA", isMixable: true, isOrganic: false, ingredientType: "fruit" }
-const AGUA = { id: 11, code: "MP-AGUA", isMixable: false, isOrganic: false, ingredientType: "other" }
-const FRESA = { id: 12, code: "MP-FRESA", isMixable: true, isOrganic: false, ingredientType: "fruit" }
-const BANANO = { id: 13, code: "MP-BANANO", isMixable: true, isOrganic: false, ingredientType: "fruit" }
-const PINA_ORG = { id: 14, code: "MP-PINA-ORG", isMixable: true, isOrganic: true, ingredientType: "fruit" }
+const PINA = { id: 10, code: "MP-PINA", isOrganic: false, ingredientType: "fruit" }
+const AGUA = { id: 11, code: "MP-AGUA", isOrganic: false, ingredientType: "other" }
+const FRESA = { id: 12, code: "MP-FRESA", isOrganic: false, ingredientType: "fruit" }
+const BANANO = { id: 13, code: "MP-BANANO", isOrganic: false, ingredientType: "fruit" }
+const PINA_ORG = { id: 14, code: "MP-PINA-ORG", isOrganic: true, ingredientType: "fruit" }
 
 function fixedRow(rawMaterialCode: string, percentage: number | undefined, overrides: Partial<SheetRow> = {}): SheetRow {
     return { "SKU de una variante del producto": FIXED.skuCode, "Código Materia Prima": rawMaterialCode, "Porcentaje": percentage, ...overrides }
@@ -189,10 +189,13 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             ])
         })
 
-        it("rechaza una materia prima que no es mezclable", async () => {
+        it("imports the complete customizable pool without retired eligibility metadata", async () => {
             const buffer = await buildWorkbookBuffer([mixRow(FRESA.code), mixRow(AGUA.code)])
-
-            await expectRowIssues(buffer, [{ row: 3, field: "rawMaterialId", key: "errors.raw_material_not_mixable" }])
+            await productRawMaterialImportService.bulkImportProductRawMaterials(buffer)
+            expect(mockRecipeBulkCreate).toHaveBeenCalledWith(expect.arrayContaining([
+                expect.objectContaining({ rawMaterialId: FRESA.id }),
+                expect.objectContaining({ rawMaterialId: AGUA.id }),
+            ]), expect.any(Object))
         })
 
         it("rechaza un pool cuyos mínimos suman más de 100", async () => {

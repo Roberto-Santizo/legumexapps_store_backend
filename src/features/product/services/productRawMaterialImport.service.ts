@@ -29,8 +29,7 @@ import {
 // guardado (el archivo nunca re-declara el tipo de receta):
 //   - Fija: Porcentaje obligatorio en cada fila y el grupo debe sumar 100 (±0.5) -- más estricto
 //     que el techo blando del admin, porque el archivo trae la receta COMPLETA.
-//   - Personalizable: sin Porcentaje; % mínimo/% máximo opcionales; cada materia prima debe ser
-//     mezclable, y el rango debe permitir llegar a 100 (Σmín ≤ 100 ≤ Σmáx, solo en el importador).
+//   - Personalizable: sin Porcentaje; % mínimo/% máximo opcionales; el rango debe permitir llegar a 100 (Σmín ≤ 100 ≤ Σmáx, solo en el importador).
 // Create-only: un producto que ya tiene receta activa se rechaza (se edita en su pantalla).
 
 type RowValidation = {
@@ -84,7 +83,7 @@ function resolveRawMaterialField(rawCode: ImportCellValue, rawMaterialsByNormali
 }
 
 // Reglas que dependen del tipo de receta del producto -- mismas que productRawMaterial.service.ts
-// (porcentaje obligatorio en receta fija, mezclable en personalizable, compatibilidad orgánica),
+// (porcentaje obligatorio en receta fija, compatibilidad orgánica),
 // más las propias del archivo (columna equivocada para el tipo, mín > máx).
 function checkRecipeTypeRules(row: ResolvedRecipeRow, ctx: RowValidation): void {
     const { product, rawMaterial } = row
@@ -101,9 +100,6 @@ function checkRecipeTypeRules(row: ResolvedRecipeRow, ctx: RowValidation): void 
                 key: "errors.bulk_import_min_greater_than_max",
                 params: { min: row.minPercentage, max: row.maxPercentage }
             })
-        }
-        if (!rawMaterial.isMixable) {
-            ctx.rowIssues.push({ row: ctx.rowNumber, field: "rawMaterialId", key: "errors.raw_material_not_mixable", params: { rawMaterialId: row.rawMaterialCode } })
         }
     } else {
         if (row.percentage === undefined) {
@@ -357,7 +353,7 @@ async function buildProductRawMaterialImportTemplate(): Promise<Buffer> {
         "\"SKU de una variante del producto\" debe ser el SKU de una variante activa de un producto activo ya creado (paso 1). El tipo de receta (Fija o Personalizable) se toma de ese producto, no se vuelve a escribir acá.",
         "\"Código Materia Prima\" debe ser el código EXACTO de una materia prima activa del catálogo de Materias Primas.",
         "Receta FIJA: llena solo \"Porcentaje\" en cada fila (mayor a 0, máximo 100). Las filas del producto deben sumar exactamente 100%. Deja vacías \"% mínimo\" y \"% máximo\".",
-        "Receta PERSONALIZABLE: deja vacío \"Porcentaje\" (la mezcla la arma el representante al cotizar). \"% mínimo\" y \"% máximo\" son opcionales (vacío = 0 y 100). Cada materia prima debe estar marcada como mezclable, y los rangos deben permitir llegar a 100% (la suma de los mínimos no puede pasar de 100 y la de los máximos debe llegar al menos a 100).",
+        "Receta PERSONALIZABLE: deja vacío \"Porcentaje\" (la mezcla la arma el representante al cotizar). \"% mínimo\" y \"% máximo\" son opcionales (vacío = 0 y 100). Los rangos deben permitir llegar a 100% (la suma de los mínimos no puede pasar de 100 y la de los máximos debe llegar al menos a 100).",
         "Si el producto es orgánico, cada materia prima debe ser orgánica o de tipo \"otro\" (agua, sal, azúcar...).",
         "Solo CREA recetas: un producto que ya tiene receta se rechaza -- edítala desde la pantalla del producto. El archivo se valida COMPLETO antes de importar nada: si una sola fila tiene un error, no se crea ninguna receta.",
         "Los SKUs distintos del mismo producto se agrupan por producto. No repitas una receta completa ni el mismo material/ingrediente usando otro SKU: se rechaza como duplicado del producto.",

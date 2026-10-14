@@ -44,7 +44,7 @@ export function availableRawMaterials(products: Product[], subCategoryId: number
     products.filter(product => product.isActive && product.subCategoryId === subCategoryId).forEach(product => {
         (product.productRawMaterials ?? []).filter(row => row.isActive).forEach(row => {
             const raw = row.usedRawMaterial
-            if (raw?.isActive && raw.isMixable && ["fruit", "vegetable", "pulp", "other"].includes(raw.ingredientType)
+            if (raw?.isActive && ["fruit", "vegetable", "pulp", "other"].includes(raw.ingredientType)
                 && raw.costPerUnit != null && Number.isFinite(Number(raw.costPerUnit)) && Number(raw.costPerUnit) >= 0
                 && raw.costUnit?.isActive && raw.costUnit.unitType === "weight" && Number.isFinite(Number(raw.costUnit.baseFactor)) && Number(raw.costUnit.baseFactor) > 0) materials.set(raw.id, raw)
         })

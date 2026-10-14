@@ -36,7 +36,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
     const pool = availableRawMaterials(context.products, subCategory.id)
     const selected = input.rawMaterialMix.map(line => {
         const raw = pool.find(row => row.id === line.rawMaterialId)
-        if (!raw || raw.ingredientType !== input.ingredientType || raw.isOrganic !== input.isOrganic || !raw.isMixable) return failure("composition_invalid")
+        if (!raw || raw.ingredientType !== input.ingredientType || raw.isOrganic !== input.isOrganic) return failure("composition_invalid")
         return raw
     })
     if (new Set(input.rawMaterialMix.map(line => line.rawMaterialId)).size !== input.rawMaterialMix.length) return failure("composition_invalid")

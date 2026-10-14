@@ -151,16 +151,13 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
         })
     })
 
-    it("rechaza una materia prima no orgánica (y no de tipo \"otro\") en un producto orgánico; \"otro\" sí se permite", async () => {
+    it("un producto orgánico acepta cualquier materia prima del catálogo (sin clasificación orgánica)", async () => {
         const buffer = await buildWorkbookBuffer([
             { "SKU de una variante del producto": ORGANIC_FIXED.skuCode, "Código Materia Prima": PINA.code, "Porcentaje": 50 },
             { "SKU de una variante del producto": ORGANIC_FIXED.skuCode, "Código Materia Prima": AGUA.code, "Porcentaje": 50 },
         ])
 
-        const error = await expectRowIssues(buffer, [
-            { row: 2, field: "rawMaterialId", key: "errors.raw_material_not_organic_compatible" },
-        ])
-        expect(error.rowIssues.filter(issue => issue.row === 3)).toEqual([])
+        await expect(productRawMaterialImportService.bulkImportProductRawMaterials(buffer)).resolves.toHaveLength(2)
     })
 
     it("rechaza la misma materia prima dos veces en la receta de un producto", async () => {

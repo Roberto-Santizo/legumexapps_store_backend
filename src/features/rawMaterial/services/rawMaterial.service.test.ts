@@ -44,7 +44,7 @@ async function buildWorkbookBuffer(headers: string[], rows: SheetRow[]): Promise
 }
 
 // "Código" primero, igual que la plantilla real (el parser mapea por nombre de encabezado).
-const HEADERS = ["Código", "Nombre", "Tipo de materia prima", "Es la variante orgánica (Sí/No)", "Se puede mezclar (Sí/No)", "Costo por libra", "Nombre (inglés)"]
+const HEADERS = ["Código", "Nombre", "Tipo de materia prima", "Se puede mezclar (Sí/No)", "Costo por libra", "Nombre (inglés)"]
 
 const transaction = { commit: jest.fn(), rollback: jest.fn() }
 const mockTransaction = RawMaterial.sequelize!.transaction as jest.Mock
@@ -65,7 +65,7 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
         if (stage === "materials") mockBulkCreate.mockRejectedValueOnce(error)
         if (stage === "translations") mockTranslationBulkCreate.mockRejectedValueOnce(error)
         if (stage === "unit") mockFindOrCreatePoundUnit.mockRejectedValueOnce(error)
-        const buffer = await buildWorkbookBuffer(HEADERS, [Object.fromEntries(["SYN-001", "Synthetic", "Fruta", "No", "No", 2, "Synthetic EN"].map((value, index) => [HEADERS[index], value]))])
+        const buffer = await buildWorkbookBuffer(HEADERS, [Object.fromEntries(["SYN-001", "Synthetic", "Fruta", "No", 2, "Synthetic EN"].map((value, index) => [HEADERS[index], value]))])
         await expect(rawMaterialService.bulkImportRawMaterials(buffer)).rejects.toThrow(error)
         expect(transaction.rollback).toHaveBeenCalledTimes(1)
         expect(transaction.commit).not.toHaveBeenCalled()
@@ -109,7 +109,7 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
         expect(mockTranslationBulkCreate).toHaveBeenCalledWith([expect.objectContaining({ displayName: "Synthetic EN" })], { transaction })
     })
 
-    it("importa filas válidas resolviendo el tipo por nombre, con defaults de Sí/No aplicados, y fuerza costUnitId a la Libra", async () => {
+    it("importa filas válidas resolviendo el tipo por nombre y fuerza costUnitId a la Libra", async () => {
         const buffer = await buildWorkbookBuffer(HEADERS, [
             { "Código": "PIN-001", "Nombre": "Piña", "Tipo de materia prima": "Fruta", "Costo por libra": 9.5 },
         ])
@@ -125,7 +125,6 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
                 ingredientType: "fruit",
                 costPerUnit: 9.5,
                 costUnitId: POUND_UNIT.id,
-                isOrganic: false, // default (celda vacía)
             })],
             { returning: true, transaction }
         )
@@ -175,27 +174,14 @@ describe("rawMaterialService.bulkImportRawMaterials", () => {
         })
     })
 
-    it("rechaza un valor de Sí/No no reconocido en vez de asumir uno", async () => {
-        const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "PIN-001", "Nombre": "Piña", "Tipo de materia prima": "Fruta", "Es la variante orgánica (Sí/No)": "tal vez", "Costo por libra": 9.5 },
-        ])
-
-        await expect(rawMaterialService.bulkImportRawMaterials(buffer)).rejects.toMatchObject({
-            rowIssues: [expect.objectContaining({ field: "isOrganic", key: "errors.bulk_import_invalid_boolean" })]
-        })
-    })
-
-    it("acepta variantes de Sí/No (true/false/1/0/x) sin distinguir mayúsculas", async () => {
-        const buffer = await buildWorkbookBuffer(HEADERS, [
-            { "Código": "PIN-001", "Nombre": "Piña", "Tipo de materia prima": "Fruta", "Es la variante orgánica (Sí/No)": "TRUE", "Se puede mezclar (Sí/No)": "0", "Costo por libra": 9.5 },
+    it("ignora la columna retirada \"Es la variante orgánica\" de una plantilla vieja y no guarda clasificación orgánica", async () => {
+        const buffer = await buildWorkbookBuffer([...HEADERS, "Es la variante orgánica (Sí/No)"], [
+            { "Código": "PIN-001", "Nombre": "Piña", "Tipo de materia prima": "Fruta", "Costo por libra": 9.5, "Es la variante orgánica (Sí/No)": "tal vez" },
         ])
 
         await rawMaterialService.bulkImportRawMaterials(buffer)
 
-        expect(mockBulkCreate).toHaveBeenCalledWith(
-            [expect.objectContaining({ isOrganic: true })],
-            { returning: true, transaction }
-        )
+        expect(mockBulkCreate.mock.calls[0][0][0]).not.toHaveProperty("isOrganic")
     })
 
     it("acepta un código sin formato de texto (Excel lo entrega como number, no debe romper la validación de string)", async () => {

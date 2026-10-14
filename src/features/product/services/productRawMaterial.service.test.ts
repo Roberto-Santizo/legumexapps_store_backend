@@ -94,41 +94,13 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
     })
 })
 
-describe("productRawMaterialService.createProductRawMaterial -- producto orgánico (Product.isOrganic)", () => {
+describe("productRawMaterialService.createProductRawMaterial -- materias primas sin clasificación orgánica", () => {
     beforeEach(() => {
         mockProductFindOne.mockResolvedValue({ isOrganic: true })
         mockFindAll.mockResolvedValue([])
     })
 
-    it("rechaza una materia prima convencional (isOrganic=false, ingredientType='fruit') en un producto orgánico", async () => {
-        mockRawMaterialFindOne.mockResolvedValue({ isOrganic: false, ingredientType: "fruit" })
-
-        await expect(
-            productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
-        ).rejects.toMatchObject({ statusCode: 422, key: "errors.raw_material_not_organic_compatible" })
-        expect(mockCreate).not.toHaveBeenCalled()
-    })
-
-    it("acepta la variante orgánica de una materia prima (isOrganic=true)", async () => {
-        mockRawMaterialFindOne.mockResolvedValue({ isOrganic: true, ingredientType: "fruit" })
-        mockCreate.mockResolvedValue({ id: 1 })
-
-        await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
-
-        expect(mockCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it("acepta un insumo tipo 'other' (agua, sal, azúcar...) aunque no esté marcado orgánico -- no tiene variante orgánica/convencional", async () => {
-        mockRawMaterialFindOne.mockResolvedValue({ isOrganic: false, ingredientType: "other" })
-        mockCreate.mockResolvedValue({ id: 1 })
-
-        await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
-
-        expect(mockCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it("no exige nada de esto si el producto NO es orgánico", async () => {
-        mockProductFindOne.mockResolvedValue({ isOrganic: false })
+    it("un producto orgánico acepta cualquier materia prima: el catálogo ya no las clasifica", async () => {
         mockCreate.mockResolvedValue({ id: 1 })
 
         await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)

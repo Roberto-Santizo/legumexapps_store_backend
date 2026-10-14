@@ -117,10 +117,9 @@ it.each(["inactiveVariant", "inactivePresentation", "inactivePackaging", "noDefa
     if (mode === "missingIntermediate") variant.unitsPerIntermediatePackage = 0
     expect(validConfiguration(variant as unknown as ProductVariant)).toBe(false)
 })
-it.each(["vegetable", "pulp", "organic", "inactive", "badUnit"])("rejects incompatible raw material: %s", async mode => {
+it.each(["vegetable", "pulp", "inactive", "badUnit"])("rejects incompatible raw material: %s", async mode => {
     const { materials } = fixture()
     if (mode === "vegetable" || mode === "pulp") materials[1].ingredientType = mode
-    if (mode === "organic") materials[1].isOrganic = true
     if (mode === "inactive") materials[1].isActive = false
     if (mode === "badUnit") materials[1].costUnit.baseFactor = "0"
     await expect(calculateCatalogQuote(input, "en")).rejects.toMatchObject({ statusCode: 422 })

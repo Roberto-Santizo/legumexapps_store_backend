@@ -38,7 +38,7 @@ async function refusedBeforeConnecting(s) {
  assert.equal(s.calls.create, 0); assert.deepEqual(s.calls.queries, [])
 }
 
-const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql']
+const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql', '202610140003_remove_raw_material_organic.sql']
 
 test('production applies only the pending incremental migrations without an approval token, then syncs reference data', async () => {
  const plan = await readPlan(), s = setup({ history: await recorded(DEPLOY_REQUIRED_HISTORY) })
@@ -54,11 +54,11 @@ test('production applies only the pending incremental migrations without an appr
  assert.deepEqual(s.calls.config.ssl, { rejectUnauthorized: true })
 })
 
-test('a database that already recorded the isMixable removal applies only the recipe-type removal', async () => {
- const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0]]) })
- assert.deepEqual(await deploy(s.env, s.deps), [PENDING[1]])
- assert.ok(!s.calls.queries.some(sql => sql.includes('isMixable')))
- assert.ok(s.calls.queries.some(sql => sql.includes('"isCustomizable"')))
+test('a database that already recorded the earlier removals applies only the organic-variant removal', async () => {
+ const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0], PENDING[1]]) })
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[2]])
+ assert.ok(!s.calls.queries.some(sql => /isMixable|isCustomizable/.test(sql)))
+ assert.ok(s.calls.queries.some(sql => sql.includes('"isOrganicAvailable"')))
 })
 
 test('an up-to-date database applies nothing and still syncs reference data', async () => {
@@ -130,7 +130,7 @@ test('deploy-check is read-only: no ledger creation, no migration, no reference 
  const s = setup({ history: await recorded(DEPLOY_REQUIRED_HISTORY) })
  assert.deepEqual(await deploy(s.env, { ...s.deps, dryRun: true }), PENDING)
  assert.equal(s.calls.queries[0], 'SET default_transaction_read_only = on')
- assert.ok(!s.calls.queries.some(sql => /CREATE TABLE|BEGIN|INSERT|isMixable|isCustomizable/.test(sql)))
+ assert.ok(!s.calls.queries.some(sql => /CREATE TABLE|BEGIN|INSERT|isMixable|isCustomizable|isOrganicAvailable/.test(sql)))
  assert.equal(s.calls.after, 0)
  const empty = setup()
  await assert.rejects(deploy(empty.env, { ...empty.deps, dryRun: true }), /no migration history/)

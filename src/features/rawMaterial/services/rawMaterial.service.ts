@@ -14,13 +14,11 @@ import {
     loadWorkbookFromBuffer,
     mapImportHeaders,
     normalizeImportText,
-    parseImportBoolean,
     readImportCell,
     writeWorkbookToBuffer,
 } from "../../../shared/utils/excelImport.util"
 import {
     RAW_MATERIAL_IMPORT_COLUMNS,
-    RAW_MATERIAL_IS_ORGANIC_DEFAULT,
     RAW_MATERIAL_TYPE_LABELS,
     RAW_MATERIAL_TYPE_LABEL_TO_KEY,
     RawMaterialImportField,
@@ -132,25 +130,10 @@ function resolveRawMaterialTypeField(rawType: ImportCellValue, ctx: RawMaterialR
 }
 
 
-function resolveRawMaterialBooleanField(
-    rawValue: ImportCellValue,
-    defaultValue: boolean,
-    field: "isOrganic",
-    ctx: RawMaterialRowValidation
-): boolean | undefined {
-    const resolved = parseImportBoolean(rawValue, defaultValue)
-    if (resolved === undefined) {
-        ctx.manuallyValidatedFields.add(field)
-        ctx.rowIssues.push({ row: ctx.rowNumber, field, key: "errors.bulk_import_invalid_boolean", params: { value: rawValue } })
-    }
-    return resolved
-}
-
 function buildRawMaterialImportCandidate(fields: {
     rawCode: ImportCellValue
     rawDisplayName: ImportCellValue
     resolvedType: string | undefined
-    resolvedIsOrganic: boolean | undefined
     rawCostPerUnit: ImportCellValue
     rawDisplayNameEn: ImportCellValue
 }) {
@@ -162,7 +145,6 @@ function buildRawMaterialImportCandidate(fields: {
         code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         ingredientType: fields.resolvedType,
-        isOrganic: fields.resolvedIsOrganic,
         costPerUnit: fields.rawCostPerUnit === null || fields.rawCostPerUnit === "" ? undefined : Number(fields.rawCostPerUnit),
         translations: displayNameEn ? { en: { displayName: displayNameEn } } : undefined,
     }
@@ -255,17 +237,15 @@ async function processRawMaterialImportRow(
     const rawCode = readImportCell(row, columnIndexByField.get("code"))
     const rawDisplayName = readImportCell(row, columnIndexByField.get("displayName"))
     const rawType = readImportCell(row, columnIndexByField.get("ingredientType"))
-    const rawIsOrganic = readImportCell(row, columnIndexByField.get("isOrganic"))
     const rawCostPerUnit = readImportCell(row, columnIndexByField.get("costPerUnit"))
     const rawDisplayNameEn = readImportCell(row, columnIndexByField.get("displayNameEn"))
 
     const ctx: RawMaterialRowValidation = { rowNumber, rowIssues: [], manuallyValidatedFields: new Set<string>() }
 
     const resolvedType = resolveRawMaterialTypeField(rawType, ctx)
-    const resolvedIsOrganic = resolveRawMaterialBooleanField(rawIsOrganic, RAW_MATERIAL_IS_ORGANIC_DEFAULT, "isOrganic", ctx)
 
     const candidate = buildRawMaterialImportCandidate({
-        rawCode, rawDisplayName, resolvedType, resolvedIsOrganic, rawCostPerUnit, rawDisplayNameEn
+        rawCode, rawDisplayName, resolvedType, rawCostPerUnit, rawDisplayNameEn
     })
 
     const { validated, issues: zodIssues } = collectZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
@@ -374,7 +354,6 @@ async function buildRawMaterialImportTemplate(): Promise<Buffer> {
         { header: RAW_MATERIAL_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: RAW_MATERIAL_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 28 },
         { header: RAW_MATERIAL_IMPORT_COLUMNS.ingredientType.header, key: "ingredientType", width: 20 },
-        { header: RAW_MATERIAL_IMPORT_COLUMNS.isOrganic.header, key: "isOrganic", width: 26 },
         { header: RAW_MATERIAL_IMPORT_COLUMNS.costPerUnit.header, key: "costPerUnit", width: 18 },
         { header: RAW_MATERIAL_IMPORT_COLUMNS.displayNameEn.header, key: "displayNameEn", width: 24 },
     ]
@@ -383,7 +362,6 @@ async function buildRawMaterialImportTemplate(): Promise<Buffer> {
         code: "PIN-001",
         displayName: "Piña",
         ingredientType: RAW_MATERIAL_TYPE_LABELS.fruit,
-        isOrganic: "No",
         costPerUnit: 9.5,
         displayNameEn: "Pineapple"
     })
@@ -391,7 +369,6 @@ async function buildRawMaterialImportTemplate(): Promise<Buffer> {
         code: "PIN-002",
         displayName: "Piña Orgánica",
         ingredientType: RAW_MATERIAL_TYPE_LABELS.fruit,
-        isOrganic: "Sí",
         costPerUnit: 12.25,
         displayNameEn: "Organic Pineapple"
     })
@@ -399,7 +376,6 @@ async function buildRawMaterialImportTemplate(): Promise<Buffer> {
         code: "PUL-001",
         displayName: "Pulpa de fruta",
         ingredientType: RAW_MATERIAL_TYPE_LABELS.pulp,
-        isOrganic: "No",
         costPerUnit: 20.5,
         displayNameEn: ""
     })
@@ -411,7 +387,6 @@ async function buildRawMaterialImportTemplate(): Promise<Buffer> {
     helpSheet.addRow({})
     helpSheet.addRow({ type: `"${RAW_MATERIAL_IMPORT_COLUMNS.code.header}" es un texto libre (letras, números y símbolos) que tú defines -- debe ser único, no puede repetirse entre materias primas ni dentro del mismo archivo.` })
     helpSheet.addRow({ type: `"${RAW_MATERIAL_IMPORT_COLUMNS.costPerUnit.header}" siempre es el costo POR LIBRA -- la unidad de costeo ya no se elige, todas las materias primas se costean en libras.` })
-    helpSheet.addRow({ type: `"${RAW_MATERIAL_IMPORT_COLUMNS.isOrganic.header}" acepta Sí/No; vacío toma el valor por defecto No.` })
 
     return writeWorkbookToBuffer(workbook)
 }

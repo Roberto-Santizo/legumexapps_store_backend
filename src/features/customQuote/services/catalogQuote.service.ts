@@ -36,7 +36,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
     const pool = availableRawMaterials(context.products, subCategory.id)
     const selected = input.rawMaterialMix.map(line => {
         const raw = pool.find(row => row.id === line.rawMaterialId)
-        if (!raw || raw.ingredientType !== input.ingredientType || raw.isOrganic !== input.isOrganic) return failure("composition_invalid")
+        if (!raw || raw.ingredientType !== input.ingredientType) return failure("composition_invalid")
         return raw
     })
     if (new Set(input.rawMaterialMix.map(line => line.rawMaterialId)).size !== input.rawMaterialMix.length) return failure("composition_invalid")
@@ -87,7 +87,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
         ], quantity: { requestedPallets: input.requestedPallets, totalUnits, totalBoxes: input.requestedPallets * variant.boxesPerPallet, totalWeightGrams: toDecimal(weight).times(totalUnits).toString() },
         costs: { currency: "USD", calculationPolicyVersion: "shared-v1", ...subtotals, percentageCostTotal, processingCosts, percentageCosts, totalCost } }
     // Capture all offered packaging dependencies, not only the selected alternative.
-    const version = digest({ snapshot, configuration: configurationIdentity(variant, subCategory.id), rawDependencies: selected.map(raw => ({ id: raw.id, cost: decimalString(raw.costPerUnit), organic: raw.isOrganic, type: raw.ingredientType, factor: decimalString(raw.costUnit.baseFactor) })) })
+    const version = digest({ snapshot, configuration: configurationIdentity(variant, subCategory.id), rawDependencies: selected.map(raw => ({ id: raw.id, cost: decimalString(raw.costPerUnit), type: raw.ingredientType, factor: decimalString(raw.costUnit.baseFactor) })) })
     const configuration = { subCategoryId: subCategory.id, presentationId: variant.presentationId, isOrganic: input.isOrganic, requestedPallets: input.requestedPallets, destinationId: null,
         rawMaterialMix: input.rawMaterialMix, ingredients: [], pallet: { boxesPerPallet: variant.boxesPerPallet, bagsPerBox: variant.bagsPerBox, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null },
         packaging: {

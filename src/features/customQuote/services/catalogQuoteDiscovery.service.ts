@@ -72,7 +72,7 @@ export function configurationOption(variant: ProductVariant) {
 
 export async function discoverCatalog(language: ContentLanguage) {
     const { subCategories, products, variants } = await loadCatalogContext()
-    const categories = new Map<number, { id: number; displayName: string; subCategories: { id: number; displayName: string; rawMaterials: { rawMaterialId: number; displayName: string; ingredientType: string; isOrganic: boolean }[]; configurations: ReturnType<typeof configurationOption>[] }[] }>()
+    const categories = new Map<number, { id: number; displayName: string; subCategories: { id: number; displayName: string; rawMaterials: { rawMaterialId: number; displayName: string; ingredientType: string }[]; configurations: ReturnType<typeof configurationOption>[] }[] }>()
     for (const subCategory of subCategories) {
         const rawMaterials = availableRawMaterials(products, subCategory.id)
         const unique = new Map<string, ReturnType<typeof configurationOption>>()
@@ -84,7 +84,7 @@ export async function discoverCatalog(language: ContentLanguage) {
         const parent = subCategory.parentCategory
         const category: NonNullable<ReturnType<typeof categories.get>> = categories.get(parent.id) ?? { id: parent.id, displayName: pickTranslatedName(parent.displayName, parent.translations, language), subCategories: [] }
         category.subCategories.push({ id: subCategory.id, displayName: pickTranslatedName(subCategory.displayName, subCategory.translations, language),
-            rawMaterials: rawMaterials.map(raw => ({ rawMaterialId: raw.id, displayName: pickTranslatedName(raw.displayName, raw.translations, language), ingredientType: raw.ingredientType, isOrganic: raw.isOrganic })),
+            rawMaterials: rawMaterials.map(raw => ({ rawMaterialId: raw.id, displayName: pickTranslatedName(raw.displayName, raw.translations, language), ingredientType: raw.ingredientType })),
             configurations: [...unique.values()] })
         categories.set(parent.id, category)
     }

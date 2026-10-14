@@ -164,9 +164,9 @@ describe("receta", () => {
         expect(result.breakdown.rawMaterials).toHaveLength(1)
     })
 
-    it("orgánico: una convencional se rechaza; orgánica e insumo 'other' se permiten", async () => {
+    it("orgánico solo marca la cotización: ya no filtra materias primas", async () => {
         await expect(calculate({ isOrganic: true, rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }))
-            .rejects.toMatchObject({ statusCode: 422, key: "errors.custom_quote_raw_material_not_organic_compatible", params: { rawMaterial: "Piña" } })
+            .resolves.toMatchObject({ isOrganic: true })
 
         const result = await calculate({
             isOrganic: true,

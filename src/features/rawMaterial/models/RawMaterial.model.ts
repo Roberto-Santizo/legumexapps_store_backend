@@ -39,14 +39,6 @@ class RawMaterial extends BaseCatalogModel {
     })
     declare ingredientType: string
 
-    @Column({
-        type: DataType.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
-        field: "isOrganicAvailable"
-    })
-    declare isOrganic: boolean
-
     // Costo por libra: la unidad la fija el servidor en cada create/update. costUnit/costUnitId se
     // conservan porque el motor los usa para convertir % -> gramos -> costo.
     @Column({

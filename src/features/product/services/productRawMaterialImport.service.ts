@@ -77,19 +77,6 @@ function resolveRawMaterialField(rawCode: ImportCellValue, rawMaterialsByNormali
     return rawMaterial
 }
 
-// Misma compatibilidad orgánica que productRawMaterial.service.ts.
-function checkOrganicCompatibility(row: ResolvedRecipeRow, ctx: RowValidation): void {
-    const { product, rawMaterial } = row
-    if (product.isOrganic && !rawMaterial.isOrganic && rawMaterial.ingredientType !== "other") {
-        ctx.rowIssues.push({
-            row: ctx.rowNumber,
-            field: "rawMaterialId",
-            key: "errors.raw_material_not_organic_compatible",
-            params: { rawMaterialId: row.rawMaterialCode }
-        })
-    }
-}
-
 function collectRowZodIssues(candidate: unknown, manuallyValidatedFields: Set<string>, rowNumber: number): RowIssue[] {
     const result = createProductRawMaterialSchema.safeParse(candidate)
     if (result.success) return []
@@ -140,8 +127,7 @@ function processRecipeImportRow(
             rawMaterialCode: String(rawMaterialCode).trim(),
             percentage,
         }
-        checkOrganicCompatibility(resolved, ctx)
-        if (ctx.rowIssues.length === 0) return resolved
+        return resolved
     }
 
     // Un producto con alguna fila inválida no pasa por la validación de grupo (suma 100): su total saldría incompleto y sumaría un error engañoso encima del real.

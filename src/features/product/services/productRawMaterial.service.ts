@@ -1,6 +1,4 @@
 import ProductRawMaterial from "../models/ProductRawMaterial.model"
-import Product from "../models/Product.model"
-import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductRawMaterialInput, UpdateProductRawMaterialInput } from "../schemas/productRawMaterial.schema"
 
@@ -16,17 +14,6 @@ async function getProductRawMaterialById(id: number): Promise<ProductRawMaterial
     const productRawMaterial = await ProductRawMaterial.findOne({ where: { id, isActive: true } })
     if (!productRawMaterial) throw new NotFoundError("ProductRawMaterial", id)
     return productRawMaterial
-}
-
-
-async function assertRawMaterialIsOrganicCompatibleIfNeeded(productId: number, rawMaterialId: number): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (!product?.isOrganic) return
-
-    const rawMaterial = await RawMaterial.findOne({ where: { id: rawMaterialId } })
-    if (!rawMaterial?.isOrganic && rawMaterial?.ingredientType !== "other") {
-        throw new AppError(422, "errors.raw_material_not_organic_compatible", { rawMaterialId })
-    }
 }
 
 // Cada fila de receta exige su % (una fila sin % "costaría" $0 sin avisar).
@@ -63,7 +50,6 @@ async function assertRecipePercentageCeiling(
 }
 
 async function createProductRawMaterial(input: CreateProductRawMaterialInput): Promise<ProductRawMaterial> {
-    await assertRawMaterialIsOrganicCompatibleIfNeeded(input.productId, input.rawMaterialId)
     assertPercentagePresent(input.percentage)
     await assertRecipePercentageCeiling(input.productId, null, input.percentage)
     return ProductRawMaterial.create(input)
@@ -72,10 +58,6 @@ async function createProductRawMaterial(input: CreateProductRawMaterialInput): P
 async function updateProductRawMaterial(id: number, input: UpdateProductRawMaterialInput): Promise<ProductRawMaterial> {
     const productRawMaterial = await getProductRawMaterialById(id)
     const effectiveProductId = input.productId ?? productRawMaterial.productId
-    if (input.rawMaterialId !== undefined) {
-        await assertRawMaterialIsOrganicCompatibleIfNeeded(effectiveProductId, input.rawMaterialId)
-    }
-
     const effectivePercentage = input.percentage !== undefined
         ? input.percentage
         : (productRawMaterial.percentage !== null && productRawMaterial.percentage !== undefined ? Number(productRawMaterial.percentage) : null)

@@ -24,10 +24,13 @@ describe("initial schema contract (offline)", () => {
                 delete attributes.displayNameEn
             }
             if (model.tableName === "rawMaterials") {
-                // Created here, dropped by 202610140001_remove_raw_material_mixability.sql.
+                // Created here, dropped by 202610140003_remove_raw_material_organic.sql and
+                // 202610140001_remove_raw_material_mixability.sql respectively.
                 const entries = Object.entries(attributes)
-                const after = entries.findIndex(([name]) => name === "isOrganic") + 1
-                entries.splice(after, 0, ["isMixable", { type: DataType.BOOLEAN, allowNull: false, defaultValue: true, field: "isMixable" } as any])
+                const after = entries.findIndex(([name]) => name === "ingredientType") + 1
+                entries.splice(after, 0,
+                    ["isOrganic", { type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "isOrganicAvailable" } as any],
+                    ["isMixable", { type: DataType.BOOLEAN, allowNull: false, defaultValue: true, field: "isMixable" } as any])
                 attributes = Object.fromEntries(entries)
             }
             // Created here, dropped by 202610140002_remove_product_recipe_type.sql.
@@ -81,13 +84,14 @@ describe("initial schema contract (offline)", () => {
 describe("incremental migration chain (offline)", () => {
     const directory = path.resolve(__dirname, "../../migrations")
 
-    test("keeps the applied history and appends only the isMixable and recipe-type removals", () => {
+    test("keeps the applied history and appends only the isMixable, recipe-type and organic-variant removals", () => {
         expect(fs.readdirSync(directory).filter(name => name.endsWith(".sql")).sort()).toEqual([
             "202610110001_initial_schema.sql",
             "202610120001_representative_clients.sql",
             "202610120002_packaging_classification.sql",
             "202610140001_remove_raw_material_mixability.sql",
             "202610140002_remove_product_recipe_type.sql",
+            "202610140003_remove_raw_material_organic.sql",
         ])
     })
 
@@ -107,5 +111,13 @@ describe("incremental migration chain (offline)", () => {
         expect(attributesOf("productRawMaterials")).not.toContain("maxPercentage")
         // The independent custom-quote allowed list keeps its own min/max range.
         expect(attributesOf("customQuoteRawMaterialOptions")).toEqual(expect.arrayContaining(["minPercentage", "maxPercentage"]))
+    })
+
+    test("the organic-variant removal drops exactly rawMaterials.isOrganicAvailable; product organic flags stay", () => {
+        const removal = fs.readFileSync(path.join(directory, "202610140003_remove_raw_material_organic.sql"), "utf8")
+        expect(normalize(removal)).toBe('ALTER TABLE public."rawMaterials" DROP COLUMN IF EXISTS "isOrganicAvailable";')
+        const attributesOf = (table: string) => Object.keys((databaseModels.find(model => (model as any).tableName === table) as any).rawAttributes)
+        expect(attributesOf("rawMaterials")).not.toContain("isOrganic")
+        expect(attributesOf("products")).toContain("isOrganic")
     })
 })

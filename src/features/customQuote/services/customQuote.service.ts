@@ -144,13 +144,11 @@ async function resolveDestination(destinationId: number | undefined): Promise<De
 }
 
 // buildCustomizableRawMaterials ya exige: mezcla no vacía, sin duplicados, solo materias primas del
-// pool, cada % dentro de su mínimo/máximo, total 100 ± 0.5 y unidad de costo por peso. Acá se suma lo
-// que en productos definidos se valida al configurar el producto: compatible con orgánico si se pidió orgánico (misma regla que productRawMaterial.service.ts:
-// variante orgánica o insumo tipo "other").
+// pool, cada % dentro de su mínimo/máximo, total 100 ± 0.5 y unidad de costo por peso. Acá se exige
+// además que cada materia prima esté en la lista permitida de la subcategoría.
 function assertRecipeIsAllowed(
     input: CustomQuoteCalculationInput,
-    rawMaterialOptions: CustomQuoteRawMaterialOption[],
-    language: ContentLanguage
+    rawMaterialOptions: CustomQuoteRawMaterialOption[]
 ): void {
     const optionByRawMaterialId = new Map(rawMaterialOptions.map(option => [option.rawMaterialId, option]))
 
@@ -158,10 +156,6 @@ function assertRecipeIsAllowed(
         const rawMaterial = optionByRawMaterialId.get(line.rawMaterialId)?.usedRawMaterial
         if (!rawMaterial) {
             throw new AppError(422, "errors.custom_quote_raw_material_not_offered", { rawMaterialId: line.rawMaterialId })
-        }
-        const rawMaterialName = pickTranslatedName(rawMaterial.displayName, rawMaterial.translations, language)
-        if (input.isOrganic && !rawMaterial.isOrganic && rawMaterial.ingredientType !== "other") {
-            throw new AppError(422, "errors.custom_quote_raw_material_not_organic_compatible", { rawMaterial: rawMaterialName })
         }
     }
 }
@@ -313,7 +307,7 @@ async function calculateCustomQuote(
     const requestedPallets = input.requestedPallets
     const totalUnits = requestedPallets * boxesPerPallet * bagsPerBox
 
-    assertRecipeIsAllowed(input, rawMaterialOptions, language)
+    assertRecipeIsAllowed(input, rawMaterialOptions)
     const rawMaterials = buildCustomizableRawMaterials(rawMaterialOptions, input.rawMaterialMix, netWeightGrams, totalUnits, language)
     const rawMaterialCost = sumMoney(rawMaterials.map(line => line.lineTotal))
 

@@ -4,7 +4,6 @@ export type RawMaterialImportField =
     | "code"
     | "displayName"
     | "ingredientType"
-    | "isOrganic"
     | "costPerUnit"
     | "displayNameEn"
 
@@ -17,7 +16,6 @@ export const RAW_MATERIAL_IMPORT_COLUMNS: Record<RawMaterialImportField, ImportC
     code: { header: "Código", aliases: ["codigo", "código", "code"] },
     displayName: { header: "Nombre", aliases: ["nombre"] },
     ingredientType: { header: "Tipo de materia prima", aliases: ["tipo de materia prima", "tipo de ingrediente", "tipo"] },
-    isOrganic: { header: "Es la variante orgánica (Sí/No)", aliases: ["es la variante organica (si/no)", "es la variante organica", "organico", "es organico"] },
     costPerUnit: { header: "Costo por libra", aliases: ["costo por libra", "costo por unidad", "costo"] },
     displayNameEn: { header: "Nombre (inglés)", aliases: ["nombre (ingles)", "nombre ingles", "nombre en ingles"] },
 }
@@ -50,7 +48,5 @@ export const RAW_MATERIAL_TYPE_LABEL_TO_KEY: Record<string, string> = {
     other: "other",
 }
 
-
-export const RAW_MATERIAL_IS_ORGANIC_DEFAULT = false
 
 export const MAX_RAW_MATERIAL_IMPORT_ROWS = 1000

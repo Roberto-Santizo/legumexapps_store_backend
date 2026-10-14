@@ -32,7 +32,7 @@ export async function getFixedProductDetails(id: number) {
             { model: ProductRawMaterial, as: "productRawMaterials", separate: true,
                 attributes: ["id", "productId", "percentage", "isActive"], order: [["displayOrder", "ASC"], ["id", "ASC"]],
                 include: [{ model: RawMaterial, as: "usedRawMaterial",
-                    attributes: ["id", "displayName", "code", "isActive", "isOrganic", "ingredientType", "costPerUnit"], include: [unitInclude] }] },
+                    attributes: ["id", "displayName", "code", "isActive", "ingredientType", "costPerUnit"], include: [unitInclude] }] },
             { model: ProductIngredient, as: "productIngredients", separate: true,
                 attributes: ["id", "productId", "grams", "referenceNetWeightGrams", "isActive"], order: [["displayOrder", "ASC"], ["id", "ASC"]],
                 include: [{ model: Ingredient, as: "usedIngredient", attributes: ["id", "displayName", "code", "isActive", "costPerUnit"], include: [unitInclude] }] },

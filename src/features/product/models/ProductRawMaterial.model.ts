@@ -27,25 +27,13 @@ class ProductRawMaterial extends BaseCatalogModel {
     })
     declare rawMaterialId: number
 
-    // Solo aplica a receta fija (!Product.isCustomizable): el admin fija este % y el cliente nunca puede
-    // alterarlo. Misma base matemática (% del peso neto) que el mix personalizable.
+    // % del peso neto fijado por el admin; el cliente nunca puede alterarlo. Las filas activas de un
+    // producto deben sumar 100 al cotizar.
     @Column({
         type: DataType.DECIMAL(5, 2),
         allowNull: true
     })
     declare percentage: number
-
-    @Column({
-        type: DataType.DECIMAL(5, 2),
-        allowNull: true
-    })
-    declare minPercentage: number
-
-    @Column({
-        type: DataType.DECIMAL(5, 2),
-        allowNull: true
-    })
-    declare maxPercentage: number
 
     @Column({
         type: DataType.INTEGER,

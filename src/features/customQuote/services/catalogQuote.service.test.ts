@@ -39,7 +39,7 @@ const key = "01234567-89ab-4cde-8abc-0123456789ab"
 function fixture() {
     const raw = (id: number) => ({ id, isActive: true, displayName: `Fruit ${id}`, isOrganic: false, ingredientType: "fruit", costPerUnit: "1", costUnitId: 1, costUnit: { id: 1, isActive: true, displayName: "Pound", unitType: "weight", baseFactor: "453.592" } })
     const materials = [raw(1), raw(2)]
-    const parent = { id: 4, isActive: true, isCustomizable: false, subCategoryId: 3, additionalCostPerUnit: 999, productIngredients: [{ grams: 99 }], productRawMaterials: materials.map(row => ({ isActive: true, rawMaterialId: row.id, minPercentage: 99, maxPercentage: 99, usedRawMaterial: row })) }
+    const parent = { id: 4, isActive: true, subCategoryId: 3, additionalCostPerUnit: 999, productIngredients: [{ grams: 99 }], productRawMaterials: materials.map(row => ({ isActive: true, rawMaterialId: row.id, usedRawMaterial: row })) }
     const packaging = (id: number, role: string) => ({ id, isActive: true, displayName: `Material ${id}`, unitCost: "0.5", packagingRole: role })
     const variant = { id: 5, isActive: true, parentProduct: parent, skuCode: "PRIVATE-SKU", presentationId: 7, boxesPerPallet: 40, bagsPerBox: 6, unitsPerIntermediatePackage: 4,
         sizePresentation: { id: 7, isActive: true, displayLabel: "500 g", netWeightGrams: "500" },
@@ -216,8 +216,7 @@ it("strict contract rejects authoritative logistics/costs and unsupported fields
     for (const extra of [{ totalCost: 1 }, { boxesPerPallet: 999 }, { ingredients: [] }, { sourceSkuCode: "x" }]) expect(catalogQuoteInputSchema.safeParse({ ...input, ...extra }).success).toBe(false)
 })
 it("accepts same-type organic/pulp composition without relying on source Product certification", async () => {
-    const { materials, parent } = fixture()
-    parent.isCustomizable = false
+    const { materials } = fixture()
     materials.forEach(raw => { raw.isOrganic = true; raw.ingredientType = "pulp" })
     const result = await calculateCatalogQuote({ ...input, isOrganic: true, ingredientType: "pulp" }, "en")
     expect(result.isOrganic).toBe(true)

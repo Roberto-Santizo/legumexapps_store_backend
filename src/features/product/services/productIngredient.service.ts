@@ -5,8 +5,7 @@ import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductIngredientInput, UpdateProductIngredientInput } from "../schemas/productIngredient.schema"
 
 // Ingredientes agregados (sal, azúcar...) -- a diferencia de productRawMaterial.service.ts NO hay
-// regla de 100% ni diferencia entre receta fija y personalizable: el admin los fija y el cliente
-// nunca los toca, en ambos tipos de producto. Opcionales: un producto sin filas cotiza $0 acá.
+// regla de 100%: el admin los fija y el cliente nunca los toca. Opcionales: un producto sin filas cotiza $0 acá.
 
 async function listProductIngredients(): Promise<ProductIngredient[]> {
     return ProductIngredient.findAll({ where: { isActive: true }, order: [["displayOrder", "DESC"]] })

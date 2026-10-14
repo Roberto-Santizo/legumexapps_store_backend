@@ -4,9 +4,9 @@ import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductRawMaterialInput, UpdateProductRawMaterialInput } from "../schemas/productRawMaterial.schema"
 
-// Misma tolerancia que el mix (±0.5). Este guard es un techo "blando" de escritura; la validación
+// Tolerancia ±0.5. Este guard es un techo "blando" de escritura; la validación
 // de que la receta sume exactamente 100 vive en el cálculo de la cotización.
-const FIXED_RECIPE_PERCENTAGE_TOLERANCE = 0.5
+const RECIPE_PERCENTAGE_TOLERANCE = 0.5
 
 async function listProductRawMaterials(): Promise<ProductRawMaterial[]> {
     return ProductRawMaterial.findAll({ where: { isActive: true }, order: [["displayOrder", "DESC"]] })
@@ -19,16 +19,6 @@ async function getProductRawMaterialById(id: number): Promise<ProductRawMaterial
 }
 
 
-
-
-async function assertRawMaterialExistsIfNeeded(productId: number, rawMaterialId: number): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (!product?.isCustomizable) return
-    // Keep the original entity-existence guard; an ingredient ID cannot replace a raw-material ID.
-    const rawMaterial = await RawMaterial.findOne({ where: { id: rawMaterialId } })
-    if (!rawMaterial) throw new NotFoundError("RawMaterial", rawMaterialId)
-}
-
 async function assertRawMaterialIsOrganicCompatibleIfNeeded(productId: number, rawMaterialId: number): Promise<void> {
     const product = await Product.findOne({ where: { id: productId } })
     if (!product?.isOrganic) return
@@ -39,29 +29,25 @@ async function assertRawMaterialIsOrganicCompatibleIfNeeded(productId: number, r
     }
 }
 
-async function assertPercentageIfFixedRecipe(productId: number, percentage: number | null | undefined): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (product?.isCustomizable) return
-
+// Cada fila de receta exige su % (una fila sin % "costaría" $0 sin avisar).
+function assertPercentagePresent(percentage: number | null | undefined): void {
     if (percentage === null || percentage === undefined || percentage <= 0) {
         throw new AppError(422, "errors.product_raw_material_percentage_required")
     }
 }
 
 // Techo "blando" a nivel de escritura (ver comentario junto a la constante, arriba): permite
-// guardar una receta fija incompleta (< 100%) mientras el admin la arma fila por fila -- el
+// guardar una receta incompleta (< 100%) mientras el admin la arma fila por fila -- el
 // backend nunca puede saber si la fila que se está guardando es la última del producto o no --
 // pero nunca deja que la suma de las filas activas SUPERE 100 (+ tolerancia). La validación
 // autoritativa de "debe sumar EXACTAMENTE 100" vive en quoteService.buildFixedPercentageRawMaterials,
 // al momento de cotizar (ahí sí se sabe que la receta ya debería estar completa).
-async function assertFixedRecipePercentageCeiling(
+async function assertRecipePercentageCeiling(
     productId: number,
     excludeRawMaterialRowId: number | null,
     percentage: number | null | undefined
 ): Promise<void> {
-    const product = await Product.findOne({ where: { id: productId } })
-    if (product?.isCustomizable) return
-    if (percentage === null || percentage === undefined) return // assertPercentageIfFixedRecipe ya lo rechaza
+    if (percentage === null || percentage === undefined) return // assertPercentagePresent ya lo rechaza
 
     const siblings = await ProductRawMaterial.findAll({ where: { productId, isActive: true } })
     const othersTotal = siblings
@@ -69,7 +55,7 @@ async function assertFixedRecipePercentageCeiling(
         .reduce((sum, sibling) => sum + Number(sibling.percentage ?? 0), 0)
 
     const projectedTotal = othersTotal + Number(percentage)
-    if (projectedTotal - 100 > FIXED_RECIPE_PERCENTAGE_TOLERANCE) {
+    if (projectedTotal - 100 > RECIPE_PERCENTAGE_TOLERANCE) {
         throw new AppError(422, "errors.product_raw_material_percentage_ceiling_exceeded", {
             projectedTotal: Math.round(projectedTotal * 100) / 100
         })
@@ -77,10 +63,9 @@ async function assertFixedRecipePercentageCeiling(
 }
 
 async function createProductRawMaterial(input: CreateProductRawMaterialInput): Promise<ProductRawMaterial> {
-    await assertRawMaterialExistsIfNeeded(input.productId, input.rawMaterialId)
     await assertRawMaterialIsOrganicCompatibleIfNeeded(input.productId, input.rawMaterialId)
-    await assertPercentageIfFixedRecipe(input.productId, input.percentage)
-    await assertFixedRecipePercentageCeiling(input.productId, null, input.percentage)
+    assertPercentagePresent(input.percentage)
+    await assertRecipePercentageCeiling(input.productId, null, input.percentage)
     return ProductRawMaterial.create(input)
 }
 
@@ -88,15 +73,14 @@ async function updateProductRawMaterial(id: number, input: UpdateProductRawMater
     const productRawMaterial = await getProductRawMaterialById(id)
     const effectiveProductId = input.productId ?? productRawMaterial.productId
     if (input.rawMaterialId !== undefined) {
-        await assertRawMaterialExistsIfNeeded(effectiveProductId, input.rawMaterialId)
         await assertRawMaterialIsOrganicCompatibleIfNeeded(effectiveProductId, input.rawMaterialId)
     }
 
     const effectivePercentage = input.percentage !== undefined
         ? input.percentage
         : (productRawMaterial.percentage !== null && productRawMaterial.percentage !== undefined ? Number(productRawMaterial.percentage) : null)
-    await assertPercentageIfFixedRecipe(effectiveProductId, effectivePercentage)
-    await assertFixedRecipePercentageCeiling(effectiveProductId, productRawMaterial.id, effectivePercentage)
+    assertPercentagePresent(effectivePercentage)
+    await assertRecipePercentageCeiling(effectiveProductId, productRawMaterial.id, effectivePercentage)
     return productRawMaterial.update(input)
 }
 

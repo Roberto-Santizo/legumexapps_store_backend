@@ -12,7 +12,6 @@ export type ProductImportField =
     | "displayName"
     | "displayNameEn"
     | "isOrganic"
-    | "recipeType"
     | "additionalCostPerUnit"
 
 interface ImportColumnDef {
@@ -34,7 +33,6 @@ export const PRODUCT_IMPORT_COLUMNS: Record<ProductImportField, ImportColumnDef>
     displayName: { header: "Nombre del producto", aliases: ["nombre del producto", "nombre", "product name"] },
     displayNameEn: { header: "Nombre del producto (inglés)", aliases: ["nombre del producto (ingles)", "nombre (ingles)", "product name (english)"] },
     isOrganic: { header: "Orgánico", aliases: ["organico", "organic"] },
-    recipeType: { header: "Tipo de receta", aliases: ["tipo de receta", "receta", "recipe type"] },
     additionalCostPerUnit: { header: "Costo adicional por unidad", aliases: ["costo adicional por unidad", "costo adicional", "additional cost per unit"] },
 }
 
@@ -47,11 +45,6 @@ export const REQUIRED_PRODUCT_IMPORT_FIELDS: ProductImportField[] = [
     "subCategory",
     "client",
     "displayName",
-    "recipeType",
 ]
-
-// "Tipo de receta" -> isCustomizable. Tokens ya normalizados (normalizeImportText).
-export const FIXED_RECIPE_TOKENS = ["fija", "receta fija", "fixed", "fijo"]
-export const CUSTOMIZABLE_RECIPE_TOKENS = ["personalizable", "customizable", "mezcla", "mix", "receta personalizable"]
 
 export const MAX_PRODUCT_IMPORT_ROWS = 5000

@@ -91,7 +91,6 @@ function baseRow(overrides: Partial<SheetRow> = {}): SheetRow {
         "Subcategoría": "Jugos",
         "Cliente": "Walmart",
         "Nombre del producto": "Jugo de piña",
-        "Tipo de receta": "Fija",
         ...overrides,
     }
 }
@@ -132,18 +131,17 @@ describe("productImportService.bulkImportProducts", () => {
         expect(mockTransaction).toHaveBeenCalledTimes(1)
         expect(mockProductCreate).toHaveBeenCalledWith(
             expect.objectContaining({
-                
                 subCategoryId: JUGOS.id,
                 clientId: WALMART.id,
                 displayName: "Jugo de piña",
                 isOrganic: true,
-                isCustomizable: false,
                 additionalCostPerUnit: 0.05,
                 urlSlug: "jugo-de-pina",
                 imageUrl: null,
             }),
             { transaction: { __fakeTransaction: true } }
         )
+        expect(mockProductCreate.mock.calls[0][0]).not.toHaveProperty("isCustomizable")
         expect(mockTranslationCreate).toHaveBeenCalledWith(
             { productId: 100, language: "en", displayName: "Pineapple juice" },
             { transaction: { __fakeTransaction: true } }
@@ -157,32 +155,6 @@ describe("productImportService.bulkImportProducts", () => {
 
         expect(mockProductCreate).toHaveBeenCalledWith(expect.objectContaining({ isOrganic: false }), expect.anything())
         expect(mockTranslationCreate).not.toHaveBeenCalled()
-    })
-
-    it.each([
-        ["Personalizable", true],
-        ["mezcla", true],
-        ["customizable", true],
-        ["FIJA", false],
-        ["fixed", false],
-    ])("Tipo de receta \"%s\" -> isCustomizable=%s", async (value, expected) => {
-        const buffer = await buildWorkbookBuffer([baseRow({ "Tipo de receta": value })])
-
-        await productImportService.bulkImportProducts(buffer)
-
-        expect(mockProductCreate).toHaveBeenCalledWith(expect.objectContaining({ isCustomizable: expected }), expect.anything())
-    })
-
-    it("rechaza un Tipo de receta no reconocido o vacío", async () => {
-        const buffer = await buildWorkbookBuffer([
-            baseRow({ "SKU / Número de artículo": "A", "Tipo de receta": "Mixta" }),
-            baseRow({ "SKU / Número de artículo": "B", "Tipo de receta": undefined }),
-        ])
-
-        await expectRowIssues(buffer, [
-            { row: 2, field: "recipeType", key: "errors.bulk_import_invalid_recipe_type" },
-            { row: 3, field: "recipeType", key: "errors.bulk_import_recipe_type_required" },
-        ])
     })
 
     it("rechaza un valor de Orgánico que no es Sí/No", async () => {
@@ -323,7 +295,6 @@ describe("productImportService.bulkImportProducts", () => {
         ["Nombre del producto", "Otro nombre", "displayName"],
         ["Nombre del producto (inglés)", "Different", "translations"],
         ["Orgánico", "Sí", "isOrganic"],
-        ["Tipo de receta", "Personalizable", "isCustomizable"],
         ["Costo adicional por unidad", 1, "additionalCostPerUnit"],
         ["Subcategoría", "Congelados", "subCategoryId"],
         ["Cliente", "Costco", "clientId"],
@@ -368,7 +339,7 @@ describe("productImportService.bulkImportProducts", () => {
     })
 
     it("acepta un archivo sin las columnas opcionales (Categoría, inglés, Orgánico, Costo adicional)", async () => {
-        const headers = ["Grupo de producto", "SKU / Número de artículo", "Presentación", "Cajas por palet", "Bolsas por caja", "Subcategoría", "Cliente", "Nombre del producto", "Tipo de receta"]
+        const headers = ["Grupo de producto", "SKU / Número de artículo", "Presentación", "Cajas por palet", "Bolsas por caja", "Subcategoría", "Cliente", "Nombre del producto"]
         const buffer = await buildWorkbookBuffer([baseRow()], headers)
 
         const result = await productImportService.bulkImportProducts(buffer)

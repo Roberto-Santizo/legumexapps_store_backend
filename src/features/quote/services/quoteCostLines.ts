@@ -207,8 +207,8 @@ export function buildPercentageRawMaterialLine(
 }
 
 // Una entrada del pool de materias primas que el cliente puede mezclar. Tipo ESTRUCTURAL (no
-// ProductRawMaterial) para que cualquier lista de permitidos con esta forma sirva de pool --
-// ProductRawMaterial la cumple tal cual. min/max ausentes = 0 / 100.
+// un modelo concreto) para que cualquier lista de permitidos con esta forma sirva de pool (hoy la
+// de las cotizaciones a la medida). min/max ausentes = 0 / 100.
 export interface RawMaterialPoolEntry {
     rawMaterialId: number
     minPercentage?: number | string | null

@@ -23,53 +23,10 @@ const mockFindAll = ProductRawMaterial.findAll as unknown as jest.Mock
 
 describe("productRawMaterialService.createProductRawMaterial", () => {
     beforeEach(() => {
-        mockFindAll.mockResolvedValue([]) // sin filas hermanas por defecto (ver assertFixedRecipePercentageCeiling)
+        mockFindAll.mockResolvedValue([]) // sin filas hermanas por defecto (ver assertRecipePercentageCeiling)
     })
 
-    describe("producto customizable (isCustomizable=true)", () => {
-        beforeEach(() => {
-            mockProductFindOne.mockResolvedValue({ isCustomizable: true })
-        })
-
-        it.each([false, true, undefined])("accepts a raw material independently of historical isMixable=%s", async historical => {
-            mockRawMaterialFindOne.mockResolvedValue({ isMixable: historical })
-            mockCreate.mockResolvedValue({ id: 1 })
-            await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, minPercentage: 0, maxPercentage: 100 } as never)
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ productId: 1, rawMaterialId: 9 }))
-        })
-
-        it("acepta una materia prima del pool sin restriccion legacy", async () => {
-            mockRawMaterialFindOne.mockResolvedValue({ })
-            mockCreate.mockResolvedValue({ id: 1 })
-
-            await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, minPercentage: 0, maxPercentage: 100 } as never)
-
-            expect(mockCreate).toHaveBeenCalledTimes(1)
-        })
-
-        it("rejects a missing raw material, including an ingredient-only ID", async () => {
-            mockRawMaterialFindOne.mockResolvedValue(null)
-            await expect(productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 888 } as never))
-                .rejects.toMatchObject({ statusCode: 404 })
-            expect(mockRawMaterialFindOne).toHaveBeenCalledWith({ where: { id: 888 } })
-            expect(mockCreate).not.toHaveBeenCalled()
-        })
-
-        it("NO exige percentage en un producto customizable (usa min/maxPercentage en su lugar)", async () => {
-            mockRawMaterialFindOne.mockResolvedValue({ })
-            mockCreate.mockResolvedValue({ id: 1 })
-
-            await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: undefined } as never)
-
-            expect(mockCreate).toHaveBeenCalledTimes(1)
-        })
-    })
-
-    describe("producto de receta fija (isCustomizable=false)", () => {
-        beforeEach(() => {
-            mockProductFindOne.mockResolvedValue({ isCustomizable: false })
-        })
-
+    describe("porcentaje obligatorio en cada fila de la receta", () => {
         it("rechaza percentage vacío (bug histórico: la línea 'cuesta' $0 en cada cotización sin avisar)", async () => {
             await expect(
                 productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: null } as never)
@@ -88,7 +45,7 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
             ).rejects.toMatchObject({ key: "errors.product_raw_material_percentage_required" })
         })
 
-        it("acepta percentage positivo en recetas fijas", async () => {
+        it("acepta percentage positivo", async () => {
             mockCreate.mockResolvedValue({ id: 1 })
 
             await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
@@ -98,12 +55,8 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
         })
     })
 
-    describe("techo blando de 100% en receta fija (assertFixedRecipePercentageCeiling)", () => {
-        beforeEach(() => {
-            mockProductFindOne.mockResolvedValue({ isCustomizable: false })
-        })
-
-        it("permite guardar una receta fija incompleta (< 100%) mientras se arma fila por fila", async () => {
+    describe("techo blando de 100% (assertRecipePercentageCeiling)", () => {
+        it("permite guardar una receta incompleta (< 100%) mientras se arma fila por fila", async () => {
             mockFindAll.mockResolvedValue([{ id: 1, percentage: 40 }]) // ya hay una fila activa al 40%
             mockCreate.mockResolvedValue({ id: 2 })
 
@@ -143,7 +96,7 @@ describe("productRawMaterialService.createProductRawMaterial", () => {
 
 describe("productRawMaterialService.createProductRawMaterial -- producto orgánico (Product.isOrganic)", () => {
     beforeEach(() => {
-        mockProductFindOne.mockResolvedValue({ isOrganic: true, isCustomizable: false })
+        mockProductFindOne.mockResolvedValue({ isOrganic: true })
         mockFindAll.mockResolvedValue([])
     })
 
@@ -175,7 +128,7 @@ describe("productRawMaterialService.createProductRawMaterial -- producto orgáni
     })
 
     it("no exige nada de esto si el producto NO es orgánico", async () => {
-        mockProductFindOne.mockResolvedValue({ isOrganic: false, isCustomizable: false })
+        mockProductFindOne.mockResolvedValue({ isOrganic: false })
         mockCreate.mockResolvedValue({ id: 1 })
 
         await productRawMaterialService.createProductRawMaterial({ productId: 1, rawMaterialId: 9, percentage: 50 } as never)
@@ -190,7 +143,7 @@ describe("productRawMaterialService.updateProductRawMaterial", () => {
         mockFindAll.mockResolvedValue([])
     })
 
-    it("re-valida percentage contra el producto EFECTIVO (el nuevo productId del input, no el viejo) al editar", async () => {
+    it("rechaza vaciar percentage al editar", async () => {
         const existing = {
             id: 5,
             productId: 1,
@@ -199,13 +152,27 @@ describe("productRawMaterialService.updateProductRawMaterial", () => {
             update: jest.fn().mockResolvedValue({ id: 5 }),
         }
         ;(ProductRawMaterial.findOne as unknown as jest.Mock).mockResolvedValue(existing)
-        // Se está moviendo esta fila a productId=2, que resulta ser un producto de receta fija.
-        mockProductFindOne.mockResolvedValue({ isCustomizable: false })
 
         await expect(
-            productRawMaterialService.updateProductRawMaterial(5, { productId: 2, percentage: null } as never)
+            productRawMaterialService.updateProductRawMaterial(5, { percentage: null } as never)
         ).rejects.toMatchObject({ key: "errors.product_raw_material_percentage_required" })
-        expect(mockProductFindOne).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 2 } }))
+        expect(existing.update).not.toHaveBeenCalled()
+    })
+
+    it("calcula el techo de 100% contra el producto EFECTIVO (el nuevo productId del input, no el viejo)", async () => {
+        const existing = {
+            id: 5,
+            productId: 1,
+            rawMaterialId: 9,
+            percentage: 50,
+            update: jest.fn().mockResolvedValue({ id: 5 }),
+        }
+        ;(ProductRawMaterial.findOne as unknown as jest.Mock).mockResolvedValue(existing)
+
+        await productRawMaterialService.updateProductRawMaterial(5, { productId: 2, percentage: 60 } as never)
+
+        expect(mockFindAll).toHaveBeenCalledWith({ where: { productId: 2, isActive: true } })
+        expect(existing.update).toHaveBeenCalledTimes(1)
     })
 
     it("si el input no manda percentage, revalida con el valor ya guardado (no lo trata como vacío)", async () => {
@@ -217,7 +184,6 @@ describe("productRawMaterialService.updateProductRawMaterial", () => {
             update: jest.fn().mockResolvedValue({ id: 5 }),
         }
         ;(ProductRawMaterial.findOne as unknown as jest.Mock).mockResolvedValue(existing)
-        mockProductFindOne.mockResolvedValue({ isCustomizable: false })
 
         await productRawMaterialService.updateProductRawMaterial(5, { displayOrder: 3 } as never)
 
@@ -233,7 +199,6 @@ describe("productRawMaterialService.updateProductRawMaterial", () => {
             update: jest.fn().mockResolvedValue({ id: 5 }),
         }
         ;(ProductRawMaterial.findOne as unknown as jest.Mock).mockResolvedValue(existing)
-        mockProductFindOne.mockResolvedValue({ isCustomizable: false })
         // Solo la propia fila (id 5) está activa -- si se contara a sí misma además del nuevo
         // valor, 50 (vieja, sin excluir) + 60 (nueva) superaría 100 y esto rechazaría por error.
         mockFindAll.mockResolvedValue([{ id: 5, percentage: 50 }])
@@ -252,7 +217,6 @@ describe("productRawMaterialService.updateProductRawMaterial", () => {
             update: jest.fn().mockResolvedValue({ id: 5 }),
         }
         ;(ProductRawMaterial.findOne as unknown as jest.Mock).mockResolvedValue(existing)
-        mockProductFindOne.mockResolvedValue({ isCustomizable: false })
         mockFindAll.mockResolvedValue([
             { id: 5, percentage: 50 }, // la propia fila, se excluye
             { id: 6, percentage: 60 } // otra fila hermana activa

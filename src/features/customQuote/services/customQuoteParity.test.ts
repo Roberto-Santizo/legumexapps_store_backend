@@ -88,12 +88,13 @@ function definedVariant(scenario: Scenario) {
             id: 5,
             displayName: "Mezcla tropical",
             translations: [],
-            isCustomizable: true,
             additionalCostPerUnit: null,
-            productRawMaterials: [
-                { rawMaterialId: 1, minPercentage: null, maxPercentage: null, usedRawMaterial: pineapple },
-                { rawMaterialId: 2, minPercentage: null, maxPercentage: null, usedRawMaterial: mango },
-            ],
+            // Receta del SKU = la misma mezcla que arma la cotización a la medida.
+            productRawMaterials: scenario.rawMaterialMix.map(line => ({
+                rawMaterialId: line.rawMaterialId,
+                percentage: String(line.percentage),
+                usedRawMaterial: line.rawMaterialId === 1 ? pineapple : mango,
+            })),
             productIngredients: scenario.saltGramsPerUnit === null
                 ? []
                 : [{ id: 1, ingredientId: 30, grams: String(scenario.saltGramsPerUnit), referenceNetWeightGrams: "500.00", usedIngredient: salt }],
@@ -198,7 +199,6 @@ describe("paridad: cotización a la medida == calculateQuote del SKU equivalente
                 productVariantId: 50,
                 requestedPallets: scenario.requestedPallets,
                 destinationId: scenario.destinationId,
-                rawMaterialMix: scenario.rawMaterialMix,
                 selectedUnitMaterialIds: scenario.selectedUnitIds,
                 selectedPalletMaterialIds: scenario.selectedPalletIds,
             },
@@ -247,7 +247,7 @@ describe("paridad: cotización a la medida == calculateQuote del SKU equivalente
         allowedLists(scenario)
 
         const definedDefaults = await quoteService.calculateQuote({
-            productVariantId: 50, requestedPallets: 3, rawMaterialMix: scenario.rawMaterialMix
+            productVariantId: 50, requestedPallets: 3
         })
         const customDefaults = await customQuoteService.calculateCustomQuote({
             subCategoryId: 3, presentationId: 7, rawMaterialMix: scenario.rawMaterialMix,

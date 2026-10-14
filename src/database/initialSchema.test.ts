@@ -30,6 +30,21 @@ describe("initial schema contract (offline)", () => {
                 entries.splice(after, 0, ["isMixable", { type: DataType.BOOLEAN, allowNull: false, defaultValue: true, field: "isMixable" } as any])
                 attributes = Object.fromEntries(entries)
             }
+            // Created here, dropped by 202610140002_remove_product_recipe_type.sql.
+            if (model.tableName === "products") {
+                const entries = Object.entries(attributes)
+                const after = entries.findIndex(([name]) => name === "isOrganic") + 1
+                entries.splice(after, 0, ["isCustomizable", { type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "isCustomizable" } as any])
+                attributes = Object.fromEntries(entries)
+            }
+            if (model.tableName === "productRawMaterials") {
+                const entries = Object.entries(attributes)
+                const after = entries.findIndex(([name]) => name === "percentage") + 1
+                entries.splice(after, 0,
+                    ["minPercentage", { type: DataType.DECIMAL(5, 2), allowNull: true, field: "minPercentage" } as any],
+                    ["maxPercentage", { type: DataType.DECIMAL(5, 2), allowNull: true, field: "maxPercentage" } as any])
+                attributes = Object.fromEntries(entries)
+            }
             const expected = generator.createTableQuery(model.tableName,
                 generator.attributesToSQL(attributes, { table: model.tableName }), model.options)
                 .replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
@@ -66,12 +81,13 @@ describe("initial schema contract (offline)", () => {
 describe("incremental migration chain (offline)", () => {
     const directory = path.resolve(__dirname, "../../migrations")
 
-    test("keeps the applied history and appends the isMixable removal as the only new step", () => {
+    test("keeps the applied history and appends only the isMixable and recipe-type removals", () => {
         expect(fs.readdirSync(directory).filter(name => name.endsWith(".sql")).sort()).toEqual([
             "202610110001_initial_schema.sql",
             "202610120001_representative_clients.sql",
             "202610120002_packaging_classification.sql",
             "202610140001_remove_raw_material_mixability.sql",
+            "202610140002_remove_product_recipe_type.sql",
         ])
     })
 
@@ -79,5 +95,17 @@ describe("incremental migration chain (offline)", () => {
         const removal = fs.readFileSync(path.join(directory, "202610140001_remove_raw_material_mixability.sql"), "utf8")
         expect(normalize(removal)).toBe('ALTER TABLE public."rawMaterials" DROP COLUMN IF EXISTS "isMixable";')
         expect(Object.keys((databaseModels.find(model => (model as any).tableName === "rawMaterials") as any).rawAttributes)).not.toContain("isMixable")
+    })
+
+    test("the recipe-type removal drops exactly isCustomizable and the product min/max percentages", () => {
+        const removal = fs.readFileSync(path.join(directory, "202610140002_remove_product_recipe_type.sql"), "utf8")
+        expect(normalize(removal)).toBe('ALTER TABLE public."products" DROP COLUMN IF EXISTS "isCustomizable"; '
+            + 'ALTER TABLE public."productRawMaterials" DROP COLUMN IF EXISTS "minPercentage", DROP COLUMN IF EXISTS "maxPercentage";')
+        const attributesOf = (table: string) => Object.keys((databaseModels.find(model => (model as any).tableName === table) as any).rawAttributes)
+        expect(attributesOf("products")).not.toContain("isCustomizable")
+        expect(attributesOf("productRawMaterials")).not.toEqual(expect.arrayContaining(["minPercentage"]))
+        expect(attributesOf("productRawMaterials")).not.toContain("maxPercentage")
+        // The independent custom-quote allowed list keeps its own min/max range.
+        expect(attributesOf("customQuoteRawMaterialOptions")).toEqual(expect.arrayContaining(["minPercentage", "maxPercentage"]))
     })
 })

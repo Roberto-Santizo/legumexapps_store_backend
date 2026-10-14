@@ -38,19 +38,27 @@ async function refusedBeforeConnecting(s) {
  assert.equal(s.calls.create, 0); assert.deepEqual(s.calls.queries, [])
 }
 
-test('production applies only the pending isMixable migration without an approval token, then syncs reference data', async () => {
+const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql']
+
+test('production applies only the pending incremental migrations without an approval token, then syncs reference data', async () => {
  const plan = await readPlan(), s = setup({ history: await recorded(DEPLOY_REQUIRED_HISTORY) })
  const applied = await deploy(s.env, s.deps)
- assert.deepEqual(applied, ['202610140001_remove_raw_material_mixability.sql'])
- const removal = plan.find(item => item.version === applied[0]).sql
- assert.equal(s.calls.queries.filter(sql => sql === removal).length, 1)
- assert.equal(s.calls.queries.filter(sql => sql === 'BEGIN').length, 1)
+ assert.deepEqual(applied, PENDING)
+ for (const version of applied) assert.equal(s.calls.queries.filter(sql => sql === plan.find(item => item.version === version).sql).length, 1)
+ assert.equal(s.calls.queries.filter(sql => sql === 'BEGIN').length, PENDING.length)
  assert.ok(s.calls.queries.some(sql => sql.startsWith('INSERT INTO schema_migrations')))
  // Reference data runs after the migration transaction committed and the lock was released.
  const order = name => s.calls.queries.findIndex(sql => sql.includes(name))
  assert.ok(order('COMMIT') < order('pg_advisory_unlock') && order('pg_advisory_unlock') < order('AFTER_MIGRATE'))
  assert.equal(s.calls.after, 1); assert.equal(s.calls.end, 1)
  assert.deepEqual(s.calls.config.ssl, { rejectUnauthorized: true })
+})
+
+test('a database that already recorded the isMixable removal applies only the recipe-type removal', async () => {
+ const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0]]) })
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[1]])
+ assert.ok(!s.calls.queries.some(sql => sql.includes('isMixable')))
+ assert.ok(s.calls.queries.some(sql => sql.includes('"isCustomizable"')))
 })
 
 test('an up-to-date database applies nothing and still syncs reference data', async () => {
@@ -115,14 +123,14 @@ test('destination controls run before connecting: registry, environment, TLS, PG
 
 test('development uses its own registered database the same way', async () => {
  const s = setup({ url: dev, environment: 'development', history: await recorded(DEPLOY_REQUIRED_HISTORY) })
- assert.deepEqual(await deploy(s.env, s.deps), ['202610140001_remove_raw_material_mixability.sql'])
+ assert.deepEqual(await deploy(s.env, s.deps), PENDING)
 })
 
 test('deploy-check is read-only: no ledger creation, no migration, no reference data', async () => {
  const s = setup({ history: await recorded(DEPLOY_REQUIRED_HISTORY) })
- assert.deepEqual(await deploy(s.env, { ...s.deps, dryRun: true }), ['202610140001_remove_raw_material_mixability.sql'])
+ assert.deepEqual(await deploy(s.env, { ...s.deps, dryRun: true }), PENDING)
  assert.equal(s.calls.queries[0], 'SET default_transaction_read_only = on')
- assert.ok(!s.calls.queries.some(sql => /CREATE TABLE|BEGIN|INSERT|isMixable/.test(sql)))
+ assert.ok(!s.calls.queries.some(sql => /CREATE TABLE|BEGIN|INSERT|isMixable|isCustomizable/.test(sql)))
  assert.equal(s.calls.after, 0)
  const empty = setup()
  await assert.rejects(deploy(empty.env, { ...empty.deps, dryRun: true }), /no migration history/)

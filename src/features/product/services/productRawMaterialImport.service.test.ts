@@ -29,7 +29,7 @@ const mockRawMaterialFindAll = RawMaterial.findAll as unknown as jest.Mock
 
 type SheetRow = Record<string, string | number | undefined>
 
-const HEADERS = ["SKU de una variante del producto", "Código Materia Prima", "Porcentaje", "% mínimo", "% máximo"]
+const HEADERS = ["SKU de una variante del producto", "Código Materia Prima", "Porcentaje"]
 
 async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
@@ -42,9 +42,9 @@ async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS
     return arrayBuffer as unknown as Buffer
 }
 
-const FIXED = { id: 1, skuCode: "JUGO-PINA", isCustomizable: false, isOrganic: false }
-const MIX = { id: 2, skuCode: "SMOOTHIE", isCustomizable: true, isOrganic: false }
-const ORGANIC_FIXED = { id: 3, skuCode: "JUGO-ORG", isCustomizable: false, isOrganic: true }
+const FIXED = { id: 1, skuCode: "JUGO-PINA", isOrganic: false }
+const SMOOTHIE = { id: 2, skuCode: "SMOOTHIE", isOrganic: false }
+const ORGANIC_FIXED = { id: 3, skuCode: "JUGO-ORG", isOrganic: true }
 
 const PINA = { id: 10, code: "MP-PINA", isOrganic: false, ingredientType: "fruit" }
 const AGUA = { id: 11, code: "MP-AGUA", isOrganic: false, ingredientType: "other" }
@@ -56,8 +56,8 @@ function fixedRow(rawMaterialCode: string, percentage: number | undefined, overr
     return { "SKU de una variante del producto": FIXED.skuCode, "Código Materia Prima": rawMaterialCode, "Porcentaje": percentage, ...overrides }
 }
 
-function mixRow(rawMaterialCode: string, overrides: Partial<SheetRow> = {}): SheetRow {
-    return { "SKU de una variante del producto": MIX.skuCode, "Código Materia Prima": rawMaterialCode, ...overrides }
+function smoothieRow(rawMaterialCode: string, percentage: number | undefined): SheetRow {
+    return { "SKU de una variante del producto": SMOOTHIE.skuCode, "Código Materia Prima": rawMaterialCode, "Porcentaje": percentage }
 }
 
 async function expectRowIssues(buffer: Buffer, expected: object[]): Promise<BulkImportError> {
@@ -73,7 +73,7 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
     beforeEach(() => {
         (ProductVariant.findAll as jest.Mock).mockImplementation(async () => (await mockProductFindAll()).map((product: { id: number; skuCode: string }) => ({ skuCode: product.skuCode, productId: product.id, parentProduct: product })))
         mockTransaction.mockClear()
-        mockProductFindAll.mockReset().mockResolvedValue([FIXED, MIX, ORGANIC_FIXED])
+        mockProductFindAll.mockReset().mockResolvedValue([FIXED, SMOOTHIE, ORGANIC_FIXED])
         mockRawMaterialFindAll.mockReset().mockResolvedValue([PINA, AGUA, FRESA, BANANO, PINA_ORG])
         mockRecipeFindAll.mockReset().mockResolvedValue([]) // ningún producto tiene receta todavía
         mockRecipeBulkCreate.mockReset().mockImplementation((rows: object[]) => Promise.resolve(rows))
@@ -104,7 +104,7 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             expect(mockRecipeBulkCreate).toHaveBeenCalledTimes(1)
             expect(mockTransaction).toHaveBeenCalledTimes(1)
         })
-        it("importa una receta que suma 100 dentro de UNA transacción, sin rangos", async () => {
+        it("importa una receta que suma 100 dentro de UNA transacción", async () => {
             const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 90), fixedRow(AGUA.code, 10)])
 
             const result = await productRawMaterialImportService.bulkImportProductRawMaterials(buffer)
@@ -113,8 +113,8 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             expect(mockTransaction).toHaveBeenCalledTimes(1)
             expect(mockRecipeBulkCreate).toHaveBeenCalledWith(
                 [
-                    { productId: FIXED.id, rawMaterialId: PINA.id, percentage: 90, minPercentage: null, maxPercentage: null },
-                    { productId: FIXED.id, rawMaterialId: AGUA.id, percentage: 10, minPercentage: null, maxPercentage: null },
+                    { productId: FIXED.id, rawMaterialId: PINA.id, percentage: 90 },
+                    { productId: FIXED.id, rawMaterialId: AGUA.id, percentage: 10 },
                 ],
                 { transaction: { __fakeTransaction: true } }
             )
@@ -144,80 +144,10 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
             expect(error.rowIssues.map(issue => issue.key)).not.toContain("errors.bulk_import_fixed_recipe_total_invalid")
         })
 
-        it("rechaza % mínimo / % máximo en una receta fija (columna equivocada para el tipo)", async () => {
-            const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 100, { "% mínimo": 10 })])
-
-            await expectRowIssues(buffer, [{ row: 2, field: "minPercentage", key: "errors.bulk_import_min_max_on_fixed_recipe" }])
-        })
-
         it("rechaza un Porcentaje fuera de rango (> 100) con el schema del formulario manual", async () => {
             const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 150)])
 
             await expectRowIssues(buffer, [{ row: 2, field: "percentage" }])
-        })
-    })
-
-    describe("receta personalizable", () => {
-        it("importa el pool con rangos opcionales y sin porcentaje fijo", async () => {
-            const buffer = await buildWorkbookBuffer([
-                mixRow(FRESA.code, { "% mínimo": 20, "% máximo": 80 }),
-                mixRow(BANANO.code),
-            ])
-
-            await productRawMaterialImportService.bulkImportProductRawMaterials(buffer)
-
-            expect(mockRecipeBulkCreate).toHaveBeenCalledWith(
-                [
-                    { productId: MIX.id, rawMaterialId: FRESA.id, percentage: null, minPercentage: 20, maxPercentage: 80 },
-                    { productId: MIX.id, rawMaterialId: BANANO.id, percentage: null, minPercentage: null, maxPercentage: null },
-                ],
-                { transaction: { __fakeTransaction: true } }
-            )
-        })
-
-        it("rechaza Porcentaje en una receta personalizable (columna equivocada para el tipo)", async () => {
-            const buffer = await buildWorkbookBuffer([mixRow(FRESA.code, { "Porcentaje": 50 })])
-
-            await expectRowIssues(buffer, [{ row: 2, field: "percentage", key: "errors.bulk_import_percentage_on_customizable_recipe" }])
-        })
-
-        it("rechaza % mínimo mayor que % máximo", async () => {
-            const buffer = await buildWorkbookBuffer([mixRow(FRESA.code, { "% mínimo": 70, "% máximo": 30 })])
-
-            await expectRowIssues(buffer, [
-                { row: 2, field: "minPercentage", key: "errors.bulk_import_min_greater_than_max", params: { min: 70, max: 30 } },
-            ])
-        })
-
-        it("imports the complete customizable pool without retired eligibility metadata", async () => {
-            const buffer = await buildWorkbookBuffer([mixRow(FRESA.code), mixRow(AGUA.code)])
-            await productRawMaterialImportService.bulkImportProductRawMaterials(buffer)
-            expect(mockRecipeBulkCreate).toHaveBeenCalledWith(expect.arrayContaining([
-                expect.objectContaining({ rawMaterialId: FRESA.id }),
-                expect.objectContaining({ rawMaterialId: AGUA.id }),
-            ]), expect.any(Object))
-        })
-
-        it("rechaza un pool cuyos mínimos suman más de 100", async () => {
-            const buffer = await buildWorkbookBuffer([
-                mixRow(FRESA.code, { "% mínimo": 60 }),
-                mixRow(BANANO.code, { "% mínimo": 50 }),
-            ])
-
-            await expectRowIssues(buffer, [
-                { row: 2, key: "errors.bulk_import_customizable_pool_cannot_reach_100", params: { productSku: MIX.skuCode, minTotal: 110, maxTotal: 200 } },
-            ])
-        })
-
-        it("rechaza un pool cuyos máximos no llegan a 100", async () => {
-            const buffer = await buildWorkbookBuffer([
-                mixRow(FRESA.code, { "% máximo": 40 }),
-                mixRow(BANANO.code, { "% máximo": 40 }),
-            ])
-
-            await expectRowIssues(buffer, [
-                { row: 2, key: "errors.bulk_import_customizable_pool_cannot_reach_100", params: { productSku: MIX.skuCode, minTotal: 0, maxTotal: 80 } },
-            ])
         })
     })
 
@@ -266,10 +196,20 @@ describe("productRawMaterialImportService.bulkImportProductRawMaterials", () => 
     it("todo-o-nada: un producto válido junto a uno inválido no crea ninguna fila", async () => {
         const buffer = await buildWorkbookBuffer([
             fixedRow(PINA.code, 100),
-            mixRow(FRESA.code, { "Porcentaje": 100 }),
+            smoothieRow(FRESA.code, 50),
+            smoothieRow(BANANO.code, 40),
         ])
 
-        await expectRowIssues(buffer, [{ row: 3, key: "errors.bulk_import_percentage_on_customizable_recipe" }])
+        await expectRowIssues(buffer, [{ row: 3, key: "errors.bulk_import_fixed_recipe_total_invalid", params: { productSku: SMOOTHIE.skuCode, total: 90 } }])
+    })
+
+    it("exige la columna Porcentaje", async () => {
+        const headers = ["SKU de una variante del producto", "Código Materia Prima"]
+        const buffer = await buildWorkbookBuffer([fixedRow(PINA.code, 100)], headers)
+
+        await expect(productRawMaterialImportService.bulkImportProductRawMaterials(buffer)).rejects.toMatchObject({
+            key: "errors.bulk_import_missing_columns",
+        })
     })
 
     it("rechaza un archivo sin las columnas obligatorias", async () => {

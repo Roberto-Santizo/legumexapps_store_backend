@@ -26,7 +26,7 @@ const BASE_INPUT = { productId: 1, ingredientId: 9, grams: 40, referenceNetWeigh
 describe("productIngredientService.createProductIngredient", () => {
     beforeEach(() => {
         jest.clearAllMocks()
-        mockProductFindOne.mockResolvedValue({ id: 1, isCustomizable: false })
+        mockProductFindOne.mockResolvedValue({ id: 1 })
         mockIngredientFindOne.mockResolvedValue({ id: 9, isActive: true })
         mockCreate.mockImplementation((input: object) => Promise.resolve({ id: 1, ...input }))
     })
@@ -37,12 +37,7 @@ describe("productIngredientService.createProductIngredient", () => {
         expect(mockCreate).toHaveBeenCalledWith(BASE_INPUT)
     })
 
-    it.each([
-        ["receta fija", false],
-        ["receta personalizable", true],
-    ])("aplica las mismas reglas en un producto de %s (no hay regla de 100%%)", async (_label, isCustomizable) => {
-        mockProductFindOne.mockResolvedValue({ id: 1, isCustomizable })
-
+    it("no aplica la regla de 100% de la receta a los ingredientes", async () => {
         await productIngredientService.createProductIngredient({ ...BASE_INPUT, grams: 2000 })
 
         expect(mockCreate).toHaveBeenCalledTimes(1)

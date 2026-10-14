@@ -15,7 +15,6 @@ export const createProductSchema = z.object({
     clientId: z.number().int().positive(),
     displayName: z.string().trim().min(1).max(120),
     isOrganic: z.boolean().optional(),
-    isCustomizable: z.boolean().optional(),
     additionalCostPerUnit: z.number().nonnegative().nullable().optional(),
     image: imageInputSchema,
     translations: z.object({ en: productTranslationInputSchema.optional() }).optional(),

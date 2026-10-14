@@ -7,10 +7,10 @@ import { buildProductExportWorkbook, ProductExportData, productExportService } f
 
 function fixture(): ProductExportData {
     return {
-        products: [{ id: 1, displayName: "=Fruit", subCategoryId: 2, clientId: 3, isActive: false, isOrganic: true, isCustomizable: true, additionalCostPerUnit: "0.0123" }],
+        products: [{ id: 1, displayName: "=Fruit", subCategoryId: 2, clientId: 3, isActive: false, isOrganic: true, additionalCostPerUnit: "0.0123" }],
         translations: [{ id: 1, productId: 1, language: "en", displayName: "Fruit mix" }],
         variants: [{ id: 10, productId: 1, skuCode: "000123", presentationId: 4, boxesPerPallet: 40, bagsPerBox: 6, unitsPerIntermediatePackage: 12, isActive: false }],
-        recipes: [{ id: 11, productId: 1, rawMaterialId: 5, percentage: null, minPercentage: "10.00", maxPercentage: "90.00", isActive: false }],
+        recipes: [{ id: 11, productId: 1, rawMaterialId: 5, percentage: "40.00", isActive: false }],
         ingredients: [{ id: 12, productId: 1, ingredientId: 6, grams: "1.234", referenceNetWeightGrams: "500", isActive: true }],
         unitMaterials: [{ id: 13, productVariantId: 10, packagingId: 7, quantityPerUnit: "2.50", optionGroupId: 9, optionGroup: "Bag", isDefault: true, isActive: true }, { id: 14, productVariantId: 10, packagingId: 8, quantityPerUnit: 1, optionGroupId: 9, isDefault: false, isActive: false }],
         intermediateMaterials: [{ id: 15, productVariantId: 10, packagingId: 7, isActive: true }],
@@ -32,16 +32,19 @@ it("exports all configurations, inactive alternatives, precise costs and text co
     expect(reopened.worksheets.map(sheet => sheet.name)).toEqual(["Productos", "Variantes", "Materias primas", "Ingredientes", "Empaques unidad", "Empaques intermedios", "Materiales pallet", "Costos globales", "Información"])
     expect(reopened.getWorksheet("Productos")!.getCell("B2").value).toBe("=Fruit")
     expect(reopened.getWorksheet("Productos")!.getCell("C2").value).toBe("Fruit mix")
-    expect(reopened.getWorksheet("Productos")!.getCell("L2").value).toBe(0.0123)
-    expect(reopened.getWorksheet("Productos")!.getCell("M2").value).toBe(false)
+    expect(reopened.getWorksheet("Productos")!.getCell("K2").value).toBe(0.0123)
+    expect(reopened.getWorksheet("Productos")!.getCell("L2").value).toBe(false)
+    expect(reopened.getWorksheet("Productos")!.getRow(1).values as string[]).not.toContain("Personalizable / Customizable")
     expect(reopened.getWorksheet("Variantes")!.getCell("D2").value).toBe("000123")
-    expect(reopened.getWorksheet("Materias primas")!.getCell("L2").value).toBe(10)
+    expect(reopened.getWorksheet("Materias primas")!.getCell("K2").value).toBe(40)
     expect(reopened.getWorksheet("Ingredientes")!.getCell("K2").value).toBe(1.234)
     expect(reopened.getWorksheet("Materias primas")!.getCell("A2").value).toBe("000123")
     expect(reopened.getWorksheet("Materias primas")!.getCell("B2").value).toBe("500 g")
     const rawSheet = reopened.getWorksheet("Materias primas")!
     const rawHeaders = rawSheet.getRow(1).values as string[]
     expect(rawHeaders).not.toContain("Mezclable / Mixable")
+    expect(rawHeaders).not.toEqual(expect.arrayContaining(["Mínimo % / Minimum %"]))
+    expect(rawHeaders).not.toContain("Máximo % / Maximum %")
     expect(rawSheet.getRow(2).getCell(rawHeaders.indexOf("Costo USD por unidad / Unit cost")).value).toBe(1.2345)
     expect(reopened.getWorksheet("Materias primas")!.getColumn(5).hidden).toBe(true)
     expect(reopened.getWorksheet("Materias primas")!.getColumn(1).hidden).toBe(false)

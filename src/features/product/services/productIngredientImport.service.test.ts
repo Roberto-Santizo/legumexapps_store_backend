@@ -42,8 +42,8 @@ async function buildWorkbookBuffer(rows: SheetRow[], headers: string[] = HEADERS
     return arrayBuffer as unknown as Buffer
 }
 
-const FIXED = { id: 1, skuCode: "MANGO-DESH", isCustomizable: false }
-const MIX = { id: 2, skuCode: "SMOOTHIE-MIX", isCustomizable: true }
+const FIXED = { id: 1, skuCode: "MANGO-DESH" }
+const SMOOTHIE = { id: 2, skuCode: "SMOOTHIE-MIX" }
 const SAL = { id: 10, code: "SAL-001" }
 const AZUCAR = { id: 11, code: "AZU-001" }
 
@@ -82,13 +82,13 @@ describe("productIngredientImportService.bulkImportProductIngredients", () => {
     beforeEach(() => {
         (ProductVariant.findAll as jest.Mock).mockImplementation(async () => (await mockProductFindAll()).map((product: { id: number; skuCode: string }) => ({ skuCode: product.skuCode, productId: product.id, parentProduct: product })))
         mockTransaction.mockClear()
-        mockProductFindAll.mockReset().mockResolvedValue([FIXED, MIX])
+        mockProductFindAll.mockReset().mockResolvedValue([FIXED, SMOOTHIE])
         mockIngredientFindAll.mockReset().mockResolvedValue([SAL, AZUCAR])
         mockRowFindAll.mockReset().mockResolvedValue([]) // ningún producto tiene ingredientes todavía
         mockRowBulkCreate.mockReset().mockImplementation((rows: object[]) => Promise.resolve(rows))
     })
 
-    it("importa filas de productos fijos y personalizables en una sola transacción, guardando gramos + referencia", async () => {
+    it("importa filas de varios productos en una sola transacción, guardando gramos + referencia", async () => {
         const buffer = await buildWorkbookBuffer([
             row("MANGO-DESH", "SAL-001", 40, 2000),
             row("mango-desh", "azu-001", 100, 2000), // códigos sin distinguir mayúsculas
@@ -186,7 +186,7 @@ describe("productIngredientImportService.bulkImportProductIngredients", () => {
 
 describe("productIngredientImportService.buildProductIngredientImportTemplate", () => {
     beforeEach(() => {
-        mockProductFindAll.mockReset().mockResolvedValue([FIXED, MIX])
+        mockProductFindAll.mockReset().mockResolvedValue([FIXED, SMOOTHIE])
         mockIngredientFindAll.mockReset().mockResolvedValue([SAL, AZUCAR])
         mockRowFindAll.mockReset().mockResolvedValue([])
         mockRowBulkCreate.mockReset().mockImplementation((rows: object[]) => Promise.resolve(rows))

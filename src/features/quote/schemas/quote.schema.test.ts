@@ -17,16 +17,16 @@ function validInput() {
 }
 
 describe("calculateQuoteSchema", () => {
-    it("acepta un input mínimo válido sin mix (producto de receta fija)", () => {
+    it("acepta un input mínimo válido", () => {
         expect(calculateQuoteSchema.safeParse(validInput()).success).toBe(true)
     })
 
-    it("acepta un input válido con mix de materias primas", () => {
-        const result = calculateQuoteSchema.safeParse({
+    it("descarta un rawMaterialMix enviado por el cliente: el producto de catálogo no acepta mezcla", () => {
+        const result = calculateQuoteSchema.parse({
             ...validInput(),
             rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 2, percentage: 50 }]
         })
-        expect(result.success).toBe(true)
+        expect(result).not.toHaveProperty("rawMaterialMix")
     })
 
     describe("requestedPallets -- mínimo 1 palet completo, nunca fracciones (decisión de negocio)", () => {
@@ -76,58 +76,5 @@ describe("calculateQuoteSchema", () => {
         it("acepta destinationId: undefined explícito", () => {
             expect(calculateQuoteSchema.safeParse({ ...validInput(), destinationId: undefined }).success).toBe(true)
         })
-    })
-
-    describe("rawMaterialMix[].percentage -- tope a 2 decimales para no inflar precisión falsa (33.333... de dividir 100/3)", () => {
-        it("rechaza un porcentaje con más de 2 decimales", () => {
-            const result = calculateQuoteSchema.safeParse({
-                ...validInput(),
-                rawMaterialMix: [{ rawMaterialId: 1, percentage: 33.333 }]
-            })
-            expect(result.success).toBe(false)
-        })
-
-        it("acepta un porcentaje con exactamente 2 decimales", () => {
-            const result = calculateQuoteSchema.safeParse({
-                ...validInput(),
-                rawMaterialMix: [{ rawMaterialId: 1, percentage: 33.33 }]
-            })
-            expect(result.success).toBe(true)
-        })
-
-        it("rechaza un porcentaje negativo", () => {
-            const result = calculateQuoteSchema.safeParse({
-                ...validInput(),
-                rawMaterialMix: [{ rawMaterialId: 1, percentage: -10 }]
-            })
-            expect(result.success).toBe(false)
-        })
-
-        it("rechaza un porcentaje por encima de 100", () => {
-            const result = calculateQuoteSchema.safeParse({
-                ...validInput(),
-                rawMaterialMix: [{ rawMaterialId: 1, percentage: 100.01 }]
-            })
-            expect(result.success).toBe(false)
-        })
-
-        it("acepta 0 y 100 como bordes válidos", () => {
-            expect(calculateQuoteSchema.safeParse({ ...validInput(), rawMaterialMix: [{ rawMaterialId: 1, percentage: 0 }] }).success).toBe(true)
-            expect(calculateQuoteSchema.safeParse({ ...validInput(), rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }).success).toBe(true)
-        })
-
-        it("rechaza rawMaterialId no positivo dentro del mix", () => {
-            const result = calculateQuoteSchema.safeParse({
-                ...validInput(),
-                rawMaterialMix: [{ rawMaterialId: 0, percentage: 100 }]
-            })
-            expect(result.success).toBe(false)
-        })
-    })
-
-    it("rawMaterialMix es opcional -- un producto de receta fija no lo manda", () => {
-        const { rawMaterialMix, ...rest } = validInput() as ReturnType<typeof validInput> & { rawMaterialMix?: unknown }
-        expect(calculateQuoteSchema.safeParse(rest).success).toBe(true)
-        expect(rawMaterialMix).toBeUndefined()
     })
 })

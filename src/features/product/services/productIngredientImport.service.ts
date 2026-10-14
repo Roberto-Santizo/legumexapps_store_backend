@@ -24,8 +24,7 @@ import {
 } from "../constants/productIngredientImport.constant"
 
 // Carga masiva de Ingredientes por producto (opcional). Una fila por (Producto, Ingrediente),
-// agrupadas por producto. Sin regla de 100% (los ingredientes van encima de la receta base) y mismas
-// reglas para receta fija y personalizable:
+// agrupadas por producto. Sin regla de 100% (los ingredientes van encima de la receta base):
 //   - producto e ingrediente existen y están activos;
 //   - Gramos ≤ Peso de referencia (mismo guard que productIngredient.service.ts);
 //   - el mismo ingrediente no se repite dentro de un producto;

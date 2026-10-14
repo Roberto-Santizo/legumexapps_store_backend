@@ -48,14 +48,6 @@ class Product extends BaseCatalogModel {
 
 
     @Column({
-        type: DataType.BOOLEAN,
-        allowNull: false,
-        defaultValue: false
-    })
-    declare isCustomizable: boolean
-
-
-    @Column({
         type: DataType.STRING(500),
         allowNull: true
     })

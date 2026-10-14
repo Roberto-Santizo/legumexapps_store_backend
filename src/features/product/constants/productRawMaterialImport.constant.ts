@@ -1,12 +1,9 @@
 
-// Carga masiva de Recetas de materias primas. Una fila por (Producto, Materia Prima). El tipo de
-// receta NUNCA se re-declara acá: sale del Product.isCustomizable ya creado.
+// Carga masiva de Recetas de materias primas. Una fila por (Producto, Materia Prima), con su %.
 export type ProductRawMaterialImportField =
     | "productSku"
     | "rawMaterialCode"
     | "percentage"
-    | "minPercentage"
-    | "maxPercentage"
 
 interface ImportColumnDef {
     header: string
@@ -18,17 +15,16 @@ export const PRODUCT_RAW_MATERIAL_IMPORT_COLUMNS: Record<ProductRawMaterialImpor
     productSku: { header: "SKU de una variante del producto", aliases: ["sku de una variante del producto", "sku", "codigo sku"] },
     rawMaterialCode: { header: "Código Materia Prima", aliases: ["codigo materia prima", "materia prima", "codigo mp"] },
     percentage: { header: "Porcentaje", aliases: ["porcentaje", "%", "percentage"] },
-    minPercentage: { header: "% mínimo", aliases: ["% minimo", "porcentaje minimo", "minimo", "min %"] },
-    maxPercentage: { header: "% máximo", aliases: ["% maximo", "porcentaje maximo", "maximo", "max %"] },
 }
 
 export const REQUIRED_PRODUCT_RAW_MATERIAL_IMPORT_FIELDS: ProductRawMaterialImportField[] = [
     "productSku",
     "rawMaterialCode",
+    "percentage",
 ]
 
 // Misma tolerancia que quoteService.MIX_PERCENTAGE_TOLERANCE y que el techo blando del admin
-// (productRawMaterial.service.ts::FIXED_RECIPE_PERCENTAGE_TOLERANCE).
+// (productRawMaterial.service.ts::RECIPE_PERCENTAGE_TOLERANCE).
 export const RECIPE_PERCENTAGE_TOLERANCE = 0.5
 
 export const MAX_PRODUCT_RAW_MATERIAL_IMPORT_ROWS = 5000

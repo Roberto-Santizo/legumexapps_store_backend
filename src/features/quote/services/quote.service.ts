@@ -45,7 +45,6 @@ import {
     UnitMaterialLine,
     assembleQuoteTotals,
     buildAdjustmentLine,
-    buildCustomizableRawMaterials,
     buildIngredientLine,
     buildIntermediateMaterialLine,
     buildPalletMaterialLine,
@@ -82,7 +81,7 @@ export interface QuoteCalculation {
     totalCost: number
     breakdown: {
         order?: QuoteOrderIdentity
-        production?: { productId: number; skuCode: string; kind: "fixed" | "customizable"; boxesPerPallet: number; bagsPerBox: number; netWeightGrams: number | null }
+        production?: { productId: number; skuCode: string; boxesPerPallet: number; bagsPerBox: number; netWeightGrams: number | null }
         rawMaterials: RawMaterialLine[]
         ingredients: IngredientLine[]
         unitMaterials: UnitMaterialLine[]
@@ -98,9 +97,8 @@ export interface QuoteCalculation {
     }
 }
 
-// Receta fija (!Product.isCustomizable): el % de cada materia prima lo fija el admin
-// (ProductRawMaterial.percentage) y el cliente nunca puede alterarlo: input.rawMaterialMix no se lee
-// acá. Si el producto no tiene ninguna materia prima activa todavía, se devuelve $0 sin exigir peso
+// Receta del producto: el % de cada materia prima lo fija el admin
+// (ProductRawMaterial.percentage) y el cliente nunca puede alterarlo. Si el producto no tiene ninguna materia prima activa todavía, se devuelve $0 sin exigir peso
 // neto ni que sume 100, para no romper variantes cuya receta aún no está cargada.
 function buildFixedPercentageRawMaterials(
     productRawMaterials: ProductRawMaterial[],
@@ -136,7 +134,7 @@ function buildFixedPercentageRawMaterials(
     // Autoritativo (a diferencia del techo "blando" de productRawMaterial.service.ts, que solo
     // evita GUARDAR una receta que ya se pase de 100 mientras se arma fila por fila): acá SÍ debe
     // sumar 100 exacto (± tolerancia) porque se está cotizando de verdad. Clave de error distinta
-    // a la del mix personalizable a propósito -- el significado para quien lo lee es otro ("este
+    // a la del mix a la medida a propósito -- el significado para quien lo lee es otro ("este
     // producto está mal configurado", no "tu mezcla no cuadra").
     if (percentageTotal.minus(100).abs().greaterThan(MIX_PERCENTAGE_TOLERANCE)) {
         throw new AppError(422, "errors.fixed_recipe_percentage_must_total_100", { percentageTotal: percentageTotal.toDecimalPlaces(2).toNumber() })
@@ -244,29 +242,18 @@ function variantNetWeightGrams(variant: ProductVariant): number {
     return Number(variant.sizePresentation?.netWeightGrams ?? 0)
 }
 
+// Los % vienen únicamente de ProductRawMaterial.percentage (fijados por el admin), ver
+// buildFixedPercentageRawMaterials.
 function buildRawMaterialLines(
     variant: ProductVariant,
-    input: CalculateQuoteInput,
     totalUnits: number,
     language: ContentLanguage
 ): RawMaterialLine[] {
-    const netWeightGrams = variantNetWeightGrams(variant)
-    // El cliente nunca puede alterar una receta fija: input.rawMaterialMix ni siquiera se lee acá
-    // en ese caso -- los % vienen únicamente de ProductRawMaterial.percentage (fijados por el
-    // admin), ver buildFixedPercentageRawMaterials.
-    return variant.parentProduct?.isCustomizable
-        ? buildCustomizableRawMaterials(
-              variant.parentProduct.productRawMaterials ?? [],
-              input.rawMaterialMix,
-              netWeightGrams,
-              totalUnits,
-              language
-          )
-        : buildFixedPercentageRawMaterials(variant.parentProduct?.productRawMaterials ?? [], netWeightGrams, totalUnits, language)
+    return buildFixedPercentageRawMaterials(variant.parentProduct?.productRawMaterials ?? [], variantNetWeightGrams(variant), totalUnits, language)
 }
 
-// Ingredientes agregados (sal, azúcar...) -- fijados por el admin, el cliente nunca los toca, mismos
-// para receta fija y personalizable (el request no trae nada para esto). Fuera del 100% de la
+// Ingredientes agregados (sal, azúcar...) -- fijados por el admin, el cliente nunca los toca, el
+// request no trae nada para esto). Fuera del 100% de la
 // receta: se costean como una porción EXTRA del peso neto (buildIngredientLine). Sin filas
 // activas -> [] sin exigir peso neto (misma tolerancia "no configurado" que la receta fija).
 function buildIngredientLines(variant: ProductVariant, totalUnits: number, language: ContentLanguage): IngredientLine[] {
@@ -315,7 +302,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     const requestedPallets = input.requestedPallets
     const totalUnits = requestedPallets * bagsPerPallet
 
-    const rawMaterials = buildRawMaterialLines(variant, input, totalUnits, language)
+    const rawMaterials = buildRawMaterialLines(variant, totalUnits, language)
     const rawMaterialCost = sumMoney(rawMaterials.map(line => line.lineTotal))
 
     const ingredients = buildIngredientLines(variant, totalUnits, language)
@@ -404,7 +391,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         adjustmentCost,
         totalCost,
         breakdown: {
-            production: { productId: variant.productId, skuCode: variant.skuCode, kind: variant.parentProduct.isCustomizable ? "customizable" : "fixed", boxesPerPallet: variant.boxesPerPallet, bagsPerBox: variant.bagsPerBox, netWeightGrams: variant.sizePresentation?.netWeightGrams == null ? null : Number(variant.sizePresentation.netWeightGrams) },
+            production: { productId: variant.productId, skuCode: variant.skuCode, boxesPerPallet: variant.boxesPerPallet, bagsPerBox: variant.bagsPerBox, netWeightGrams: variant.sizePresentation?.netWeightGrams == null ? null : Number(variant.sizePresentation.netWeightGrams) },
             rawMaterials,
             ingredients,
             unitMaterials,
@@ -474,19 +461,9 @@ interface QuotableVariant {
     palletMaterialOptionGroups: QuotableMaterialOptionGroup[]
 }
 
-interface QuotableRawMaterialOption {
-    rawMaterialId: number
-    displayName: string
-    isOrganic: boolean
-    minPercentage: number
-    maxPercentage: number
-}
-
-// Receta fija (!isCustomizable): el % lo fija el admin y el cliente nunca lo puede alterar (ver
-// buildFixedPercentageRawMaterials en este mismo archivo) -- pero SÍ debe poder VER qué está
-// cotizando (ej. "100% Piña" / "50% Banano · 50% Fresa"). Distinto de QuotableRawMaterialOption
-// (el pool editable del mix personalizable) a propósito: son conceptos diferentes, no la misma
-// forma con un campo de más.
+// El % lo fija el admin y el cliente nunca lo puede alterar (ver buildFixedPercentageRawMaterials
+// en este mismo archivo) -- pero SÍ debe poder VER qué está cotizando (ej. "100% Piña" /
+// "50% Banano · 50% Fresa").
 interface QuotableFixedRawMaterial {
     rawMaterialId: number
     displayName: string
@@ -497,7 +474,6 @@ interface QuotableProduct {
     id: number
     displayName: string
     isOrganic: boolean
-    isCustomizable: boolean
     imageUrl: string | null
     categoryId: number
     categoryName: string
@@ -505,7 +481,6 @@ interface QuotableProduct {
     subCategoryId: number
     subCategoryName: string
     subCategoryImageUrl: string | null
-    rawMaterialPool: QuotableRawMaterialOption[]
     fixedRecipe: QuotableFixedRawMaterial[]
     variants: QuotableVariant[]
 }
@@ -584,7 +559,6 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             id: plain.id,
             displayName: pickTranslatedName(plain.displayName, plain.translations, language),
             isOrganic: plain.isOrganic,
-            isCustomizable: plain.isCustomizable,
             imageUrl: plain.imageUrl ?? null,
             categoryId: category?.id ?? 0,
             categoryName: pickTranslatedName(category?.displayName ?? "", category?.translations, language),
@@ -592,30 +566,15 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             subCategoryId: plain.subCategoryId,
             subCategoryName: pickTranslatedName(plain.parentSubCategory?.displayName ?? "", plain.parentSubCategory?.translations, language),
             subCategoryImageUrl: plain.parentSubCategory?.imageUrl ?? null,
-            rawMaterialPool: plain.isCustomizable
-                ? (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
-                      rawMaterialId: productRawMaterial.rawMaterialId,
-                      displayName: pickTranslatedName(productRawMaterial.usedRawMaterial?.displayName ?? "", productRawMaterial.usedRawMaterial?.translations, language),
-                      isOrganic: productRawMaterial.usedRawMaterial?.isOrganic ?? false,
-                      minPercentage: productRawMaterial.minPercentage !== null && productRawMaterial.minPercentage !== undefined
-                          ? Number(productRawMaterial.minPercentage)
-                          : 0,
-                      maxPercentage: productRawMaterial.maxPercentage !== null && productRawMaterial.maxPercentage !== undefined
-                          ? Number(productRawMaterial.maxPercentage)
-                          : 100
-                  }))
-                : [],
-            // El cliente no puede editar una receta fija, pero sí debe ver qué está cotizando --
+            // El cliente no puede editar la receta, pero sí debe ver qué está cotizando --
             // ver comentario de QuotableFixedRawMaterial arriba.
-            fixedRecipe: plain.isCustomizable
-                ? []
-                : (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
-                      rawMaterialId: productRawMaterial.rawMaterialId,
-                      displayName: pickTranslatedName(productRawMaterial.usedRawMaterial?.displayName ?? "", productRawMaterial.usedRawMaterial?.translations, language),
-                      percentage: productRawMaterial.percentage !== null && productRawMaterial.percentage !== undefined
-                          ? Number(productRawMaterial.percentage)
-                          : 0
-                  })),
+            fixedRecipe: (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
+                rawMaterialId: productRawMaterial.rawMaterialId,
+                displayName: pickTranslatedName(productRawMaterial.usedRawMaterial?.displayName ?? "", productRawMaterial.usedRawMaterial?.translations, language),
+                percentage: productRawMaterial.percentage !== null && productRawMaterial.percentage !== undefined
+                    ? Number(productRawMaterial.percentage)
+                    : 0
+            })),
             variants: (plain.productVariants ?? []).map((variant: ProductVariant) => ({
                 id: variant.id,
                 boxesPerPallet: variant.boxesPerPallet as number,

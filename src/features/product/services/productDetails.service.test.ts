@@ -14,7 +14,7 @@ test("reads inactive fixed products without translating stored names or writing"
     const create = jest.spyOn(Product, "create")
     const update = jest.spyOn(Product, "update")
     expect(await getFixedProductDetails(1)).toBe(details)
-    expect(find).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1, isCustomizable: false } }))
+    expect(find).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 1 } }))
     expect(create).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
 })

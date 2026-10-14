@@ -23,7 +23,7 @@ const packagingAttributes = ["id", "displayName", "displayNameEn", "code", "isAc
 // across all variants, avoiding both N+1 requests and a Cartesian product of materials.
 export async function getFixedProductDetails(id: number) {
     const product = await Product.findOne({
-        where: { id, isCustomizable: false },
+        where: { id },
         attributes: ["id", "displayName", "isActive", "isOrganic", "imageUrl", "additionalCostPerUnit"],
         include: [
             { model: Client, as: "client", attributes: ["id", "name", "isActive"] },

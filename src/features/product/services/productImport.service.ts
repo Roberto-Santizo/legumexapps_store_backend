@@ -31,8 +31,6 @@ import {
     writeWorkbookToBuffer,
 } from "../../../shared/utils/excelImport.util"
 import {
-    CUSTOMIZABLE_RECIPE_TOKENS,
-    FIXED_RECIPE_TOKENS,
     MAX_PRODUCT_IMPORT_ROWS,
     PRODUCT_IMPORT_COLUMNS,
     ProductImportField,
@@ -141,25 +139,6 @@ function resolveClientField(rawClient: ImportCellValue, catalogs: NamedCatalogs,
     return matches[0].id
 }
 
-// "Tipo de receta" es obligatorio (decisión de negocio): cambia cómo se interpreta toda la receta
-// del producto, así que no se asume "Fija" por omisión.
-function resolveRecipeTypeField(rawRecipeType: ImportCellValue, ctx: RowValidation): boolean | undefined {
-    if (isBlankCell(rawRecipeType)) {
-        ctx.rowIssues.push({ row: ctx.rowNumber, field: "recipeType", key: "errors.bulk_import_recipe_type_required" })
-        return undefined
-    }
-    const normalized = normalizeImportText(rawRecipeType)
-    if (FIXED_RECIPE_TOKENS.includes(normalized)) return false
-    if (CUSTOMIZABLE_RECIPE_TOKENS.includes(normalized)) return true
-    ctx.rowIssues.push({
-        row: ctx.rowNumber,
-        field: "recipeType",
-        key: "errors.bulk_import_invalid_recipe_type",
-        params: { value: String(rawRecipeType).trim() }
-    })
-    return undefined
-}
-
 function resolveIsOrganicField(rawIsOrganic: ImportCellValue, ctx: RowValidation): boolean {
     const isOrganic = parseImportBoolean(rawIsOrganic, false)
     if (isOrganic === undefined) {
@@ -204,11 +183,10 @@ function processProductImportRow(
     const categoryId = resolveCategoryField(read("category"), catalogs, ctx)
     const subCategoryId = resolveSubCategoryField(read("subCategory"), categoryId, category, catalogs, ctx)
     const clientId = resolveClientField(read("client"), catalogs, ctx)
-    const isCustomizable = resolveRecipeTypeField(read("recipeType"), ctx)
     const isOrganic = resolveIsOrganicField(read("isOrganic"), ctx)
     const en = readTrimmedText(read("displayNameEn"))
     const { validated, issues } = collectRowZodIssues({
-        subCategoryId, clientId, displayName: readTrimmedText(read("displayName")), isCustomizable, isOrganic,
+        subCategoryId, clientId, displayName: readTrimmedText(read("displayName")), isOrganic,
         additionalCostPerUnit: isBlankCell(read("additionalCostPerUnit")) ? null : Number(read("additionalCostPerUnit")),
         ...(en ? { translations: { en: { displayName: en } } } : {}),
     }, ctx.manuallyValidatedFields, rowNumber)
@@ -304,7 +282,7 @@ async function buildProductImportPlan(buffer: Buffer, transaction?: Transaction)
         const presentationsSeen = new Set<number>()
         for (const row of rows) {
             if (row.categoryId !== first.categoryId) rowIssues.push({ row: row.rowNumber, field: "category", key: "errors.bulk_import_product_group_inconsistent", params: { group, field: "category", firstRow: first.rowNumber } })
-            for (const field of ["displayName", "clientId", "subCategoryId", "isOrganic", "isCustomizable", "additionalCostPerUnit", "translations"] as const) {
+            for (const field of ["displayName", "clientId", "subCategoryId", "isOrganic", "additionalCostPerUnit", "translations"] as const) {
                 if (JSON.stringify(row.input[field]) !== JSON.stringify(first.input[field])) {
                     rowIssues.push({ row: row.rowNumber, field, key: "errors.bulk_import_product_group_inconsistent", params: { group, field, firstRow: first.rowNumber } })
                 }
@@ -407,7 +385,7 @@ async function buildProductImportTemplate(instructions: string[] = []): Promise<
     help.columns = [{ header: "Instrucciones / Instructions", key: "help", width: 130 }]
     help.getRow(1).font = { bold: true }
     for (const line of instructions) help.addRow({ help: line })
-    help.addRow({ help: "Productos y Variantes: ASIAN-1 | AB-816 | Bolsa 16 oz | 60 | 8 | 6 | Congelados | [vacío] | Walmart | Asian Blend | Asian Blend | NO | Fija | [vacío]" })
+    help.addRow({ help: "Productos y Variantes: ASIAN-1 | AB-816 | Bolsa 16 oz | 60 | 8 | 6 | Congelados | [vacío] | Walmart | Asian Blend | Asian Blend | NO | [vacío]" })
     for (const type of Object.keys(INITIAL_MATERIAL_TYPES)) help.addRow({ help: `Materiales de Empaque: AB-816 | CODIGO-MP-REAL | ${type} | [grupo real o vacío] | [SI/NO con grupo] | ${type === "OTRO PALETIZACIÓN" ? "POR PALLET | 2.5" : "[vacío] | [vacío]"}` })
     const groups = await PackagingGroup.findAll({ where: { isActive: true }, order: [["displayName", "ASC"]] })
     const firstGroupRow = help.rowCount + 2

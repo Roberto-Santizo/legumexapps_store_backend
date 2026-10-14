@@ -1,6 +1,8 @@
 import z from "zod"
 import { quoteOrderSchema } from "./quoteOrder.schema"
 
+// Línea de mezcla por % -- la usa el motor compartido (buildCustomizableRawMaterials) de las
+// cotizaciones a la medida; el producto de catálogo nunca recibe mezcla del cliente.
 const rawMaterialMixLineSchema = z.object({
     rawMaterialId: z.number().int().positive(),
     percentage: z.number().min(0).max(100).multipleOf(0.01),
@@ -12,7 +14,6 @@ export const calculateQuoteSchema = z.object({
     // calculateQuote resuelve el transporte a $0 cuando falta. El admin puede seguir mandándolo.
     destinationId: z.number().int().positive().optional(),
     requestedPallets: z.number().int().min(1),
-    rawMaterialMix: z.array(rawMaterialMixLineSchema).optional(),
     // Grupos de opciones: un array POR NIVEL (los ids de fila solo son únicos dentro de su tabla) con
     // los ids de FILA elegidos, uno por grupo -- no el packagingId. El servicio lee el grupo de cada
     // fila, valida que pertenezca a este SKU y nivel y que no haya dos del mismo grupo. Un grupo sin id

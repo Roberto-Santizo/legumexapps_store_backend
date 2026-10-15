@@ -17,6 +17,9 @@ import Presentation from "../features/presentation/models/Presentation.model"
 import Packaging from "../features/packaging/models/Packaging.model"
 import RawMaterial from "../features/rawMaterial/models/RawMaterial.model"
 import RawMaterialTranslation from "../features/rawMaterial/models/RawMaterialTranslation.model"
+import UnprocessedRawMaterial from "../features/rawMaterialTransformation/models/UnprocessedRawMaterial.model"
+import RawMaterialTransformation from "../features/rawMaterialTransformation/models/RawMaterialTransformation.model"
+import RawMaterialTransformationCost from "../features/rawMaterialTransformation/models/RawMaterialTransformationCost.model"
 import Ingredient from "../features/ingredient/models/Ingredient.model"
 import IngredientTranslation from "../features/ingredient/models/IngredientTranslation.model"
 import Destination from "../features/destination/models/Destination.model"
@@ -66,6 +69,9 @@ export const databaseModels = [
         Packaging,
         RawMaterial,
         RawMaterialTranslation,
+        UnprocessedRawMaterial,
+        RawMaterialTransformation,
+        RawMaterialTransformationCost,
         Ingredient,
         IngredientTranslation,
         Destination,

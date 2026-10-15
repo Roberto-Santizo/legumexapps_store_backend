@@ -1,8 +1,9 @@
-import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany } from "sequelize-typescript";
+import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany, HasOne } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import Unit from "../../unit/models/Unit.model";
 import ProductRawMaterial from "../../product/models/ProductRawMaterial.model";
 import RawMaterialTranslation from "./RawMaterialTranslation.model";
+import RawMaterialTransformation from "../../rawMaterialTransformation/models/RawMaterialTransformation.model";
 
 @Table({
     tableName: "rawMaterials"
@@ -62,6 +63,10 @@ class RawMaterial extends BaseCatalogModel {
 
     @HasMany(() => RawMaterialTranslation, "rawMaterialId")
     declare translations: RawMaterialTranslation[]
+
+    // Presente solo si el costo lo calcula el módulo de Transformación de Materia Prima.
+    @HasOne(() => RawMaterialTransformation, { foreignKey: "processedRawMaterialId", onDelete: "RESTRICT" })
+    declare transformation?: RawMaterialTransformation
 }
 
 export default RawMaterial;

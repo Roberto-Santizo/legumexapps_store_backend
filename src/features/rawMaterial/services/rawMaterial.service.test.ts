@@ -12,6 +12,10 @@ jest.mock("../models/RawMaterialTranslation.model", () => ({
     __esModule: true,
     default: { bulkCreate: jest.fn() }
 }))
+jest.mock("../../rawMaterialTransformation/models/RawMaterialTransformation.model", () => ({
+    __esModule: true,
+    default: { findOne: jest.fn() }
+}))
 jest.mock("../../unit/services/unit.service", () => ({
     __esModule: true,
     unitService: { findOrCreatePoundUnit: jest.fn() }
@@ -20,6 +24,7 @@ jest.mock("../../unit/services/unit.service", () => ({
 import RawMaterial from "../models/RawMaterial.model"
 import RawMaterialTranslation from "../models/RawMaterialTranslation.model"
 import { unitService } from "../../unit/services/unit.service"
+import RawMaterialTransformation from "../../rawMaterialTransformation/models/RawMaterialTransformation.model"
 import { rawMaterialService } from "./rawMaterial.service"
 import { BulkImportError } from "../../../shared/errors/AppError"
 
@@ -400,5 +405,39 @@ describe("rawMaterialService.updateRawMaterial", () => {
 
         expect(mockFindOrCreatePoundUnit).toHaveBeenCalledTimes(1)
         expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ code: "PIN-001", costUnitId: POUND_UNIT.id }))
+    })
+})
+
+describe("rawMaterialService.updateRawMaterial -- costo gestionado por Transformación de Materia Prima", () => {
+    const mockTransformationFindOne = RawMaterialTransformation.findOne as unknown as jest.Mock
+    let mockUpdate: jest.Mock
+
+    beforeEach(() => {
+        mockRawMaterialFindOne.mockReset()
+        mockTransformationFindOne.mockReset()
+        mockFindOrCreatePoundUnit.mockResolvedValue(POUND_UNIT)
+        mockUpdate = jest.fn().mockResolvedValue(undefined)
+        mockRawMaterialFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+            Promise.resolve("code" in where ? null : { id: 9, code: "BAN-P-001", costPerUnit: "0.2267", update: mockUpdate, translations: [] }))
+    })
+
+    it("rechaza cambiar el costo de una materia prima creada por una transformación y no escribe nada", async () => {
+        mockTransformationFindOne.mockResolvedValue({ id: 5 })
+        await expect(rawMaterialService.updateRawMaterial(9, { code: "BAN-P-001", costPerUnit: 0.3 }))
+            .rejects.toMatchObject({ statusCode: 409, key: "errors.raw_material_cost_managed_by_transformation", params: { code: "BAN-P-001" } })
+        expect(mockTransformationFindOne).toHaveBeenCalledWith({ where: { processedRawMaterialId: 9 }, attributes: ["id"] })
+        expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    it("permite editar los demás campos si el costo enviado es el mismo (sin consultar la transformación)", async () => {
+        await rawMaterialService.updateRawMaterial(9, { code: "BAN-P-001", displayName: "BANANO PELADO", costPerUnit: 0.2267 })
+        expect(mockTransformationFindOne).not.toHaveBeenCalled()
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ displayName: "BANANO PELADO", costPerUnit: 0.2267 }))
+    })
+
+    it("una materia prima sin transformación sigue pudiendo cambiar su costo", async () => {
+        mockTransformationFindOne.mockResolvedValue(null)
+        await rawMaterialService.updateRawMaterial(9, { code: "BAN-P-001", costPerUnit: 0.3 })
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ costPerUnit: 0.3 }))
     })
 })

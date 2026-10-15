@@ -15,9 +15,9 @@ function packaging(): PackagingSnapshot {
     ] }
 }
 
-test("shared catalog preserves 78 distinct permissions and administrator role", () => {
-    expect(PERMISSIONS).toHaveLength(78)
-    expect(new Set(PERMISSIONS.map(row => row.name)).size).toBe(78)
+test("shared catalog preserves 82 distinct permissions and administrator role", () => {
+    expect(PERMISSIONS).toHaveLength(82)
+    expect(new Set(PERMISSIONS.map(row => row.name)).size).toBe(82)
     expect(ADMIN_ROLE_NAME).toBe("Administrador")
     expect(PERMISSIONS).toContainEqual({ name: "siteContent:edit" })
 })
@@ -28,8 +28,8 @@ test("prepared access does not assert authentication", () => {
 test("empty access reports all missing permissions, role and user", () => {
     const result = diagnoseAccessControl({ permissions: [], roles: [], rolePermissions: [], users: [], initialAdminUsername: "initial-admin" })
     expect(result.status).toBe("incomplete")
-    expect(result.missingPermissions).toHaveLength(78)
-    expect(result.missingExpectedAssignments).toHaveLength(78)
+    expect(result.missingPermissions).toHaveLength(82)
+    expect(result.missingExpectedAssignments).toHaveLength(82)
     expect(result.adminRoleCount).toBe(0)
     expect(result.initialAdmin).toBe("missing")
 })
@@ -72,7 +72,7 @@ test("administrator assignment to a nonexistent permission remains inconsistent"
     const result = diagnoseAccessControl({ ...data, rolePermissions: [...data.rolePermissions, { role_id: 1, permission_id: 999 }] })
     expect(result.status).toBe("inconsistent")
     expect(result.issues).toEqual(["dangling_role_permission"])
-    expect(result.assignedPermissions).toHaveLength(78)
+    expect(result.assignedPermissions).toHaveLength(82)
 })
 test("never accesses passwords or includes usernames in reports", () => {
     const data = access()

@@ -208,7 +208,13 @@
     "catalog_quote_changed": "El catálogo o los precios cambiaron. Revisa una nueva cotización.",
     "packaging_generic_not_available": "Los materiales genéricos todavía no están disponibles para configuraciones de cotización.",
     "packaging_associations_protected": "No se puede cambiar la clasificación o el nivel de un material con asociaciones existentes.",
-    "packaging_english_name_required": "El nombre en inglés es obligatorio cuando el archivo incluye esa columna."
+    "packaging_english_name_required": "El nombre en inglés es obligatorio cuando el archivo incluye esa columna.",
+    "raw_material_transformation_codes_must_differ": "El código de la materia prima procesada debe ser distinto del código sin procesar.",
+    "raw_material_transformation_pounds_per_unit_required": "El concepto \"{{concept}}\" se ingresó por unidad o por lote: indique cuántas libras procesadas cubre.",
+    "raw_material_transformation_pounds_per_unit_not_allowed": "El concepto \"{{concept}}\" está por libra: no debe indicar libras por unidad.",
+    "raw_material_transformation_invalid_exchange_rate": "El tipo de cambio debe ser mayor que cero.",
+    "raw_material_transformation_invalid_yield": "El rendimiento debe ser mayor que 0 % y menor o igual a 100 %.",
+    "raw_material_cost_managed_by_transformation": "El costo de la materia prima \"{{code}}\" lo calcula su transformación. Modifíquelo desde Transformación de Materia Prima."
   },
   "success": {
     "representative_clients_updated": "Asignaciones de clientes actualizadas.",
@@ -218,7 +224,8 @@
     "activated": "{{resource}} activado correctamente",
     "deactivated": "{{resource}} desactivado correctamente",
     "bulk_imported": "Se importaron {{count}} registros correctamente.",
-    "quote_pdf_email_sent": "El correo se envió correctamente."
+    "quote_pdf_email_sent": "El correo se envió correctamente.",
+    "raw_material_transformation_processed": "Materia prima procesada {{code}}: USD {{cost}} por libra."
   },
   "resources": {
     "PackagingGroup": "Grupo de empaque",
@@ -259,7 +266,9 @@
     "JuiceSpiceMaterial": "Especia de jugo",
     "JuiceSpice": "Especia en jugo",
     "JuiceCostConstants": "Constantes de jugos",
-    "JuiceClientConstantOverride": "Override de constantes del cliente"
+    "JuiceClientConstantOverride": "Override de constantes del cliente",
+    "RawMaterialTransformation": "Transformación de Materia Prima",
+    "UnprocessedRawMaterial": "Materia prima sin procesar"
   },
   "permissionActions": {
     "view": "Ver",
@@ -293,7 +302,8 @@
     "customQuoteConfig": "configuración de cotizaciones a la medida",
     "customQuotes": "cotizaciones a la medida",
     "juices": "jugos",
-    "juiceConfig": "configuración de jugos"
+    "juiceConfig": "configuración de jugos",
+    "rawMaterialTransformations": "transformaciones de materia prima"
   },
   "clientImport": {
     "instructions": {

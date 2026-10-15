@@ -8,6 +8,7 @@ import unitRouter from "../features/unit/routes/unit.routes"
 import packagingRouter from "../features/packaging/routes/packaging.routes"
 import presentationRouter from "../features/presentation/routes/presentation.routes"
 import rawMaterialRouter from "../features/rawMaterial/routes/rawMaterial.routes"
+import rawMaterialTransformationRouter from "../features/rawMaterialTransformation/routes/rawMaterialTransformation.routes"
 import ingredientRouter from "../features/ingredient/routes/ingredient.routes"
 import destinationRouter from "../features/destination/routes/destination.routes"
 import productVariantRouter from "../features/product/routes/productVariant.routes"
@@ -74,6 +75,7 @@ appRouter.use("/packagings", packagingRouter)
 appRouter.use("/packaging-groups", packagingGroupRouter)
 appRouter.use("/presentations", presentationRouter)
 appRouter.use("/raw-materials", rawMaterialRouter)
+appRouter.use("/raw-material-transformations", rawMaterialTransformationRouter)
 appRouter.use("/ingredients", ingredientRouter)
 appRouter.use("/destinations", destinationRouter)
 appRouter.use("/processing-costs", processingCostRouter)

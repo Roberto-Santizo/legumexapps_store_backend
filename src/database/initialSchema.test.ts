@@ -9,12 +9,15 @@ const sequelize = new Sequelize({ dialect: "postgres", logging: false, models: d
 const generator = sequelize.getQueryInterface().queryGenerator as any
 const sql = fs.readFileSync(path.resolve(__dirname, "../../migrations/202610110001_initial_schema.sql"), "utf8")
 const normalize = (value: string) => value.replace(/\s+/g, " ").trim()
+// Tablas creadas por migraciones incrementales posteriores al esquema inicial.
+const TRANSFORMATION_TABLES = ["unprocessedRawMaterials", "rawMaterialTransformations", "rawMaterialTransformationCosts"]
+const INCREMENTAL_TABLES = ["representative_clients", ...TRANSFORMATION_TABLES]
 
 describe("initial schema contract (offline)", () => {
     test("defines all pre-incremental tables with exact model columns, defaults, keys and foreign-key actions", () => {
         const ordered = (sequelize.modelManager.getModelsTopoSortedByForeignKey()! as unknown as ModelStatic<Model>[]).slice().reverse()
-            .filter(model => model.tableName !== "representative_clients")
-        expect(databaseModels).toHaveLength(47)
+            .filter(model => !INCREMENTAL_TABLES.includes(model.tableName))
+        expect(databaseModels).toHaveLength(50)
         expect(sql.match(/CREATE TABLE /g)).toHaveLength(46)
         let previousPosition = -1
         for (const model of ordered) {
@@ -84,7 +87,7 @@ describe("initial schema contract (offline)", () => {
 describe("incremental migration chain (offline)", () => {
     const directory = path.resolve(__dirname, "../../migrations")
 
-    test("keeps the applied history and appends only the isMixable, recipe-type and organic-variant removals", () => {
+    test("keeps the applied history and appends the removals and the raw material transformation tables", () => {
         expect(fs.readdirSync(directory).filter(name => name.endsWith(".sql")).sort()).toEqual([
             "202610110001_initial_schema.sql",
             "202610120001_representative_clients.sql",
@@ -92,7 +95,30 @@ describe("incremental migration chain (offline)", () => {
             "202610140001_remove_raw_material_mixability.sql",
             "202610140002_remove_product_recipe_type.sql",
             "202610140003_remove_raw_material_organic.sql",
+            "202610140004_raw_material_transformations.sql",
         ])
+    })
+
+    test("the transformation migration creates exactly the three model tables, their enums, indexes and integrity checks", () => {
+        const migration = fs.readFileSync(path.join(directory, "202610140004_raw_material_transformations.sql"), "utf8")
+        for (const table of TRANSFORMATION_TABLES) {
+            const model = databaseModels.find(candidate => (candidate as any).tableName === table) as unknown as ModelStatic<Model>
+            const expected = generator.createTableQuery(table, generator.attributesToSQL(model.rawAttributes, { table }), model.options)
+                .replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
+            expect(normalize(migration)).toContain(normalize(expected))
+            for (const index of model.options.indexes ?? []) expect(migration).toContain(generator.addIndexQuery(table, index.fields, index) + ";")
+            for (const attribute of Object.values(model.rawAttributes)) {
+                const type = attribute.type as any
+                if (type.key === "ENUM") expect(migration).toContain(`CREATE TYPE ${generator.pgEnumName(table, attribute.field)} AS ENUM (${type.values.map((value: string) => generator.escape(value)).join(", ")});`)
+            }
+            expect(migration).toContain(`ALTER TABLE "${table}" ADD CONSTRAINT "${table}_values_check"`)
+        }
+        expect(migration.match(/CREATE TABLE /g)).toHaveLength(3)
+        expect(migration).toMatch(/"processedRawMaterialId" INTEGER NOT NULL UNIQUE REFERENCES "rawMaterials" \("id"\) ON DELETE RESTRICT/)
+        expect(migration).toMatch(/"transformationId" INTEGER NOT NULL REFERENCES "rawMaterialTransformations" \("id"\) ON DELETE CASCADE/)
+        // Solo agrega: no toca tablas existentes ni datos (apta para el despliegue automático).
+        expect(migration).not.toMatch(/\b(?:INSERT INTO|UPDATE\s+"|DELETE\s+FROM|DROP\s|TRUNCATE|ALTER TABLE "(?!unprocessedRawMaterials|rawMaterialTransformations|rawMaterialTransformationCosts))/i)
+        expect(Object.keys((databaseModels.find(model => (model as any).tableName === "rawMaterials") as any).rawAttributes)).not.toContain("transformation")
     })
 
     test("the isMixable removal drops exactly that column and nothing else", () => {

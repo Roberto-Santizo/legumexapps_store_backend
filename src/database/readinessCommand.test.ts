@@ -182,7 +182,7 @@ test("reports missing catalog and pending packaging separately", async () => {
     const report = await run(s.args, s.env, s.deps)
     expect(report.access.status).toBe("incomplete")
     expect(report.packaging.status).toBe("incomplete")
-    expect(report.access.findings).toContainEqual({ code: "missing_permissions", severity: "warning", count: 78 })
+    expect(report.access.findings).toContainEqual({ code: "missing_permissions", severity: "warning", count: 82 })
     expect(report.packaging.findings).toEqual([{ code: "missing_group_id", severity: "warning", count: 1 }])
     expect(JSON.stringify(report)).not.toMatch(/private/)
 })

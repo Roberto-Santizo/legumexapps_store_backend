@@ -10,6 +10,7 @@ const RESOURCE_KEYS = [
     "packagings",
     "packagingGroups",
     "rawMaterials",
+    "rawMaterialTransformations",
     "ingredients",
     "destinations",
     "processingCosts",

@@ -3,6 +3,8 @@ import { Op, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import RawMaterial from "../models/RawMaterial.model"
 import RawMaterialTranslation from "../models/RawMaterialTranslation.model"
+import RawMaterialTransformation from "../../rawMaterialTransformation/models/RawMaterialTransformation.model"
+import { toDecimal } from "../../../shared/utils/money.util"
 import { unitService } from "../../unit/services/unit.service"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
 import { CreateRawMaterialInput, UpdateRawMaterialInput, RawMaterialTranslationInput, createRawMaterialSchema } from "../schemas/rawMaterial.schema"
@@ -26,6 +28,10 @@ import {
     REQUIRED_RAW_MATERIAL_IMPORT_FIELDS,
 } from "../constants/rawMaterialImport.constant"
 
+// Solo el id: le indica al admin que el costo de esta materia prima lo calcula el módulo de
+// Transformación de Materia Prima (y por eso no se edita aquí).
+const TRANSFORMATION_INCLUDE = { model: RawMaterialTransformation, as: "transformation", attributes: ["id"], required: false }
+
 async function listRawMaterials(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<RawMaterial>> {
     const where: WhereOptions = {
         isActive: true,
@@ -38,7 +44,7 @@ async function listRawMaterials(pagination?: PaginationParams, search?: string):
     }
     return paginate(
         RawMaterial,
-        { where, order: [["displayName", "DESC"]], include: [{ model: RawMaterialTranslation, as: "translations" }] },
+        { where, order: [["displayName", "DESC"]], include: [{ model: RawMaterialTranslation, as: "translations" }, TRANSFORMATION_INCLUDE] },
         pagination
     )
 }
@@ -46,7 +52,7 @@ async function listRawMaterials(pagination?: PaginationParams, search?: string):
 async function getRawMaterialById(id: number): Promise<RawMaterial> {
     const rawMaterial = await RawMaterial.findOne({
         where: { id, isActive: true },
-        include: [{ model: RawMaterialTranslation, as: "translations" }]
+        include: [{ model: RawMaterialTranslation, as: "translations" }, TRANSFORMATION_INCLUDE]
     })
     if (!rawMaterial) throw new NotFoundError("RawMaterial", id)
     return rawMaterial
@@ -83,9 +89,18 @@ async function createRawMaterial(input: CreateRawMaterialInput): Promise<RawMate
     return getRawMaterialById(rawMaterial.id)
 }
 
+// Una materia prima creada por una transformación tiene un único dueño de su costo: el módulo de
+// Transformación. Aquí se pueden editar los demás campos, pero no cambiar el costo por libra.
+async function assertCostNotManagedByTransformation(rawMaterial: RawMaterial, costPerUnit: number | undefined): Promise<void> {
+    if (costPerUnit === undefined || toDecimal(costPerUnit).equals(toDecimal(rawMaterial.costPerUnit))) return
+    const managed = await RawMaterialTransformation.findOne({ where: { processedRawMaterialId: rawMaterial.id }, attributes: ["id"] })
+    if (managed) throw new AppError(409, "errors.raw_material_cost_managed_by_transformation", { code: rawMaterial.code })
+}
+
 async function updateRawMaterial(id: number, input: UpdateRawMaterialInput): Promise<RawMaterial> {
     const rawMaterial = await getRawMaterialById(id)
     const { translations, ...rest } = input
+    await assertCostNotManagedByTransformation(rawMaterial, rest.costPerUnit)
     if (rest.code) await assertCodeIsUnique(rest.code, id)
     const poundUnit = await unitService.findOrCreatePoundUnit()
     await rawMaterial.update({ ...rest, costUnitId: poundUnit.id })

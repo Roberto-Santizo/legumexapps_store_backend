@@ -38,7 +38,7 @@ async function refusedBeforeConnecting(s) {
  assert.equal(s.calls.create, 0); assert.deepEqual(s.calls.queries, [])
 }
 
-const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql', '202610140003_remove_raw_material_organic.sql']
+const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql', '202610140003_remove_raw_material_organic.sql', '202610140004_raw_material_transformations.sql']
 
 test('production applies only the pending incremental migrations without an approval token, then syncs reference data', async () => {
  const plan = await readPlan(), s = setup({ history: await recorded(DEPLOY_REQUIRED_HISTORY) })
@@ -54,11 +54,19 @@ test('production applies only the pending incremental migrations without an appr
  assert.deepEqual(s.calls.config.ssl, { rejectUnauthorized: true })
 })
 
-test('a database that already recorded the earlier removals applies only the organic-variant removal', async () => {
+test('a database that already recorded the earlier removals applies only the organic-variant removal and the transformation tables', async () => {
  const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0], PENDING[1]]) })
- assert.deepEqual(await deploy(s.env, s.deps), [PENDING[2]])
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[2], PENDING[3]])
  assert.ok(!s.calls.queries.some(sql => /isMixable|isCustomizable/.test(sql)))
  assert.ok(s.calls.queries.some(sql => sql.includes('"isOrganicAvailable"')))
+})
+
+test('a database that recorded every removal applies only the transformation tables, in one transaction', async () => {
+ const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0], PENDING[1], PENDING[2]]) })
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[3]])
+ assert.equal(s.calls.queries.filter(sql => sql === 'BEGIN').length, 1)
+ assert.ok(s.calls.queries.some(sql => sql.includes('CREATE TABLE "rawMaterialTransformations"')))
+ assert.ok(!s.calls.queries.some(sql => /isMixable|isCustomizable|isOrganicAvailable/.test(sql)))
 })
 
 test('an up-to-date database applies nothing and still syncs reference data', async () => {

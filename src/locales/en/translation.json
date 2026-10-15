@@ -208,7 +208,13 @@
     "catalog_quote_changed": "Catalog or prices changed. Review a new quotation.",
     "packaging_generic_not_available": "Generic materials are not yet available for quote configurations.",
     "packaging_associations_protected": "The classification or level of a material with existing associations cannot be changed.",
-    "packaging_english_name_required": "The English name is required when the file includes that column."
+    "packaging_english_name_required": "The English name is required when the file includes that column.",
+    "raw_material_transformation_codes_must_differ": "The processed raw material code must differ from the unprocessed code.",
+    "raw_material_transformation_pounds_per_unit_required": "\"{{concept}}\" is entered per unit or per batch: specify how many processed pounds it covers.",
+    "raw_material_transformation_pounds_per_unit_not_allowed": "\"{{concept}}\" is entered per pound: pounds per unit must be empty.",
+    "raw_material_transformation_invalid_exchange_rate": "The exchange rate must be greater than zero.",
+    "raw_material_transformation_invalid_yield": "The yield must be greater than 0% and at most 100%.",
+    "raw_material_cost_managed_by_transformation": "The cost of raw material \"{{code}}\" is calculated by its transformation. Change it from Raw Material Transformation."
   },
   "success": {
     "representative_clients_updated": "Client assignments updated.",
@@ -218,7 +224,8 @@
     "activated": "{{resource}} activated successfully",
     "deactivated": "{{resource}} deactivated successfully",
     "bulk_imported": "{{count}} records imported successfully.",
-    "quote_pdf_email_sent": "The email was sent successfully."
+    "quote_pdf_email_sent": "The email was sent successfully.",
+    "raw_material_transformation_processed": "Processed raw material {{code}}: USD {{cost}} per pound."
   },
   "resources": {
     "PackagingGroup": "Packaging group",
@@ -259,7 +266,9 @@
     "JuiceSpiceMaterial": "Juice spice material",
     "JuiceSpice": "Juice spice",
     "JuiceCostConstants": "Juice constants",
-    "JuiceClientConstantOverride": "Client constant override"
+    "JuiceClientConstantOverride": "Client constant override",
+    "RawMaterialTransformation": "Raw material transformation",
+    "UnprocessedRawMaterial": "Unprocessed raw material"
   },
   "permissionActions": {
     "view": "View",
@@ -293,7 +302,8 @@
     "customQuoteConfig": "custom-quote configuration",
     "customQuotes": "custom quotes",
     "juices": "juices",
-    "juiceConfig": "juice configuration"
+    "juiceConfig": "juice configuration",
+    "rawMaterialTransformations": "raw material transformations"
   },
   "clientImport": {
     "instructions": {

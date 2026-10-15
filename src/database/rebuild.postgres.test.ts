@@ -107,7 +107,7 @@ suite("complete rebuild on an owned isolated PostgreSQL cluster (explicitly skip
         expect(await rowFingerprint()).toEqual(before)
         await expect(bootstrapDatabase(owner, { ...credentials, password: "Different-synthetic-password-2026" })).rejects.toThrow()
         expect(await rowFingerprint()).toEqual(before)
-        expect((await owner.query('SELECT count(*)::int AS count FROM public.schema_migrations')).rows[0].count).toBe(6)
+        expect((await owner.query('SELECT count(*)::int AS count FROM public.schema_migrations')).rows[0].count).toBe(7)
     }, 60000)
 
     test("real administrator login authorizes catalogs and rejects missing tokens, wrong token type and missing permissions", async () => {
@@ -347,6 +347,6 @@ suite("complete rebuild on an owned isolated PostgreSQL cluster (explicitly skip
         await migrate(owner)
         await bootstrapDatabase(owner, credentials)
         await assertDatabaseReady(owner, sequelize)
-        expect((await owner.query('SELECT count(*)::int AS total FROM public.permissions')).rows[0].total).toBe(78)
+        expect((await owner.query('SELECT count(*)::int AS total FROM public.permissions')).rows[0].total).toBe(82)
     }, 60000)
 })

@@ -5,10 +5,8 @@ import {
     MAX_TRANSFORMATION_COST_LINES,
     TRANSFORMATION_COST_BASES,
     TRANSFORMATION_COST_CATEGORIES,
-    TRANSFORMATION_CURRENCIES,
 } from "../constants/rawMaterialTransformation.constant"
 
-const currencySchema = z.enum(TRANSFORMATION_CURRENCIES)
 const nonNegativeAmount = z.number().finite().nonnegative().max(1_000_000_000)
 
 const costLineSchema = z.strictObject({
@@ -16,22 +14,17 @@ const costLineSchema = z.strictObject({
     conceptName: z.string().trim().min(1).max(120),
     // Cero es válido: un gasto que no aplica a este producto se deja en 0 o se elimina.
     amount: nonNegativeAmount,
-    currency: currencySchema,
     costBasis: z.enum(TRANSFORMATION_COST_BASES),
     // Obligatorio solo para per_unit / per_batch; la regla la aplica el servicio con un error traducido.
     poundsPerUnit: z.number().finite().positive().max(9_999_999_999).nullable().optional(),
 })
 
-// Datos de cálculo: se usan tanto en la vista previa como al guardar. El cliente nunca envía el
-// costo final; el servidor siempre lo recalcula.
+// Datos de cálculo (todos los importes en USD): se usan tanto en la vista previa como al guardar. El
+// cliente nunca envía el costo final; el servidor siempre lo recalcula.
 const calculationFields = {
     inputCostPerPound: nonNegativeAmount,
-    inputCurrency: currencySchema,
     freightPerPound: nonNegativeAmount,
-    freightCurrency: currencySchema,
     yieldPercentage: z.number().finite().gt(0).lte(100),
-    // Quetzales por 1 USD.
-    exchangeRate: z.number().finite().positive().max(10_000),
     costs: z.array(costLineSchema).max(MAX_TRANSFORMATION_COST_LINES),
 }
 

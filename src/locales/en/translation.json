@@ -212,7 +212,6 @@
     "raw_material_transformation_codes_must_differ": "The processed raw material code must differ from the unprocessed code.",
     "raw_material_transformation_pounds_per_unit_required": "\"{{concept}}\" is entered per unit or per batch: specify how many processed pounds it covers.",
     "raw_material_transformation_pounds_per_unit_not_allowed": "\"{{concept}}\" is entered per pound: pounds per unit must be empty.",
-    "raw_material_transformation_invalid_exchange_rate": "The exchange rate must be greater than zero.",
     "raw_material_transformation_invalid_yield": "The yield must be greater than 0% and at most 100%.",
     "raw_material_cost_managed_by_transformation": "The cost of raw material \"{{code}}\" is calculated by its transformation. Change it from Raw Material Transformation."
   },

@@ -1,6 +1,5 @@
-// Monedas de entrada aceptadas. El resultado siempre se expresa en USD por libra procesada.
-export const TRANSFORMATION_CURRENCIES = ["GTQ", "USD"] as const
-export type TransformationCurrency = (typeof TRANSFORMATION_CURRENCIES)[number]
+// Todos los importes se ingresan en USD (no hay monedas ni tipo de cambio); el resultado es USD por
+// libra procesada.
 
 // Categorías del desglose (encabezados del formulario y de los reportes).
 export const TRANSFORMATION_COST_CATEGORIES = ["direct_labor", "packaging", "other"] as const

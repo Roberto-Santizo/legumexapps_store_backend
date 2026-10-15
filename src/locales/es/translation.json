@@ -212,7 +212,6 @@
     "raw_material_transformation_codes_must_differ": "El código de la materia prima procesada debe ser distinto del código sin procesar.",
     "raw_material_transformation_pounds_per_unit_required": "El concepto \"{{concept}}\" se ingresó por unidad o por lote: indique cuántas libras procesadas cubre.",
     "raw_material_transformation_pounds_per_unit_not_allowed": "El concepto \"{{concept}}\" está por libra: no debe indicar libras por unidad.",
-    "raw_material_transformation_invalid_exchange_rate": "El tipo de cambio debe ser mayor que cero.",
     "raw_material_transformation_invalid_yield": "El rendimiento debe ser mayor que 0 % y menor o igual a 100 %.",
     "raw_material_cost_managed_by_transformation": "El costo de la materia prima \"{{code}}\" lo calcula su transformación. Modifíquelo desde Transformación de Materia Prima."
   },

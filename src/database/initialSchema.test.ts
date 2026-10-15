@@ -12,6 +12,23 @@ const normalize = (value: string) => value.replace(/\s+/g, " ").trim()
 // Tablas creadas por migraciones incrementales posteriores al esquema inicial.
 const TRANSFORMATION_TABLES = ["unprocessedRawMaterials", "rawMaterialTransformations", "rawMaterialTransformationCosts"]
 const INCREMENTAL_TABLES = ["representative_clients", ...TRANSFORMATION_TABLES]
+// Columnas creadas por 202610140004 y eliminadas por 202610150001 (todo pasó a USD).
+const currencyEnum = () => DataType.ENUM("GTQ", "USD")
+const REMOVED_TRANSFORMATION_COLUMNS: Record<string, [string, string, any][]> = {
+    unprocessedRawMaterials: [["costPerPound", "costCurrency", { type: currencyEnum(), allowNull: false }]],
+    rawMaterialTransformations: [
+        ["freightPerPound", "freightCurrency", { type: currencyEnum(), allowNull: false }],
+        ["yieldPercentage", "exchangeRate", { type: DataType.DECIMAL(14, 6), allowNull: false }],
+    ],
+    rawMaterialTransformationCosts: [["amount", "currency", { type: currencyEnum(), allowNull: false }]],
+}
+function withCurrencyColumns(table: string, rawAttributes: Record<string, any>) {
+    const entries = Object.entries(rawAttributes)
+    for (const [after, name, definition] of REMOVED_TRANSFORMATION_COLUMNS[table]) {
+        entries.splice(entries.findIndex(([key]) => key === after) + 1, 0, [name, { ...definition, field: name }])
+    }
+    return Object.fromEntries(entries)
+}
 
 describe("initial schema contract (offline)", () => {
     test("defines all pre-incremental tables with exact model columns, defaults, keys and foreign-key actions", () => {
@@ -96,6 +113,7 @@ describe("incremental migration chain (offline)", () => {
             "202610140002_remove_product_recipe_type.sql",
             "202610140003_remove_raw_material_organic.sql",
             "202610140004_raw_material_transformations.sql",
+            "202610150001_transformation_usd_only.sql",
         ])
     })
 
@@ -103,11 +121,12 @@ describe("incremental migration chain (offline)", () => {
         const migration = fs.readFileSync(path.join(directory, "202610140004_raw_material_transformations.sql"), "utf8")
         for (const table of TRANSFORMATION_TABLES) {
             const model = databaseModels.find(candidate => (candidate as any).tableName === table) as unknown as ModelStatic<Model>
-            const expected = generator.createTableQuery(table, generator.attributesToSQL(model.rawAttributes, { table }), model.options)
+            const attributes = withCurrencyColumns(table, model.rawAttributes)
+            const expected = generator.createTableQuery(table, generator.attributesToSQL(attributes, { table }), model.options)
                 .replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
             expect(normalize(migration)).toContain(normalize(expected))
             for (const index of model.options.indexes ?? []) expect(migration).toContain(generator.addIndexQuery(table, index.fields, index) + ";")
-            for (const attribute of Object.values(model.rawAttributes)) {
+            for (const attribute of Object.values(attributes) as any[]) {
                 const type = attribute.type as any
                 if (type.key === "ENUM") expect(migration).toContain(`CREATE TYPE ${generator.pgEnumName(table, attribute.field)} AS ENUM (${type.values.map((value: string) => generator.escape(value)).join(", ")});`)
             }
@@ -119,6 +138,25 @@ describe("incremental migration chain (offline)", () => {
         // Solo agrega: no toca tablas existentes ni datos (apta para el despliegue automático).
         expect(migration).not.toMatch(/\b(?:INSERT INTO|UPDATE\s+"|DELETE\s+FROM|DROP\s|TRUNCATE|ALTER TABLE "(?!unprocessedRawMaterials|rawMaterialTransformations|rawMaterialTransformationCosts))/i)
         expect(Object.keys((databaseModels.find(model => (model as any).tableName === "rawMaterials") as any).rawAttributes)).not.toContain("transformation")
+    })
+
+    test("the USD-only migration converts quetzal amounts first, then drops exactly the currency and exchange-rate columns", () => {
+        const migration = normalize(fs.readFileSync(path.join(directory, "202610150001_transformation_usd_only.sql"), "utf8").replace(/--.*$/gm, ""))
+        const firstDrop = migration.indexOf("DROP COLUMN")
+        for (const update of ['UPDATE "rawMaterialTransformationCosts"', 'UPDATE "rawMaterialTransformations"', 'UPDATE "unprocessedRawMaterials"']) {
+            expect(migration.indexOf(update)).toBeGreaterThanOrEqual(0)
+            expect(migration.indexOf(update)).toBeLessThan(firstDrop)
+        }
+        expect(migration.match(/DROP COLUMN "[A-Za-z]+"/g)).toEqual(['DROP COLUMN "currency"', 'DROP COLUMN "freightCurrency"', 'DROP COLUMN "exchangeRate"', 'DROP COLUMN "costCurrency"'])
+        expect(migration.match(/DROP TYPE/g)).toHaveLength(3)
+        expect(migration).toContain('ADD CONSTRAINT "rawMaterialTransformations_values_check"')
+        // Apta para el despliegue automático: sin borrado masivo.
+        expect(migration).not.toMatch(/\b(?:DROP\s+(?:TABLE|SCHEMA|DATABASE|OWNED)|TRUNCATE|DELETE\s+FROM)\b/i)
+        for (const table of TRANSFORMATION_TABLES) {
+            const fields = Object.keys((databaseModels.find(model => (model as any).tableName === table) as any).rawAttributes)
+            expect(fields).not.toEqual(expect.arrayContaining(["currency"]))
+            for (const removed of ["costCurrency", "freightCurrency", "exchangeRate"]) expect(fields).not.toContain(removed)
+        }
     })
 
     test("the isMixable removal drops exactly that column and nothing else", () => {

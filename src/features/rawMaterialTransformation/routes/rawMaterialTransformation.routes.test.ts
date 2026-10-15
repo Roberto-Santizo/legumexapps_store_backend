@@ -25,9 +25,8 @@ const token = (permissions: string[]) => `Bearer ${jwt.sign({ sub: 1, type: "sta
 const ALL = ["rawMaterialTransformations:view", "rawMaterialTransformations:create", "rawMaterialTransformations:edit"]
 
 const calculation = {
-    inputCostPerPound: 0.52, inputCurrency: "GTQ", freightPerPound: 0, freightCurrency: "GTQ",
-    yieldPercentage: 45, exchangeRate: 7.65,
-    costs: [{ category: "packaging", conceptName: "Bolsa", amount: 0.83, currency: "GTQ", costBasis: "per_unit", poundsPerUnit: 20 }],
+    inputCostPerPound: 0.067974, freightPerPound: 0, yieldPercentage: 45,
+    costs: [{ category: "packaging", conceptName: "Bolsa", amount: 0.1085, costBasis: "per_unit", poundsPerUnit: 20 }],
 }
 const body = {
     unprocessedCode: "BAN-001", unprocessedName: "Banano", processedCode: "BAN-P-001", processedName: "Banano procesado",
@@ -92,8 +91,9 @@ describe("rawMaterialTransformationRouter (HTTP)", () => {
         ["yield 0", { yieldPercentage: 0 }],
         ["yield over 100", { yieldPercentage: 101 }],
         ["negative input cost", { inputCostPerPound: -1 }],
-        ["exchange rate 0", { exchangeRate: 0 }],
-        ["unknown currency", { inputCurrency: "EUR" }],
+        ["a currency field (everything is USD)", { inputCurrency: "GTQ" }],
+        ["an exchange rate (no conversion exists)", { exchangeRate: 7.65 }],
+        ["a currency on a cost line", { costs: [{ ...calculation.costs[0], currency: "USD" }] }],
         ["unknown category", { costs: [{ ...calculation.costs[0], category: "taxes" }] }],
         ["blank concept", { costs: [{ ...calculation.costs[0], conceptName: "  " }] }],
         ["missing processed code", { processedCode: "" }],

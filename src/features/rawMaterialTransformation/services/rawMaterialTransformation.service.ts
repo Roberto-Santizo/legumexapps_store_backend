@@ -61,11 +61,8 @@ async function assertProcessedCodeAvailable(code: string, excludeId: number | un
 function toCalculationInput(input: PreviewRawMaterialTransformationInput): TransformationCalculationInput {
     return {
         inputCostPerPound: input.inputCostPerPound,
-        inputCurrency: input.inputCurrency,
         freightPerPound: input.freightPerPound,
-        freightCurrency: input.freightCurrency,
         yieldPercentage: input.yieldPercentage,
-        exchangeRate: input.exchangeRate,
         costs: input.costs,
     }
 }
@@ -73,16 +70,12 @@ function toCalculationInput(input: PreviewRawMaterialTransformationInput): Trans
 function storedCalculationInput(transformation: RawMaterialTransformation, source: UnprocessedRawMaterial, costs: RawMaterialTransformationCost[]): TransformationCalculationInput {
     return {
         inputCostPerPound: source.costPerPound,
-        inputCurrency: source.costCurrency as TransformationCalculationInput["inputCurrency"],
         freightPerPound: transformation.freightPerPound,
-        freightCurrency: transformation.freightCurrency as TransformationCalculationInput["freightCurrency"],
         yieldPercentage: transformation.yieldPercentage,
-        exchangeRate: transformation.exchangeRate,
         costs: [...costs].sort((a, b) => a.sortOrder - b.sortOrder).map(cost => ({
             category: cost.category,
             conceptName: cost.conceptName,
             amount: cost.amount,
-            currency: cost.currency,
             costBasis: cost.costBasis,
             poundsPerUnit: cost.poundsPerUnit,
         }) as TransformationCostInput),
@@ -104,9 +97,7 @@ function calculationColumns(calculation: TransformationCalculationResult) {
 function transformationColumns(input: SaveRawMaterialTransformationInput, calculation: TransformationCalculationResult) {
     return {
         freightPerPound: input.freightPerPound,
-        freightCurrency: input.freightCurrency,
         yieldPercentage: input.yieldPercentage,
-        exchangeRate: input.exchangeRate,
         ...calculationColumns(calculation),
     }
 }
@@ -118,11 +109,10 @@ async function upsertSource(input: SaveRawMaterialTransformationInput, transacti
         code: input.unprocessedCode,
         displayName: input.unprocessedName,
         costPerPound: input.inputCostPerPound,
-        costCurrency: input.inputCurrency,
     }
     const existing = await UnprocessedRawMaterial.findOne({ where: lowerEquals("code", input.unprocessedCode), transaction })
     if (!existing) return { source: await UnprocessedRawMaterial.create(values, { transaction }), costChanged: false }
-    const costChanged = !toDecimal(existing.costPerPound).equals(toDecimal(input.inputCostPerPound)) || existing.costCurrency !== input.inputCurrency
+    const costChanged = !toDecimal(existing.costPerPound).equals(toDecimal(input.inputCostPerPound))
     await existing.update(values, { transaction })
     return { source: existing, costChanged }
 }
@@ -134,7 +124,6 @@ async function writeCosts(transformationId: number, input: SaveRawMaterialTransf
         category: cost.category,
         conceptName: cost.conceptName,
         amount: cost.amount,
-        currency: cost.currency,
         costBasis: cost.costBasis,
         poundsPerUnit: cost.poundsPerUnit ?? null,
         costUsdPerProcessedPound: calculation.lines[index].costUsdPerProcessedPound,
@@ -223,7 +212,6 @@ function toListItem(transformation: RawMaterialTransformation) {
         unprocessedCode: source.code,
         unprocessedName: source.displayName,
         inputCostPerPound: num(source.costPerPound),
-        inputCurrency: source.costCurrency,
         processedRawMaterialId: processed.id,
         processedCode: processed.code,
         processedName: processed.displayName,
@@ -272,8 +260,6 @@ async function getTransformationById(id: number) {
         processedNameEn: processed.translations?.find(translation => translation.language === "en")?.displayName ?? null,
         ingredientType: processed.ingredientType,
         freightPerPound: num(transformation.freightPerPound),
-        freightCurrency: transformation.freightCurrency,
-        exchangeRate: num(transformation.exchangeRate),
         freightUsdPerPound: num(transformation.freightUsdPerPound),
         rawMaterialCostUsd: num(transformation.rawMaterialCostUsd),
         directLaborCostUsd: num(transformation.directLaborCostUsd),
@@ -285,7 +271,6 @@ async function getTransformationById(id: number) {
             category: cost.category,
             conceptName: cost.conceptName,
             amount: num(cost.amount),
-            currency: cost.currency,
             costBasis: cost.costBasis,
             poundsPerUnit: nullableNum(cost.poundsPerUnit),
             costUsdPerProcessedPound: num(cost.costUsdPerProcessedPound),
@@ -305,7 +290,6 @@ async function listSources() {
         code: source.code,
         displayName: source.displayName,
         costPerPound: num(source.costPerPound),
-        costCurrency: source.costCurrency,
         transformationCount: source.transformations?.length ?? 0,
     }))
 }

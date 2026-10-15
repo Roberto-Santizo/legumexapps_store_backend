@@ -38,7 +38,7 @@ async function refusedBeforeConnecting(s) {
  assert.equal(s.calls.create, 0); assert.deepEqual(s.calls.queries, [])
 }
 
-const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql', '202610140003_remove_raw_material_organic.sql', '202610140004_raw_material_transformations.sql']
+const PENDING = ['202610140001_remove_raw_material_mixability.sql', '202610140002_remove_product_recipe_type.sql', '202610140003_remove_raw_material_organic.sql', '202610140004_raw_material_transformations.sql', '202610150001_transformation_usd_only.sql']
 
 test('production applies only the pending incremental migrations without an approval token, then syncs reference data', async () => {
  const plan = await readPlan(), s = setup({ history: await recorded(DEPLOY_REQUIRED_HISTORY) })
@@ -56,17 +56,24 @@ test('production applies only the pending incremental migrations without an appr
 
 test('a database that already recorded the earlier removals applies only the organic-variant removal and the transformation tables', async () => {
  const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0], PENDING[1]]) })
- assert.deepEqual(await deploy(s.env, s.deps), [PENDING[2], PENDING[3]])
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[2], PENDING[3], PENDING[4]])
  assert.ok(!s.calls.queries.some(sql => /isMixable|isCustomizable/.test(sql)))
  assert.ok(s.calls.queries.some(sql => sql.includes('"isOrganicAvailable"')))
 })
 
-test('a database that recorded every removal applies only the transformation tables, in one transaction', async () => {
+test('a database that recorded every removal applies the transformation tables and the USD-only change, one transaction each', async () => {
  const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0], PENDING[1], PENDING[2]]) })
- assert.deepEqual(await deploy(s.env, s.deps), [PENDING[3]])
- assert.equal(s.calls.queries.filter(sql => sql === 'BEGIN').length, 1)
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[3], PENDING[4]])
+ assert.equal(s.calls.queries.filter(sql => sql === 'BEGIN').length, 2)
  assert.ok(s.calls.queries.some(sql => sql.includes('CREATE TABLE "rawMaterialTransformations"')))
  assert.ok(!s.calls.queries.some(sql => /isMixable|isCustomizable|isOrganicAvailable/.test(sql)))
+})
+
+test('production after the transformation release applies only the USD-only migration', async () => {
+ const s = setup({ history: await recorded([...DEPLOY_REQUIRED_HISTORY, PENDING[0], PENDING[1], PENDING[2], PENDING[3]]) })
+ assert.deepEqual(await deploy(s.env, s.deps), [PENDING[4]])
+ assert.ok(s.calls.queries.some(sql => sql.includes('DROP COLUMN "exchangeRate"')))
+ assert.ok(!s.calls.queries.some(sql => sql.includes('CREATE TABLE "rawMaterialTransformations"')))
 })
 
 test('an up-to-date database applies nothing and still syncs reference data', async () => {

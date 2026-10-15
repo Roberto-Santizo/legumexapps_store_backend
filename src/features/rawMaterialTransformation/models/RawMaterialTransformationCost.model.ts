@@ -3,7 +3,6 @@ import RawMaterialTransformation from "./RawMaterialTransformation.model"
 import {
     TRANSFORMATION_COST_BASES,
     TRANSFORMATION_COST_CATEGORIES,
-    TRANSFORMATION_CURRENCIES,
 } from "../constants/rawMaterialTransformation.constant"
 
 // Un concepto de costo adicional (lavado, bolsa, electricidad...). Los nombres son libres: agregar
@@ -26,11 +25,9 @@ class RawMaterialTransformationCost extends Model {
     @Column({ type: DataType.STRING(120), allowNull: false })
     declare conceptName: string
 
+    // En USD.
     @Column({ type: DataType.DECIMAL(24, 12), allowNull: false })
     declare amount: number
-
-    @Column({ type: DataType.ENUM(...TRANSFORMATION_CURRENCIES), allowNull: false })
-    declare currency: string
 
     @Column({ type: DataType.ENUM(...TRANSFORMATION_COST_BASES), allowNull: false })
     declare costBasis: string

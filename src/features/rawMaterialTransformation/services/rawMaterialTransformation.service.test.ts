@@ -23,24 +23,24 @@ const transaction = { id: "tx" }
 const input: SaveRawMaterialTransformationInput = {
     unprocessedCode: "BAN-001", unprocessedName: "BANANO", processedCode: "BAN-P-001", processedName: "BANANO PROCESADO",
     processedNameEn: "PROCESSED BANANA", ingredientType: "fruit",
-    inputCostPerPound: 0.52, inputCurrency: "GTQ", freightPerPound: 0, freightCurrency: "GTQ", yieldPercentage: 45, exchangeRate: 7.65,
+    inputCostPerPound: 0.06797385620915032, freightPerPound: 0, yieldPercentage: 45,
     costs: [
-        { category: "direct_labor", conceptName: "LAVADO", amount: 0.0051201704489003295, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "packaging", conceptName: "BOLSA", amount: 0.83, currency: "GTQ", costBasis: "per_unit", poundsPerUnit: 20 },
+        { category: "direct_labor", conceptName: "LAVADO", amount: 0.0051201704489003295, costBasis: "per_processed_pound" },
+        { category: "packaging", conceptName: "BOLSA", amount: 0.1085, costBasis: "per_unit", poundsPerUnit: 20 },
     ],
 }
 
 function detailRow(overrides: Record<string, unknown> = {}) {
     return {
         id: 5, unprocessedRawMaterialId: 3, processedRawMaterialId: 9,
-        unprocessedRawMaterial: { id: 3, code: "BAN-001", displayName: "BANANO", costPerPound: "0.520000000000", costCurrency: "GTQ" },
+        unprocessedRawMaterial: { id: 3, code: "BAN-001", displayName: "BANANO", costPerPound: "0.067973856209" },
         processedRawMaterial: { id: 9, code: "BAN-P-001", displayName: "BANANO PROCESADO", isActive: true, costPerUnit: "0.1616", ingredientType: "fruit", translations: [{ language: "en", displayName: "PROCESSED BANANA" }] },
-        freightPerPound: "0", freightCurrency: "GTQ", yieldPercentage: "45.0000", exchangeRate: "7.650000",
+        freightPerPound: "0", yieldPercentage: "45.0000",
         inputCostUsdPerPound: "0.067973856209", freightUsdPerPound: "0", rawMaterialCostUsd: "0.151053013798",
-        directLaborCostUsd: "0.005120170449", packagingCostUsd: "0.005424836601", otherCostUsd: "0", processedCostUsd: "0.161598020848",
+        directLaborCostUsd: "0.005120170449", packagingCostUsd: "0.005425", otherCostUsd: "0", processedCostUsd: "0.161598184247",
         costs: [
-            { id: 2, category: "packaging", conceptName: "BOLSA", amount: "0.83", currency: "GTQ", costBasis: "per_unit", poundsPerUnit: "20.0000", costUsdPerProcessedPound: "0.005424836601", sortOrder: 1 },
-            { id: 1, category: "direct_labor", conceptName: "LAVADO", amount: "0.0051201704489", currency: "USD", costBasis: "per_processed_pound", poundsPerUnit: null, costUsdPerProcessedPound: "0.005120170449", sortOrder: 0 },
+            { id: 2, category: "packaging", conceptName: "BOLSA", amount: "0.1085", costBasis: "per_unit", poundsPerUnit: "20.0000", costUsdPerProcessedPound: "0.005425", sortOrder: 1 },
+            { id: 1, category: "direct_labor", conceptName: "LAVADO", amount: "0.0051201704489", costBasis: "per_processed_pound", poundsPerUnit: null, costUsdPerProcessedPound: "0.005120170449", sortOrder: 0 },
         ],
         createdAt: new Date("2026-10-14T00:00:00Z"), updatedAt: new Date("2026-10-14T00:00:00Z"),
         ...overrides,
@@ -68,22 +68,22 @@ describe("createTransformation", () => {
 
         expect(sequelize.transaction).toHaveBeenCalledTimes(1)
         expect(sequelize.query).toHaveBeenCalledWith("SELECT pg_advisory_xact_lock(:namespace, :key)", expect.objectContaining({ transaction }))
-        expect(UnprocessedRawMaterial.create).toHaveBeenCalledWith({ code: "BAN-001", displayName: "BANANO", costPerPound: 0.52, costCurrency: "GTQ" }, { transaction })
+        expect(UnprocessedRawMaterial.create).toHaveBeenCalledWith({ code: "BAN-001", displayName: "BANANO", costPerPound: 0.06797385620915032 }, { transaction })
         expect(RawMaterial.create).toHaveBeenCalledWith(expect.objectContaining({
             code: "BAN-P-001", displayName: "BANANO PROCESADO", ingredientType: "fruit", costPerUnit: 0.1616, costUnitId: 4, urlSlug: expect.any(String),
         }), { transaction })
         expect(RawMaterialTranslation.create).toHaveBeenCalledWith({ rawMaterialId: 9, language: "en", displayName: "PROCESSED BANANA" }, { transaction })
         expect(RawMaterialTransformation.create).toHaveBeenCalledWith(expect.objectContaining({
-            unprocessedRawMaterialId: 3, processedRawMaterialId: 9, yieldPercentage: 45, exchangeRate: 7.65,
-            rawMaterialCostUsd: 0.151053013798, packagingCostUsd: 0.005424836601, processedCostUsd: 0.161598020848,
+            unprocessedRawMaterialId: 3, processedRawMaterialId: 9, yieldPercentage: 45, freightPerPound: 0,
+            rawMaterialCostUsd: 0.151053013798, packagingCostUsd: 0.005425, processedCostUsd: 0.161598184247,
         }), { transaction })
         expect(RawMaterialTransformationCost.bulkCreate).toHaveBeenCalledWith([
             expect.objectContaining({ transformationId: 5, conceptName: "LAVADO", sortOrder: 0, poundsPerUnit: null }),
-            expect.objectContaining({ transformationId: 5, conceptName: "BOLSA", sortOrder: 1, poundsPerUnit: 20, costUsdPerProcessedPound: 0.005424836601 }),
+            expect.objectContaining({ transformationId: 5, conceptName: "BOLSA", sortOrder: 1, poundsPerUnit: 20, costUsdPerProcessedPound: 0.005425 }),
         ], { transaction })
         expect(RawMaterialTransformation.findAll).not.toHaveBeenCalled()
         // Detalle con DECIMAL convertidos a número y costos ordenados por categoría.
-        expect(result.processedCostUsd).toBe(0.161598020848)
+        expect(result.processedCostUsd).toBe(0.161598184247)
         expect(result.processedNameEn).toBe("PROCESSED BANANA")
         expect(result.costs.map(cost => cost.conceptName)).toEqual(["LAVADO", "BOLSA"])
         expect(result.costs[1].poundsPerUnit).toBe(20)
@@ -109,25 +109,25 @@ describe("createTransformation", () => {
 
     test("an existing source with a new cost recalculates its sibling transformations and their catalog cost", async () => {
         // Como Sequelize, update() modifica la instancia: las hermanas leen el costo nuevo del origen.
-        const source: Record<string, unknown> = { id: 3, costPerPound: "0.400000000000", costCurrency: "GTQ" }
+        const source: Record<string, unknown> = { id: 3, costPerPound: "0.040000000000" }
         const update = jest.fn(async (values: Record<string, unknown>) => Object.assign(source, values))
         source.update = update
         m(UnprocessedRawMaterial.findOne).mockResolvedValue(source)
         const siblingUpdate = jest.fn()
         m(RawMaterialTransformation.findAll).mockResolvedValue([{
-            id: 2, processedRawMaterialId: 8, freightPerPound: "0", freightCurrency: "GTQ", yieldPercentage: "50", exchangeRate: "7.650000",
+            id: 2, processedRawMaterialId: 8, freightPerPound: "0", yieldPercentage: "50",
             costs: [], update: siblingUpdate,
         }])
         await service.createTransformation(input)
-        expect(update).toHaveBeenCalledWith(expect.objectContaining({ costPerPound: 0.52 }), { transaction })
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ costPerPound: 0.06797385620915032 }), { transaction })
         expect(UnprocessedRawMaterial.create).not.toHaveBeenCalled()
-        // Hermana: 0.52 / 7.65 / 0.5 (el origen ya actualizado).
+        // Hermana: 0.0679738... / 0.5 (el origen ya actualizado).
         expect(siblingUpdate).toHaveBeenCalledWith(expect.objectContaining({ processedCostUsd: 0.135947712418 }), { transaction })
         expect(RawMaterial.update).toHaveBeenCalledWith({ costPerUnit: 0.1359 }, { where: { id: 8 }, transaction })
     })
 
     test("an existing source with the same cost does not touch other transformations", async () => {
-        m(UnprocessedRawMaterial.findOne).mockResolvedValue({ id: 3, costPerPound: "0.520000000000", costCurrency: "GTQ", update: jest.fn() })
+        m(UnprocessedRawMaterial.findOne).mockResolvedValue({ id: 3, costPerPound: "0.06797385620915032", update: jest.fn() })
         await service.createTransformation(input)
         expect(RawMaterialTransformation.findAll).not.toHaveBeenCalled()
         expect(RawMaterial.update).not.toHaveBeenCalled()
@@ -154,7 +154,7 @@ describe("updateTransformation", () => {
         const rawMaterialUpdate = jest.fn()
         m(RawMaterialTransformation.findByPk).mockImplementation(async (_id: number, options?: { transaction?: unknown }) => (options?.transaction ? transformation : detailRow()))
         m(RawMaterial.findByPk).mockResolvedValue({ id: 9, update: rawMaterialUpdate })
-        m(UnprocessedRawMaterial.findOne).mockResolvedValue({ id: 3, costPerPound: "0.52", costCurrency: "GTQ", update: jest.fn() })
+        m(UnprocessedRawMaterial.findOne).mockResolvedValue({ id: 3, costPerPound: "0.06797385620915032", update: jest.fn() })
         const translationUpdate = jest.fn()
         m(RawMaterialTranslation.findOne).mockResolvedValue({ update: translationUpdate, destroy: jest.fn() })
 
@@ -192,7 +192,7 @@ describe("updateTransformation", () => {
 describe("previewTransformation", () => {
     test("only calculates; never opens a transaction or writes", () => {
         const result = service.previewTransformation(input)
-        expect(result.processedCostUsd).toBe(0.161598020848)
+        expect(result.processedCostUsd).toBe(0.161598184247)
         expect(sequelize.transaction).not.toHaveBeenCalled()
         expect(RawMaterial.create).not.toHaveBeenCalled()
     })

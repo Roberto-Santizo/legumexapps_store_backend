@@ -24,16 +24,16 @@ const { migrate, readPlan } = require("../../../../scripts/migrate.cjs")
 const banana: SaveRawMaterialTransformationInput = {
     unprocessedCode: "BAN-001", unprocessedName: "BANANO", processedCode: "BAN-P-001", processedName: "BANANO PROCESADO",
     processedNameEn: "PROCESSED BANANA", ingredientType: "fruit",
-    inputCostPerPound: 0.52, inputCurrency: "GTQ", freightPerPound: 0, freightCurrency: "GTQ", yieldPercentage: 45, exchangeRate: 7.65,
+    inputCostPerPound: 0.06797385620915032, freightPerPound: 0, yieldPercentage: 45,
     costs: [
-        { category: "direct_labor", conceptName: "LAVADO", amount: 0.0051201704489003295, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "direct_labor", conceptName: "RECORTE", amount: 0.04829557732917848, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "direct_labor", conceptName: "PROCESO", amount: 0.009125984810098001, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "packaging", conceptName: "BOLSA", amount: 0.005460526315789474, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "packaging", conceptName: "STICKER", amount: 0.0026315789473684214, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "other", conceptName: "ELECTRICIDAD", amount: 0, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "other", conceptName: "BUNKER O DIESEL", amount: 0, currency: "USD", costBasis: "per_processed_pound" },
-        { category: "other", conceptName: "SANITIZACIÓN", amount: 0.005, currency: "USD", costBasis: "per_processed_pound" },
+        { category: "direct_labor", conceptName: "LAVADO", amount: 0.0051201704489003295, costBasis: "per_processed_pound" },
+        { category: "direct_labor", conceptName: "RECORTE", amount: 0.04829557732917848, costBasis: "per_processed_pound" },
+        { category: "direct_labor", conceptName: "PROCESO", amount: 0.009125984810098001, costBasis: "per_processed_pound" },
+        { category: "packaging", conceptName: "BOLSA", amount: 0.005460526315789474, costBasis: "per_processed_pound" },
+        { category: "packaging", conceptName: "STICKER", amount: 0.0026315789473684214, costBasis: "per_processed_pound" },
+        { category: "other", conceptName: "ELECTRICIDAD", amount: 0, costBasis: "per_processed_pound" },
+        { category: "other", conceptName: "BUNKER O DIESEL", amount: 0, costBasis: "per_processed_pound" },
+        { category: "other", conceptName: "SANITIZACIÓN", amount: 0.005, costBasis: "per_processed_pound" },
     ],
 }
 
@@ -70,6 +70,43 @@ integration("raw material transformations — PostgreSQL", () => {
         if (database) await database.end()
         if (created) await owner.query(`DROP DATABASE "${databaseName}"`)
         if (owner) await owner.end()
+    })
+
+    test("the USD-only migration converts existing quetzal amounts with each transformation's stored exchange rate", async () => {
+        const name = `${databaseName}2`
+        await owner.query(`CREATE DATABASE "${name}"`)
+        const url = new URL(process.env.TEST_DATABASE_URL!)
+        url.pathname = `/${name}`
+        const legacy = new PgClient({ connectionString: url.toString() })
+        try {
+            await legacy.connect()
+            const plan = await readPlan()
+            await migrate(legacy, plan.filter((item: { version: string }) => item.version < "202610150001"))
+            await legacy.query(`INSERT INTO units (id, "isActive", "unitCode", "displayName", "unitType", "baseFactor", "createdAt", "updatedAt") VALUES (1, true, 'lb', 'LB', 'weight', 453.592, now(), now())`)
+            await legacy.query(`INSERT INTO "rawMaterials" (id, "isActive", code, "displayName", "urlSlug", "ingredientType", "costPerUnit", "costUnitId", "createdAt", "updatedAt") VALUES (1, true, 'BAN-P', 'BANANO P', 'banano-p', 'fruit', 0.2267, 1, now(), now())`)
+            await legacy.query(`INSERT INTO "unprocessedRawMaterials" (id, code, "displayName", "costPerPound", "costCurrency", "createdAt", "updatedAt") VALUES (1, 'BAN', 'BANANO', 0.52, 'GTQ', now(), now())`)
+            await legacy.query(`INSERT INTO "rawMaterialTransformations" (id, "unprocessedRawMaterialId", "processedRawMaterialId", "freightPerPound", "freightCurrency", "yieldPercentage", "exchangeRate",
+                "inputCostUsdPerPound", "freightUsdPerPound", "rawMaterialCostUsd", "directLaborCostUsd", "packagingCostUsd", "otherCostUsd", "processedCostUsd", "createdAt", "updatedAt")
+                VALUES (1, 1, 1, 0.1, 'GTQ', 45, 8, 0.065, 0.0125, 0.172222222222, 0.01, 0.0005, 0.002, 0.184722222222, now(), now())`)
+            await legacy.query(`INSERT INTO "rawMaterialTransformationCosts" ("transformationId", category, "conceptName", amount, currency, "costBasis", "poundsPerUnit", "costUsdPerProcessedPound", "sortOrder", "createdAt", "updatedAt") VALUES
+                (1, 'packaging', 'BOLSA', 0.8, 'GTQ', 'per_unit', 20, 0.005, 0, now(), now()),
+                (1, 'direct_labor', 'LAVADO', 0.01, 'USD', 'per_processed_pound', NULL, 0.01, 1, now(), now())`)
+            await migrate(legacy, plan)
+            const source = (await legacy.query('SELECT * FROM "unprocessedRawMaterials"')).rows[0]
+            const transformation = (await legacy.query('SELECT * FROM "rawMaterialTransformations"')).rows[0]
+            const costs = (await legacy.query('SELECT "conceptName", amount FROM "rawMaterialTransformationCosts" ORDER BY "sortOrder"')).rows
+            expect(source.costPerPound).toBe("0.065000000000")
+            expect(source).not.toHaveProperty("costCurrency")
+            expect(transformation.freightPerPound).toBe("0.012500000000")
+            expect(transformation).not.toHaveProperty("exchangeRate")
+            expect(transformation.processedCostUsd).toBe("0.184722222222")
+            expect(costs).toEqual([{ conceptName: "BOLSA", amount: "0.100000000000" }, { conceptName: "LAVADO", amount: "0.010000000000" }])
+            const types = await legacy.query("SELECT typname FROM pg_type WHERE typname LIKE 'enum_%urrency'")
+            expect(types.rows).toEqual([])
+        } finally {
+            await legacy.end()
+            await owner.query(`DROP DATABASE "${name}"`)
+        }
     })
 
     test("the migrated schema matches every Sequelize model (startup readiness check)", async () => {
@@ -118,15 +155,15 @@ integration("raw material transformations — PostgreSQL", () => {
 
     test("one source feeds several processed raw materials; a new source cost recalculates the others", async () => {
         const first = await service.createTransformation(banana)
-        const second = await service.createTransformation({ ...banana, processedCode: "BAN-R-001", processedName: "BANANO RODAJAS", inputCostPerPound: 0.6, yieldPercentage: 50, costs: [] })
+        const second = await service.createTransformation({ ...banana, processedCode: "BAN-R-001", processedName: "BANANO RODAJAS", inputCostPerPound: 0.078431, yieldPercentage: 50, costs: [] })
         expect(await count("unprocessedRawMaterials")).toBe(1)
         expect(second.siblingCount).toBe(1)
         const reloaded = await service.getTransformationById(first.id)
-        // 0.60 / 7.65 / 0.45 + 0.0756338... : el origen compartido cambió y la primera se recalculó.
-        expect(reloaded.inputCostPerPound).toBe(0.6)
-        expect(reloaded.processedCostUsd).toBe(0.249925776849)
+        // 0.078431 / 0.45 + 0.0756338... : el origen compartido cambió y la primera se recalculó.
+        expect(reloaded.inputCostPerPound).toBe(0.078431)
+        expect(reloaded.processedCostUsd).toBe(0.249924948962)
         expect(reloaded.catalogCostPerPound).toBe(0.2499)
-        expect(second.processedCostUsd).toBe(0.156862745098)
+        expect(second.processedCostUsd).toBe(0.156862)
     })
 
     test("edit recalculates and updates the SAME catalog row; cost lines are replaced; no duplicate", async () => {
@@ -190,7 +227,7 @@ integration("raw material transformations — PostgreSQL", () => {
         await expect(database.query(`UPDATE "rawMaterialTransformationCosts" SET "poundsPerUnit" = NULL, "costBasis" = 'per_unit'`)).rejects.toMatchObject({ code: "23514" })
         await expect(database.query(`DELETE FROM "rawMaterials" WHERE id = ${created.processedRawMaterialId}`)).rejects.toMatchObject({ code: "23503" })
         await expect(database.query('DELETE FROM "unprocessedRawMaterials"')).rejects.toMatchObject({ code: "23503" })
-        await expect(database.query(`INSERT INTO "unprocessedRawMaterials" (code, "displayName", "costPerPound", "costCurrency", "createdAt", "updatedAt") VALUES ('ban-001', 'X', 1, 'USD', now(), now())`)).rejects.toMatchObject({ code: "23505" })
+        await expect(database.query(`INSERT INTO "unprocessedRawMaterials" (code, "displayName", "costPerPound", "createdAt", "updatedAt") VALUES ('ban-001', 'X', 1, now(), now())`)).rejects.toMatchObject({ code: "23505" })
         await database.query(`DELETE FROM "rawMaterialTransformations" WHERE id = ${created.id}`)
         expect(await count("rawMaterialTransformationCosts")).toBe(0)
     })

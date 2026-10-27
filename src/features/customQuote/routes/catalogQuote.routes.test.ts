@@ -1,6 +1,7 @@
 jest.mock("../../../config/env", () => ({ env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" } }))
 jest.mock("../services/catalogQuoteDiscovery.service", () => ({ discoverCatalog: jest.fn() }))
 jest.mock("../services/catalogQuote.service", () => ({ previewCatalogQuote: jest.fn(), confirmCatalogQuote: jest.fn() }))
+jest.mock("../../quoteOrder/services/representativeQuoteAccess.service", () => ({ requireRepresentativeOrder: jest.fn(async (_id, order) => order) }))
 import request from "supertest"
 import jwt from "jsonwebtoken"
 import { buildTestApp } from "../../../shared/test-utils/testApp"
@@ -10,7 +11,7 @@ import { previewCatalogQuote, confirmCatalogQuote } from "../services/catalogQuo
 import { AppError } from "../../../shared/errors/AppError"
 const app = buildTestApp("/api/custom-quotes", router)
 const token = `Bearer ${jwt.sign({ sub: 42, type: "customer" }, "test-secret")}`
-const input = { categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", isOrganic: false, requestedPallets: 1, rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }
+const input = { categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", requestedPallets: 1, rawMaterialMix: [{ rawMaterialId: 1, percentage: 100 }] }
 it.each(["configurations", "catalog-preview", "catalog-confirm"])("requires salesperson authentication for %s", async path => {
     const res = path === "configurations" ? await request(app).get(`/api/custom-quotes/${path}`) : await request(app).post(`/api/custom-quotes/${path}`).send(input)
     expect(res.status).toBe(401)

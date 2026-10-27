@@ -4,12 +4,18 @@ import RepresentativeClient from "./RepresentativeClient.model"
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel"
 
 // tableName explícito: la tabla física sigue siendo "customers" (la feature se renombró solo en
-// código, sin migración de datos).
+// código, sin cambios de datos).
 @Table({
     tableName: "customers"
 })
 class Salesperson extends BaseCatalogModel {
-    @BelongsToMany(() => Client, { through: () => RepresentativeClient, foreignKey: "representativeId", otherKey: "clientId", onDelete: "RESTRICT", onUpdate: "CASCADE" })
+    @BelongsToMany(() => Client, {
+        through: () => RepresentativeClient,
+        foreignKey: "representativeId",
+        otherKey: "clientId",
+        onDelete: "RESTRICT",
+        onUpdate: "CASCADE"
+    })
     declare assignedClients: Client[]
 
     @Column({

@@ -2,6 +2,7 @@ import { Op } from "sequelize"
 import Decimal from "decimal.js"
 import Quote from "../../quote/models/Quote.model"
 import Salesperson from "../../salesperson/models/Salesperson.model"
+import User from "../../accessControl/user/models/User.model"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
 import ProductTranslation from "../../product/models/ProductTranslation.model"
@@ -51,11 +52,15 @@ interface DashboardTopProduct {
     totalRevenue: number
 }
 
+// Autor de las cotizaciones: un representante o, si la guardó el cotizador del admin, el usuario staff
+// (salespersonId null, userId con valor, isAdmin true).
 interface DashboardTopSalesperson {
-    salespersonId: number
+    salespersonId: number | null
+    userId: number | null
+    isAdmin: boolean
     name: string
     companyName: string | null
-    email: string
+    email: string | null
     quoteCount: number
     totalPallets: number
     totalRevenue: number
@@ -86,7 +91,8 @@ function buildOverview(quotes: Quote[]): DashboardOverview {
     const totalRevenue = sumMoney(quotes.map(quote => Number(quote.totalCost)))
     const totalPallets = quotes.reduce((sum, quote) => sum + Number(quote.requestedPallets), 0)
     const totalUnits = quotes.reduce((sum, quote) => sum + Number(quote.totalUnits), 0)
-    const uniqueSalespeople = new Set(quotes.map(quote => quote.salespersonId)).size
+    // Solo representantes: las cotizaciones guardadas por el admin suman al total, no a este conteo.
+    const uniqueSalespeople = new Set(quotes.flatMap(quote => quote.salespersonId == null ? [] : [quote.salespersonId])).size
 
     return {
         totalQuotes,
@@ -168,26 +174,37 @@ function buildTopProducts(quotes: Quote[]): DashboardTopProduct[] {
 
 type SalespersonAccumulator = Omit<DashboardTopSalesperson, "totalRevenue"> & { totalRevenue: Decimal }
 
+function authorEntry(quote: Quote): { key: string; entry: SalespersonAccumulator } | null {
+    const base = { quoteCount: 0, totalPallets: 0, totalRevenue: new Decimal(0) }
+    const salesperson = quote.quotingSalesperson
+    if (salesperson) {
+        return {
+            key: `salesperson:${salesperson.id}`,
+            entry: { salespersonId: salesperson.id, userId: null, isAdmin: false, name: salesperson.name, companyName: salesperson.companyName ?? null, email: salesperson.email, ...base },
+        }
+    }
+    const user = quote.quotingUser
+    if (user) {
+        return {
+            key: `user:${user.id}`,
+            entry: { salespersonId: null, userId: user.id, isAdmin: true, name: user.name, companyName: null, email: null, ...base },
+        }
+    }
+    return null
+}
+
 function buildTopSalespeople(quotes: Quote[]): DashboardTopSalesperson[] {
-    const bySalesperson = new Map<number, SalespersonAccumulator>()
+    const bySalesperson = new Map<string, SalespersonAccumulator>()
 
     for (const quote of quotes) {
-        const salesperson = quote.quotingSalesperson
-        if (!salesperson) continue
+        const author = authorEntry(quote)
+        if (!author) continue
 
-        const entry = bySalesperson.get(salesperson.id) ?? {
-            salespersonId: salesperson.id,
-            name: salesperson.name,
-            companyName: salesperson.companyName ?? null,
-            email: salesperson.email,
-            quoteCount: 0,
-            totalPallets: 0,
-            totalRevenue: new Decimal(0),
-        }
+        const entry = bySalesperson.get(author.key) ?? author.entry
         entry.quoteCount += 1
         entry.totalPallets += Number(quote.requestedPallets)
         entry.totalRevenue = entry.totalRevenue.plus(quote.totalCost)
-        bySalesperson.set(salesperson.id, entry)
+        bySalesperson.set(author.key, entry)
     }
 
     return Array.from(bySalesperson.values())
@@ -281,6 +298,7 @@ async function getSummary(
         where: createdAtFilter ? { createdAt: createdAtFilter } : {},
         include: [
             { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] },
+            { model: User, as: "quotingUser", attributes: ["id", "name"] },
             {
                 model: ProductVariant,
                 as: "quotedVariant",

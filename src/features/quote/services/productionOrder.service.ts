@@ -1,20 +1,28 @@
 import Quote from "../models/Quote.model"
 import CustomQuote from "../../customQuote/models/CustomQuote.model"
 import Salesperson from "../../salesperson/models/Salesperson.model"
-import type { QuoteOrderIdentity } from "../schemas/quoteOrder.schema"
+import User from "../../accessControl/user/models/User.model"
+import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
 import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
 
-// Group by representative, customer and order UUID. Never infer an order from dates or product names.
+// Fixed quotes saved from the admin calculator have a staff user as author instead of a representative.
+function quoteAuthor(quote: Record<string, any>): { key: string; salesperson: { id: number; name: string; isAdmin?: true } } {
+    if (quote.createdByUserId != null) return { key: `user:${quote.createdByUserId}`, salesperson: { id: quote.createdByUserId, name: quote.quotingUser?.name ?? "", isAdmin: true } }
+    return { key: String(quote.salespersonId), salesperson: quote.quotingSalesperson ?? quote.requestingSalesperson ?? { id: quote.salespersonId, name: "" } }
+}
+
+// Group by author, customer and order UUID. Never infer an order from dates or product names.
 export function groupProductionOrders(rows: { kind: "fixed" | "customizable"; quote: Record<string, any> }[]) {
-    const groups = new Map<string, { id: string; clientName: string; salesperson: { id: number; name: string }; createdAt: string; lines: Record<string, any>[] }>()
+    const groups = new Map<string, { id: string; clientName: string; salesperson: { id: number; name: string; isAdmin?: true }; createdAt: string; lines: Record<string, any>[] }>()
     for (const { kind, quote } of rows) {
         const order = quote.breakdown?.order as QuoteOrderIdentity | undefined
-        const key = order ? `${quote.salespersonId}:${order.id}:${order.clientName}` : `${kind}:${quote.id}`
+        const author = quoteAuthor(quote)
+        const key = order ? `${author.key}:${order.id}:${order.clientId ?? "new-or-legacy"}:${order.clientName}` : `${kind}:${quote.id}`
         const createdAt = new Date(quote.createdAt).toISOString()
         let group = groups.get(key)
         if (!group) {
-            group = { id: order?.id ?? `${kind}-${quote.id}`, clientName: order?.clientName ?? "", salesperson: quote.quotingSalesperson ?? quote.requestingSalesperson ?? { id: quote.salespersonId, name: "" }, createdAt, lines: [] }
+            group = { id: order?.id ?? `${kind}-${quote.id}`, clientName: order?.clientName ?? "", salesperson: author.salesperson, createdAt, lines: [] }
             groups.set(key, group)
         }
         if (createdAt < group.createdAt) group.createdAt = createdAt
@@ -24,7 +32,10 @@ export function groupProductionOrders(rows: { kind: "fixed" | "customizable"; qu
 }
 
 export async function listProductionOrders(filters: AdminQuoteListQuery = {}) {
-    const include = [{ model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name"] }]
+    const include = [
+        { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name"] },
+        { model: User, as: "quotingUser", attributes: ["id", "name"] },
+    ]
     const [fixed, custom] = await Promise.all([
         Quote.findAll({ include, order: [["createdAt", "ASC"]] }),
         CustomQuote.findAll({ include: [{ model: Salesperson, as: "requestingSalesperson", attributes: ["id", "name"] }], order: [["createdAt", "ASC"]] }),

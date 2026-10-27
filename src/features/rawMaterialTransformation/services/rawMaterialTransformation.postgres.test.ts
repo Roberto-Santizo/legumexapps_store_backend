@@ -1,5 +1,5 @@
 // Opt-in real PostgreSQL integration (scripts/test-postgres.cjs only). Uses its own database inside
-// the harness's newly-created loopback cluster, built from the full SQL migration chain.
+// the harness's newly-created loopback cluster, built from the all Sequelize models and PostgreSQL complements.
 jest.mock("../../../config/env", () => {
     const raw = process.env.TEST_DATABASE_URL
     let databaseUrl = "postgres://unused:unused@127.0.0.1:1/unused"
@@ -19,7 +19,7 @@ import { rawMaterialService } from "../../rawMaterial/services/rawMaterial.servi
 import RawMaterialTransformationCost from "../models/RawMaterialTransformationCost.model"
 import type { SaveRawMaterialTransformationInput } from "../schemas/rawMaterialTransformation.schema"
 const { Client: PgClient } = require("pg")
-const { migrate, readPlan } = require("../../../../scripts/migrate.cjs")
+import { createDatabaseSchema } from "../../../database/schemaCreation"
 
 const banana: SaveRawMaterialTransformationInput = {
     unprocessedCode: "BAN-001", unprocessedName: "BANANO", processedCode: "BAN-P-001", processedName: "BANANO PROCESADO",
@@ -57,7 +57,7 @@ integration("raw material transformations — PostgreSQL", () => {
         url.pathname = `/${databaseName}`
         database = new PgClient({ connectionString: url.toString() })
         await database.connect()
-        await migrate(database, await readPlan())
+        await sequelize.transaction(transaction => createDatabaseSchema(sequelize,transaction))
         // Test URL controls TLS; local temporary PostgreSQL has no TLS configured.
         sequelize.addHook("beforeConnect", (config: any) => { config.dialectOptions = {} })
         await sequelize.authenticate()
@@ -70,46 +70,13 @@ integration("raw material transformations — PostgreSQL", () => {
         if (database) await database.end()
         if (created) await owner.query(`DROP DATABASE "${databaseName}"`)
         if (owner) await owner.end()
-    })
+    }, 30000) // Owned database cleanup may checkpoint beyond the unit-test timeout.
 
-    test("the USD-only migration converts existing quetzal amounts with each transformation's stored exchange rate", async () => {
-        const name = `${databaseName}2`
-        await owner.query(`CREATE DATABASE "${name}"`)
-        const url = new URL(process.env.TEST_DATABASE_URL!)
-        url.pathname = `/${name}`
-        const legacy = new PgClient({ connectionString: url.toString() })
-        try {
-            await legacy.connect()
-            const plan = await readPlan()
-            await migrate(legacy, plan.filter((item: { version: string }) => item.version < "202610150001"))
-            await legacy.query(`INSERT INTO units (id, "isActive", "unitCode", "displayName", "unitType", "baseFactor", "createdAt", "updatedAt") VALUES (1, true, 'lb', 'LB', 'weight', 453.592, now(), now())`)
-            await legacy.query(`INSERT INTO "rawMaterials" (id, "isActive", code, "displayName", "urlSlug", "ingredientType", "costPerUnit", "costUnitId", "createdAt", "updatedAt") VALUES (1, true, 'BAN-P', 'BANANO P', 'banano-p', 'fruit', 0.2267, 1, now(), now())`)
-            await legacy.query(`INSERT INTO "unprocessedRawMaterials" (id, code, "displayName", "costPerPound", "costCurrency", "createdAt", "updatedAt") VALUES (1, 'BAN', 'BANANO', 0.52, 'GTQ', now(), now())`)
-            await legacy.query(`INSERT INTO "rawMaterialTransformations" (id, "unprocessedRawMaterialId", "processedRawMaterialId", "freightPerPound", "freightCurrency", "yieldPercentage", "exchangeRate",
-                "inputCostUsdPerPound", "freightUsdPerPound", "rawMaterialCostUsd", "directLaborCostUsd", "packagingCostUsd", "otherCostUsd", "processedCostUsd", "createdAt", "updatedAt")
-                VALUES (1, 1, 1, 0.1, 'GTQ', 45, 8, 0.065, 0.0125, 0.172222222222, 0.01, 0.0005, 0.002, 0.184722222222, now(), now())`)
-            await legacy.query(`INSERT INTO "rawMaterialTransformationCosts" ("transformationId", category, "conceptName", amount, currency, "costBasis", "poundsPerUnit", "costUsdPerProcessedPound", "sortOrder", "createdAt", "updatedAt") VALUES
-                (1, 'packaging', 'BOLSA', 0.8, 'GTQ', 'per_unit', 20, 0.005, 0, now(), now()),
-                (1, 'direct_labor', 'LAVADO', 0.01, 'USD', 'per_processed_pound', NULL, 0.01, 1, now(), now())`)
-            await migrate(legacy, plan)
-            const source = (await legacy.query('SELECT * FROM "unprocessedRawMaterials"')).rows[0]
-            const transformation = (await legacy.query('SELECT * FROM "rawMaterialTransformations"')).rows[0]
-            const costs = (await legacy.query('SELECT "conceptName", amount FROM "rawMaterialTransformationCosts" ORDER BY "sortOrder"')).rows
-            expect(source.costPerPound).toBe("0.065000000000")
-            expect(source).not.toHaveProperty("costCurrency")
-            expect(transformation.freightPerPound).toBe("0.012500000000")
-            expect(transformation).not.toHaveProperty("exchangeRate")
-            expect(transformation.processedCostUsd).toBe("0.184722222222")
-            expect(costs).toEqual([{ conceptName: "BOLSA", amount: "0.100000000000" }, { conceptName: "LAVADO", amount: "0.010000000000" }])
-            const types = await legacy.query("SELECT typname FROM pg_type WHERE typname LIKE 'enum_%urrency'")
-            expect(types.rows).toEqual([])
-        } finally {
-            await legacy.end()
-            await owner.query(`DROP DATABASE "${name}"`)
-        }
+    test("new schema stores USD directly and excludes legacy conversion columns", async () => {
+        const columns=(await database.query("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name IN ('unprocessedRawMaterials','rawMaterialTransformations','rawMaterialTransformationCosts')")).rows.map((row:any)=>row.column_name)
+        for(const name of ['costCurrency','freightCurrency','exchangeRate','currency']) expect(columns).not.toContain(name)
     })
-
-    test("the migrated schema matches every Sequelize model (startup readiness check)", async () => {
+    test("the created schema matches every Sequelize model (startup readiness check)", async () => {
         await database.query("BEGIN READ ONLY")
         try { await assertSchemaReady(database, sequelize) } finally { await database.query("ROLLBACK") }
     })

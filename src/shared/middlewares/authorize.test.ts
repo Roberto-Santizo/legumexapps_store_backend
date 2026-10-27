@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express"
-import { authorize } from "./authorize"
+import { authorize, authorizeWhen } from "./authorize"
 
 const res = {} as Response
 
@@ -46,5 +46,18 @@ describe("authorize", () => {
         authorize("quotes:view")(fakeReq({ permissions: [] }), res, next)
 
         expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }))
+    })
+})
+
+describe("authorizeWhen", () => {
+    it("solo exige el permiso cuando la condición aplica", () => {
+        const next = jest.fn() as unknown as NextFunction
+        const middleware = authorizeWhen(req => Boolean(req.body?.clientIds), "clients:view")
+        middleware({ user: { permissions: [] }, body: {} } as unknown as Request, res, next)
+        expect(next).toHaveBeenLastCalledWith()
+        middleware({ user: { permissions: [] }, body: { clientIds: [2] } } as unknown as Request, res, next)
+        expect(next).toHaveBeenLastCalledWith(expect.objectContaining({ statusCode: 403 }))
+        middleware({ user: { permissions: ["clients:view"] }, body: { clientIds: [2] } } as unknown as Request, res, next)
+        expect(next).toHaveBeenLastCalledWith()
     })
 })

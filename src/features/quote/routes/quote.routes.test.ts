@@ -1,3 +1,5 @@
+jest.mock("../../salesperson/services/representativeClient.service", () => ({ representativeClientService: { authorizedClientIds: jest.fn().mockResolvedValue([11, 12]) } }))
+jest.mock("../../quoteOrder/services/representativeQuoteAccess.service", () => ({ requireRepresentativeVariantAccess: jest.fn().mockResolvedValue(undefined), requireRepresentativeOrder: jest.fn(async (_id, order) => order) }))
 // Pruebas de contrato HTTP: levantan la app real (json -> i18n -> quoteRouter -> errorHandler)
 // con supertest, sin tocar base de datos. Complementan a quote.service.test.ts -- ahí se
 // prueba la matemática; acá se prueba que las rutas estén cableadas con el middleware
@@ -5,8 +7,8 @@
 jest.mock("../../../config/env", () => ({
     env: { jwtSecret: "test-secret", jwtExpiresIn: "1h" }
 }))
-jest.mock("../services/quote.service", () => ({
-    quoteService: {
+jest.mock("../services/fixedQuote.service", () => ({
+    fixedQuoteService: {
         calculateQuote: jest.fn(),
         listQuotableProducts: jest.fn(),
         listQuoteDestinations: jest.fn(),
@@ -25,10 +27,12 @@ import request from "supertest"
 import jwt from "jsonwebtoken"
 import { buildTestApp } from "../../../shared/test-utils/testApp"
 import quoteRouter from "./quote.routes"
-import { quoteService } from "../services/quote.service"
+import { fixedQuoteService as quoteService } from "../services/fixedQuote.service"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { emailService } from "../../../shared/services/email.service"
 import { AppError } from "../../../shared/errors/AppError"
+import { representativeClientService } from "../../salesperson/services/representativeClient.service"
+import { requireRepresentativeVariantAccess } from "../../quoteOrder/services/representativeQuoteAccess.service"
 
 const app = buildTestApp("/api/quotes", quoteRouter)
 
@@ -60,10 +64,11 @@ describe("quoteRouter (HTTP)", () => {
         it("200 con la lista que devuelve el service, para un token de cliente válido", async () => {
             (quoteService.listQuotableProducts as jest.Mock).mockResolvedValue([{ id: 1, displayName: "Piña" }])
 
-            const res = await request(app).get("/api/quotes/products").set("Authorization", `Bearer ${salespersonToken}`)
+            const res = await request(app).get("/api/quotes/products?clientId=11").set("Authorization", `Bearer ${salespersonToken}`)
 
             expect(res.status).toBe(200)
             expect(res.body).toEqual({ data: [{ id: 1, displayName: "Piña" }] })
+            expect(quoteService.listQuotableProducts).toHaveBeenCalledWith(expect.any(String), [11])
         })
     })
 
@@ -409,5 +414,26 @@ describe("quoteRouter (HTTP)", () => {
             expect(res.status).toBe(401)
             expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
         })
+    })
+})
+
+describe("representative client scope", () => {
+    it("checks current assignments on catalog requests", async () => {
+        jest.mocked(representativeClientService.authorizedClientIds).mockResolvedValueOnce([])
+        jest.mocked(quoteService.listQuotableProducts).mockClear()
+        const response = await request(app).get("/api/quotes/products?clientId=11").set("Authorization", `Bearer ${salespersonToken}`)
+        expect(response.status).toBe(403)
+        expect(quoteService.listQuotableProducts).not.toHaveBeenCalled()
+    })
+    it.each(["/api/quotes/preview", "/api/quotes"])("denies an unassigned variant at %s before calculation, drafts or persistence", async endpoint => {
+        jest.mocked(requireRepresentativeVariantAccess).mockRejectedValueOnce(new AppError(403, "errors.forbidden"))
+        jest.mocked(quoteService.calculateQuote).mockClear()
+        jest.mocked(quoteService.saveQuote).mockClear()
+        jest.mocked(quoteDraftService.upsertFromCalculation).mockClear()
+        const res = await request(app).post(endpoint).set("Authorization", `Bearer ${salespersonToken}`).send(validQuoteBody)
+        expect(res.status).toBe(403)
+        expect(quoteService.calculateQuote).not.toHaveBeenCalled()
+        expect(quoteService.saveQuote).not.toHaveBeenCalled()
+        expect(quoteDraftService.upsertFromCalculation).not.toHaveBeenCalled()
     })
 })

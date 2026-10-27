@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs"
 import { Op, WhereOptions } from "sequelize"
 import { CreateUserInput, UpdateUserInput } from "../schemas/user.schema";
-import User from "../models/user.model"
+import User from "../models/User.model"
 import { NotFoundError } from "../../../../shared/errors/AppError";
 import { paginate, PaginatedResult, PaginationParams } from "../../../../shared/utils/pagination.util";
 

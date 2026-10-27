@@ -1,5 +1,5 @@
 import { Table, Column, DataType, ForeignKey, BelongsTo } from 'sequelize-typescript'
-import Role from '../../roles/models/role.model'
+import Role from '../../roles/models/Role.model'
 import BaseCatalogModel from '../../../../shared/base-model/BaseCatalogModel'
 
 @Table({
@@ -7,7 +7,7 @@ import BaseCatalogModel from '../../../../shared/base-model/BaseCatalogModel'
 })
 class User extends BaseCatalogModel {
     @Column({
-        type: DataType.STRING(100),
+        type: DataType.STRING(100)
     })
     declare name: string
 
@@ -18,13 +18,13 @@ class User extends BaseCatalogModel {
     declare username: string
 
     @Column({
-        type: DataType.STRING,
+        type: DataType.STRING
     })
     declare password: string
 
     @ForeignKey(() => Role)
     @Column({
-        type: DataType.INTEGER,
+        type: DataType.INTEGER
     })
     declare role_id: number
 

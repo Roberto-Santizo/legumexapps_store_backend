@@ -39,7 +39,10 @@ class SubCategory extends BaseCatalogModel {
     })
     declare fullDescription: string
 
-    @Column({ type: DataType.STRING(500), allowNull: true })
+    @Column({
+        type: DataType.STRING(500),
+        allowNull: true
+    })
     declare imageUrl: string | null
 
     @BelongsTo(() => Category, "categoryId")

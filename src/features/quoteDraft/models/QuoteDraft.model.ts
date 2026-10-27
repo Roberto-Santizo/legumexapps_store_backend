@@ -10,8 +10,8 @@ import Quote from "../../quote/models/Quote.model";
 // cotización, y el servidor SIEMPRE lo acota al representante del JWT.
 // "Abandonada" no es un status guardado: se deriva al leer (in_progress + updatedAt > 24h, ver
 // quoteDraft.constant.ts). Las convertidas se conservan (ratio de conversión futuro), el listado las oculta.
-export const QUOTE_DRAFT_STATUSES = ["in_progress", "converted"] as const;
-export type QuoteDraftStatus = typeof QUOTE_DRAFT_STATUSES[number];
+const QUOTE_DRAFT_STATUSES = ["in_progress", "converted"] as const;
+type QuoteDraftStatus = typeof QUOTE_DRAFT_STATUSES[number];
 
 @Table({
     tableName: "quoteDrafts",

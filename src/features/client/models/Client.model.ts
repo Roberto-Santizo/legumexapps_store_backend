@@ -8,7 +8,13 @@ import Product from "../../product/models/Product.model"
     tableName: "clients"
 })
 class Client extends BaseCatalogModel {
-    @BelongsToMany(() => Salesperson, { through: () => RepresentativeClient, foreignKey: "clientId", otherKey: "representativeId", onDelete: "RESTRICT", onUpdate: "CASCADE" })
+    @BelongsToMany(() => Salesperson, {
+        through: () => RepresentativeClient,
+        foreignKey: "clientId",
+        otherKey: "representativeId",
+        onDelete: "RESTRICT",
+        onUpdate: "CASCADE"
+    })
     declare representatives: Salesperson[]
 
     @Column({

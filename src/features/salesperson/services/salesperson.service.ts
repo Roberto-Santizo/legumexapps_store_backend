@@ -4,6 +4,7 @@ import { CreateSalespersonInput, UpdateSalespersonInput } from "../schemas/sales
 import Salesperson from "../models/Salesperson.model"
 import { NotFoundError } from "../../../shared/errors/AppError"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
+import { representativeClientService } from "./representativeClient.service"
 
 const PASSWORD_SALT_ROUNDS = 10
 
@@ -29,10 +30,17 @@ async function getSalespersonById(id: number): Promise<Salesperson> {
     return salesperson
 }
 
+// The representative and its initial clients are saved together: if a client is invalid, nothing is created.
 async function createSalesperson(input: CreateSalespersonInput): Promise<Salesperson> {
-    const hashedPassword = await bcrypt.hash(input.password, PASSWORD_SALT_ROUNDS)
-    const salesperson = await Salesperson.create({ ...input, password: hashedPassword })
-    return getSalespersonById(salesperson.id)
+    const { clientIds, assignAllClients, ...fields } = input
+    const hashedPassword = await bcrypt.hash(fields.password, PASSWORD_SALT_ROUNDS)
+    const id = await Salesperson.sequelize!.transaction(async transaction => {
+        const salesperson = await Salesperson.create({ ...fields, password: hashedPassword }, { transaction })
+        const clients = assignAllClients ? "all" : clientIds
+        if (clients) await representativeClientService.addClients(salesperson.id, clients, transaction)
+        return salesperson.id
+    })
+    return getSalespersonById(id)
 }
 
 async function updateSalesperson(id: number, input: UpdateSalespersonInput): Promise<Salesperson> {

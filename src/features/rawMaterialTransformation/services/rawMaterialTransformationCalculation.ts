@@ -24,7 +24,7 @@ export interface TransformationCalculationInput {
     costs: TransformationCostInput[]
 }
 
-export interface TransformationCostLineResult {
+interface TransformationCostLineResult {
     costUsdPerProcessedPound: number
 }
 

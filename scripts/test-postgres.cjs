@@ -10,7 +10,12 @@ const { spawnSync } = require("node:child_process")
 const repository = path.resolve(__dirname, "..")
 const frontend = path.resolve(repository, "../frontendLegumexStore")
 const suites = [
-    "src/database/rebuild.postgres.test.ts",
+    "src/database/developmentSync.postgres.test.ts",
+    "src/database/schemaSync.postgres.test.ts",
+    "src/database/bootstrap.postgres.test.ts",
+    "src/database/currentSchema.postgres.test.ts",
+    "src/features/genericPackaging/services/genericPackaging.postgres.test.ts",
+    "src/database/application.postgres.test.ts",
     "src/features/packaging/services/packagingClassification.postgres.test.ts",
     "src/features/salesperson/services/representativeClient.postgres.test.ts",
     "src/features/rawMaterialTransformation/services/rawMaterialTransformation.postgres.test.ts",
@@ -24,7 +29,7 @@ function contained(candidate, root) {
 function argumentsOf(args) {
     const options = {}
     for (let i = 0; i < args.length; i += 2) {
-        if (!["--postgres-bin", "--artifacts"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--") || options[args[i]]) {
+        if (!["--postgres-bin", "--artifacts", "--suite"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--") || options[args[i]]) {
             throw new Error("Usage: node scripts/test-postgres.cjs --postgres-bin <directory> --artifacts <new directory outside both repositories>")
         }
         options[args[i]] = args[i + 1]
@@ -74,11 +79,13 @@ function verifyPidFile(data, port, expectedPid) {
 
 async function main(args = process.argv.slice(2)) {
     const options = argumentsOf(args)
+    const selectedSuites = options["--suite"] ? suites.filter(suite => suite === options["--suite"]) : suites
+    if (!selectedSuites.length) throw new Error("Unknown isolated integration suite")
     const artifacts = artifactDirectory(options["--artifacts"])
     const binaries = fs.realpathSync(options["--postgres-bin"])
     const executable = name => path.join(binaries, `${name}${process.platform === "win32" ? ".exe" : ""}`)
     for (const name of ["initdb", "pg_ctl"]) if (!fs.existsSync(executable(name))) throw new Error(`Missing PostgreSQL binary: ${name}`)
-    for (const suite of suites) if (!fs.existsSync(path.join(repository, suite))) throw new Error(`Missing integration suite: ${suite}`)
+    for (const suite of selectedSuites) if (!fs.existsSync(path.join(repository, suite))) throw new Error(`Missing integration suite: ${suite}`)
     const id = crypto.randomUUID().replace(/-/g, "")
     const owner = `test_owner_${id}`
     const app = `test_app_${id}`
@@ -137,10 +144,10 @@ async function main(args = process.argv.slice(2)) {
             JWT_SECRET: crypto.randomBytes(32).toString("hex"), JWT_EXPIRES_IN: "8h", SERVER_PORT: "4000",
             AWS_REGION: "us-east-1", AWS_ACCESS_KEY_ID: "isolated-test", AWS_SECRET_ACCESS_KEY: "isolated-test", AWS_S3_BUCKET_NAME: "isolated-test",
             MICROSOFT_TENANT_ID: "00000000-0000-0000-0000-000000000001", MICROSOFT_CLIENT_ID: "00000000-0000-0000-0000-000000000002", MICROSOFT_CLIENT_SECRET: "isolated-test", NOREPLY_USER: "isolated@example.invalid",
-            SEED_ADMIN_USERNAME: "", SEED_ADMIN_PASSWORD: "", CI: "true",
+            CI: "true",
         }
-        run("jest", process.execPath, [require.resolve("jest/bin/jest"), "--runInBand", "--coverage=false", "--runTestsByPath", ...suites], testEnvironment)
-        fs.writeFileSync(path.join(cluster, "result.json"), JSON.stringify({ success: true, suites, port, owner, app, database }, null, 2), { flag: "wx", mode: 0o600 })
+        run("jest", process.execPath, [require.resolve("jest/bin/jest"), "--runInBand", "--coverage=false", "--runTestsByPath", ...selectedSuites], testEnvironment)
+        fs.writeFileSync(path.join(cluster, "result.json"), JSON.stringify({ success: true, suites: selectedSuites, port, owner, app, database }, null, 2), { flag: "wx", mode: 0o600 })
     } catch (error) {
         failure = error
     } finally {

@@ -25,6 +25,7 @@ class Category extends BaseCatalogModel {
         allowNull: true
     })
     declare fullDescription: string
+
     @Column({
         type: DataType.STRING(500),
         allowNull: true

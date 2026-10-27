@@ -1,6 +1,6 @@
 import { NotFoundError } from "../../../../shared/errors/AppError";
 import { CreatePermissionInput,UpdatePermissionInput } from "../schemas/permission.schema";
-import Permission from "../models/permission.model"
+import Permission from "../models/Permission.model"
 
 async function listPermission():Promise<Permission[]> {
     return Permission.findAll({where:{isActive:true}, order:[["name","DESC"]]})

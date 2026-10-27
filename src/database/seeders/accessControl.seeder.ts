@@ -1,56 +1,23 @@
 import bcrypt from "bcryptjs"
-import colors from "colors"
-import { env } from "../../config/env"
-import User from "../../features/accessControl/user/models/user.model"
-import Role from "../../features/accessControl/roles/models/role.model"
-import Permission from "../../features/accessControl/permissions/models/permission.model"
-import RolePermission from "../../features/accessControl/rolePermissions/models/rolePermission.model"
+import type { Transaction } from "sequelize"
+import Permission from "../../features/accessControl/permissions/models/Permission.model"
+import Role from "../../features/accessControl/roles/models/Role.model"
+import RolePermission from "../../features/accessControl/rolePermissions/models/RolePermission.model"
+import User from "../../features/accessControl/user/models/User.model"
+import { PERMISSIONS, ADMIN_ROLE_NAME } from "../../features/accessControl/permissions/constants/accessControlPolicy"
+import { validateBootstrapCredentials } from "../bootstrap"
 
-import { ADMIN_ROLE_NAME, PERMISSIONS } from "../accessControlPolicy"
-const PASSWORD_SALT_ROUNDS = 10
-
-async function seedPermissions(): Promise<void> {
-    await Permission.bulkCreate(PERMISSIONS, { ignoreDuplicates: true })
-}
-
-async function seedAdminRoleWithAllPermissions(): Promise<Role> {
-    const [adminRole] = await Role.findOrCreate({
-        where: { name: ADMIN_ROLE_NAME },
-        defaults: { name: ADMIN_ROLE_NAME }
-    })
-
-    const allPermissions = await Permission.findAll({ attributes: ["id"] })
-    if (allPermissions.length > 0) {
-        await RolePermission.bulkCreate(
-            allPermissions.map(permission => ({ role_id: adminRole.id, permission_id: permission.id })),
-            { ignoreDuplicates: true }
-        )
-    }
-
-    return adminRole
-}
-
-async function seedAdminUser(adminRole: Role): Promise<void> {
-    const { seedAdminUsername, seedAdminPassword } = env
-    if (!seedAdminUsername || !seedAdminPassword) {
-        console.log(colors.yellow("SEED_ADMIN_USERNAME/SEED_ADMIN_PASSWORD no definidos: se omite la creación del usuario administrador"))
+export async function seedAccessControl(transaction: Transaction, credentials: {username?:string;password?:string}): Promise<void> {
+    await Permission.bulkCreate(PERMISSIONS.map(item=>({name:item.name,isActive:true})),{ignoreDuplicates:true,transaction})
+    const [role]=await Role.findOrCreate({where:{name:ADMIN_ROLE_NAME},defaults:{isActive:true},transaction})
+    const permissions=await Permission.findAll({where:{name:PERMISSIONS.map(item=>item.name)},attributes:['id'],transaction})
+    await RolePermission.bulkCreate(permissions.map(permission=>({role_id:role.id,permission_id:permission.id})),{ignoreDuplicates:true,transaction})
+    if(await User.count({transaction})!==0) return
+    if(!credentials.username && !credentials.password) {
+        console.warn('[DB] Sin usuarios: configurá SEED_ADMIN_USERNAME y SEED_ADMIN_PASSWORD para crear el administrador inicial.')
         return
     }
-
-    const existingUser = await User.findOne({ where: { username: seedAdminUsername } })
-    if (existingUser) return
-
-    const hashedPassword = await bcrypt.hash(seedAdminPassword, PASSWORD_SALT_ROUNDS)
-    await User.create({
-        name: seedAdminUsername,
-        username: seedAdminUsername,
-        password: hashedPassword,
-        role_id: adminRole.id
-    })
-}
-
-export async function seedAccessControl(): Promise<void> {
-    await seedPermissions()
-    const adminRole = await seedAdminRoleWithAllPermissions()
-    await seedAdminUser(adminRole)
+    const initial={username:credentials.username!,password:credentials.password!}
+    validateBootstrapCredentials(initial)
+    await User.create({name:initial.username,username:initial.username,password:await bcrypt.hash(initial.password,12),role_id:role.id,isActive:true,failed_attempts:0},{transaction})
 }

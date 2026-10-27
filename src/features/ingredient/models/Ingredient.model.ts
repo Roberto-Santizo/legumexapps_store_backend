@@ -17,7 +17,6 @@ class Ingredient extends BaseCatalogModel {
         type: DataType.STRING(60),
         allowNull: false,
         unique: true,
-
         validate: {
             notEmpty: true
         }
@@ -42,7 +41,7 @@ class Ingredient extends BaseCatalogModel {
     // conserva en el modelo para poder abrir la elección de unidad más adelante sin tocar el
     // motor (que ya divide por costUnit.baseFactor).
     @Column({
-        type: DataType.DECIMAL(10, 4),
+        type: DataType.DECIMAL(24, 12),
         allowNull: false
     })
     declare costPerUnit: number

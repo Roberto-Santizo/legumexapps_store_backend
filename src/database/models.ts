@@ -1,5 +1,9 @@
+import GenericPackagingConfiguration from "../features/genericPackaging/models/GenericPackagingConfiguration.model"
+import GenericPackagingConfigurationGroup from "../features/genericPackaging/models/GenericPackagingConfigurationGroup.model"
+import GenericPackagingConfigurationMaterial from "../features/genericPackaging/models/GenericPackagingConfigurationMaterial.model"
 // Pure model registry: no environment loading, connection, sync, or seed operations.
 import PackagingGroup from "../features/packagingGroup/models/PackagingGroup.model"
+import PalletKitMaterial from "../features/palletKit/models/PalletKitMaterial.model"
 import Category from "../features/category/models/Category.model"
 import CategoryTranslation from "../features/category/models/CategoryTranslation.model"
 import SubCategory from "../features/category/models/SubCategory.model"
@@ -23,19 +27,15 @@ import RawMaterialTransformationCost from "../features/rawMaterialTransformation
 import Ingredient from "../features/ingredient/models/Ingredient.model"
 import IngredientTranslation from "../features/ingredient/models/IngredientTranslation.model"
 import Destination from "../features/destination/models/Destination.model"
-import User from "../features/accessControl/user/models/user.model"
-import Role from "../features/accessControl/roles/models/role.model"
-import Permission from "../features/accessControl/permissions/models/permission.model"
-import RolePermission from "../features/accessControl/rolePermissions/models/rolePermission.model"
+import User from "../features/accessControl/user/models/User.model"
+import Role from "../features/accessControl/roles/models/Role.model"
+import Permission from "../features/accessControl/permissions/models/Permission.model"
+import RolePermission from "../features/accessControl/rolePermissions/models/RolePermission.model"
 import Salesperson from "../features/salesperson/models/Salesperson.model"
 import Client from "../features/client/models/Client.model"
 import RepresentativeClient from "../features/salesperson/models/RepresentativeClient.model"
 import Quote from "../features/quote/models/Quote.model"
 import QuoteDraft from "../features/quoteDraft/models/QuoteDraft.model"
-import CustomQuoteRawMaterialOption from "../features/customQuote/models/CustomQuoteRawMaterialOption.model"
-import CustomQuoteIngredientOption from "../features/customQuote/models/CustomQuoteIngredientOption.model"
-import CustomQuotePresentationOption from "../features/customQuote/models/CustomQuotePresentationOption.model"
-import CustomQuotePackagingOption from "../features/customQuote/models/CustomQuotePackagingOption.model"
 import CustomQuote from "../features/customQuote/models/CustomQuote.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
@@ -47,11 +47,14 @@ import JuicePresentation from "../features/juice/models/JuicePresentation.model"
 import JuiceMix from "../features/juice/models/JuiceMix.model"
 import JuiceSpiceMaterial from "../features/juice/models/JuiceSpiceMaterial.model"
 import JuiceSpice from "../features/juice/models/JuiceSpice.model"
-import JuiceCostConstants from "../features/juice/models/JuiceCostConstants.model"
-import JuiceClientConstantOverride from "../features/juice/models/JuiceClientConstantOverride.model"
 
 export const databaseModels = [
+        GenericPackagingConfiguration,
+        GenericPackagingConfigurationGroup,
+        GenericPackagingConfigurationMaterial,
+
         PackagingGroup,
+        PalletKitMaterial,
         Category,
         CategoryTranslation,
         SubCategory,
@@ -84,10 +87,6 @@ export const databaseModels = [
         RepresentativeClient,
         Quote,
         QuoteDraft,
-        CustomQuoteRawMaterialOption,
-        CustomQuoteIngredientOption,
-        CustomQuotePresentationOption,
-        CustomQuotePackagingOption,
         CustomQuote,
         ProcessingCost,
         ProcessingCostTranslation,
@@ -99,6 +98,4 @@ export const databaseModels = [
         JuiceMix,
         JuiceSpiceMaterial,
         JuiceSpice,
-        JuiceCostConstants,
-        JuiceClientConstantOverride,
 ]

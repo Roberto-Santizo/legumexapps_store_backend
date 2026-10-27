@@ -1,8 +1,8 @@
 import sequelize from "../../../../database/connection";
 import { NotFoundError } from "../../../../shared/errors/AppError";
-import Permission from "../../permissions/models/permission.model";
+import Permission from "../../permissions/models/Permission.model";
 import { roleService } from "../../roles/services/role.service";
-import RolePermission from "../models/rolePermission.model";
+import RolePermission from "../models/RolePermission.model";
 
 async function getPermissionsByRole(roleId: number): Promise<Permission[]> {
     await roleService.getRoleById(roleId)

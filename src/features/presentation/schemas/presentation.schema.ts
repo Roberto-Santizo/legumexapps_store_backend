@@ -3,6 +3,7 @@ import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema
 
 export const createPresentationSchema = z.object({
     displayLabel: z.string().trim().min(1).max(40),
+    netVolumeMl: z.number().positive().max(99999999999.999).multipleOf(0.001).nullable().optional(),
     netWeightGrams: z.number().positive(),
 })
 

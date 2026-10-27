@@ -1,13 +1,13 @@
+jest.mock("../../unit/services/unit.service", () => ({ unitService: { findOrCreatePoundUnit: jest.fn() } }))
+import { unitService } from "../../unit/services/unit.service"
 jest.mock("../../../database/connection", () => ({ __esModule: true, default: { transaction: jest.fn() } }))
 jest.mock("../../client/models/Client.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
-jest.mock("../models/Juice.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
-jest.mock("../models/JuiceRawMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
-jest.mock("../models/JuiceSpiceMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
+jest.mock("../models/Juice.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn(), create: jest.fn() } }))
+jest.mock("../models/JuiceRawMaterial.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn(), create: jest.fn() } }))
+jest.mock("../../ingredient/models/Ingredient.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn(), create: jest.fn() } }))
 jest.mock("../models/JuiceMix.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
 jest.mock("../models/JuiceSpice.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
-jest.mock("../models/JuicePresentation.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
-jest.mock("../models/JuiceCostConstants.model", () => ({ __esModule: true, default: { findOne: jest.fn() } }))
-jest.mock("../models/JuiceClientConstantOverride.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
+jest.mock("../models/JuicePresentation.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn(), create: jest.fn() } }))
 
 import ExcelJS from "exceljs"
 import { UniqueConstraintError } from "sequelize"
@@ -15,16 +15,14 @@ import connection from "../../../database/connection"
 import Client from "../../client/models/Client.model"
 import Juice from "../models/Juice.model"
 import Raw from "../models/JuiceRawMaterial.model"
-import SpiceMaterial from "../models/JuiceSpiceMaterial.model"
+import SpiceMaterial from "../../ingredient/models/Ingredient.model"
 import Mix from "../models/JuiceMix.model"
 import Spice from "../models/JuiceSpice.model"
 import Presentation from "../models/JuicePresentation.model"
-import Global from "../models/JuiceCostConstants.model"
-import Override from "../models/JuiceClientConstantOverride.model"
 import { bulkImportJuices, buildJuiceImportTemplate } from "./juiceImport.service"
 import { loadWorkbookFromBuffer, writeWorkbookToBuffer } from "../../../shared/utils/excelImport.util"
 import { JUICE_IMPORT_SHEETS as names, JUICE_MATERIAL_HEADERS as mh, JUICE_PRESENTATION_HEADERS as ph } from "../constants/juiceImport.constant"
-import { parityPhysical, parityConstants } from "./juiceParity.fixture"
+import { parityPhysical } from "./juiceParity.fixture"
 import { buildJuiceCostLines } from "./juiceCostLines"
 import { BulkImportError } from "../../../shared/errors/AppError"
 
@@ -33,6 +31,8 @@ let written: Record<string, unknown>[]
 beforeEach(() => {
     jest.resetAllMocks()
     written = []
+    jest.mocked(unitService.findOrCreatePoundUnit).mockResolvedValue({ id: 3, baseFactor: 453.592 } as never)
+    jest.mocked(SpiceMaterial.findOne).mockResolvedValue(null)
     const transactionMock = jest.requireMock("../../../database/connection").default.transaction as jest.Mock
     transactionMock.mockImplementation(async (operation: unknown) => {
         try { return await (operation as (tx: unknown) => Promise<unknown>)(transaction) }
@@ -49,8 +49,6 @@ beforeEach(() => {
         })
     }
     jest.mocked(Client.findAll).mockResolvedValue([{ id: 9, name: "ACME", isActive: true }] as never)
-    jest.mocked(Global.findOne).mockResolvedValue({ ...parityConstants, revision: 2 } as never)
-    jest.mocked(Override.findAll).mockResolvedValue([])
 })
 
 function physicalValues(juice = "CP") {
@@ -87,19 +85,17 @@ describe("three-sheet fixed juice import", () => {
         expect(counts).toMatchObject({ juices: 2, mixRows: 6, spiceRows: 2, presentations: 2 })
         expect(written.filter(row => row.table === "juice").map(row => row.urlSlug)).toEqual(["carrot-pineapple-juice", "carrot-pineapple-juice-2"])
     })
-    test("catalog-only file uses the same atomic pipeline without requiring globals", async () => {
+    test("catalog-only file uses the same atomic pipeline", async () => {
         const workbook = await loadWorkbookFromBuffer(await buildJuiceImportTemplate())
         workbook.getWorksheet(names.materials)!.addRow(["MATERIA PRIMA", "ZERO", "Own press", "LIBRA", 1, 0])
-        jest.mocked(Global.findOne).mockResolvedValue(null)
-        await expect(run(workbook)).resolves.toMatchObject({ rawMaterials: 1, juices: 0, globalRevision: null })
+        await expect(run(workbook)).resolves.toMatchObject({ rawMaterials: 1, juices: 0 })
         expect(Raw.create).toHaveBeenCalledWith(expect.objectContaining({ costPerLiter: 0 }), { transaction })
     })
     test("adds presentations to an existing juice without recreating it or changing its price", async () => {
         const workbook = await loadWorkbookFromBuffer(await buildJuiceImportTemplate())
-        jest.mocked(Juice.findAll).mockResolvedValue([{ id: 7, code: "CP", displayName: "Carrot", clientId: 9, isActive: true, pricePerPound: "2.025852", urlSlug: "carrot" }] as never)
-        jest.mocked(Override.findAll).mockResolvedValue([{ id: 20, clientId: 9, isActive: true }] as never)
+        jest.mocked(Juice.findAll).mockResolvedValue([{ id: 7, code: "CP", displayName: "Carrot", clientId: 9, isActive: true, urlSlug: "carrot" }] as never)
         addPhysical(workbook)
-        await expect(run(workbook)).resolves.toMatchObject({ juices: 0, presentations: 1, clientOverrideIds: [20] })
+        await expect(run(workbook)).resolves.toMatchObject({ juices: 0, presentations: 1 })
         expect(Juice.create).not.toHaveBeenCalled()
         expect(Presentation.create).toHaveBeenCalledWith(expect.objectContaining({ juiceId: 7 }), { transaction })
     })
@@ -151,13 +147,17 @@ describe("three-sheet fixed juice import", () => {
     test("template has all sheets/instructions and does not create dummy data", async () => {
         const workbook = await loadWorkbookFromBuffer(await buildJuiceImportTemplate())
         expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([names.materials, names.formulas, names.presentations, "Instrucciones"])
-        expect(workbook.getWorksheet("Instrucciones")!.rowCount).toBeGreaterThan(10)
+        const help = workbook.getWorksheet("Instrucciones")!.getColumn(1).values.join(" ")
+        expect(help).toContain("Solo se calculan materias primas, ingredientes/especias y empaques")
+        expect(help).toContain("se ignoran; no son obligatorias")
+        expect(workbook.getWorksheet(names.presentations)!.getRow(1).values).not.toContain("PRICE LB")
+        expect(workbook.getWorksheet(names.presentations)!.getRow(1).values).not.toContain("Margen por caja")
         await expect(run(workbook)).rejects.toMatchObject({ key: "errors.bulk_import_empty_file" })
         expect(written).toHaveLength(0)
     })
     test("creates all catalogs/formulas/presentation atomically and preserves corrected J2 parity", async () => {
         const counts = await run(await fixture())
-        expect(counts).toMatchObject({ rawMaterials: 3, spiceMaterials: 1, juices: 1, mixRows: 3, spiceRows: 1, presentations: 1, globalRevision: 2 })
+        expect(counts).toMatchObject({ rawMaterials: 3, spiceMaterials: 1, juices: 1, mixRows: 3, spiceRows: 1, presentations: 1 })
         for (const model of [Raw, SpiceMaterial, Juice, Mix, Spice, Presentation]) {
             expect(model.create).toHaveBeenCalledWith(expect.any(Object), { transaction })
         }
@@ -168,14 +168,14 @@ describe("three-sheet fixed juice import", () => {
                 const raw = raws.find(material => material.id === row.rawMaterialId)!
                 return { rawMaterialId: Number(raw.id), displayName: String(raw.displayName), percentage: Number(row.percentage), costPerLiter: Number(raw.costPerLiter) }
             }),
-            spices: written.filter(row => row.table === "spice").map(row => ({ spiceMaterialId: Number(row.spiceMaterialId), displayName: String(ingredients[0].displayName), gramsPerLiter: Number(row.gramsPerLiter), costPerGram: Number(ingredients[0].costPerGram) })),
+            spices: written.filter(row => row.table === "spice").map(row => ({ spiceMaterialId: Number(row.ingredientId), displayName: String(ingredients[0].displayName), gramsPerLiter: Number(row.gramsPerLiter), costPerGram: Number(ingredients[0].costPerUnit) / 453.592 })),
         }
         expect(raws.find(row => row.code === "PI")?.costPerLiter).toBe(0)
         const input = jest.mocked(Presentation.create).mock.calls[0][0]!
-        const result = buildJuiceCostLines(recipe, input as never, parityConstants, Number(written.find(row => row.table === "juice")!.pricePerPound), 1)
+        const result = buildJuiceCostLines(recipe, input as never, 1)
         expect(result.rawMaterialCostPerPound).toBeCloseTo(0.253282955713, 12)
-        expect(result.pricePerCase).toBe(9.1678)
-        expect(result.pricePerPound).toBe(1.9579)
+        expect(result.costPerCase).toBe(3.5344)
+        expect(result.totalCostPerPound).toBe(0.7548)
         expect(connection.transaction).toHaveBeenCalledTimes(1)
     })
     test("collects worksheet/row/column errors and writes nothing if a late presentation is invalid", async () => {
@@ -229,24 +229,30 @@ describe("three-sheet fixed juice import", () => {
             expect(written).toHaveLength(0)
         })
     })
-    test("all presentation prices must match the juice-level PRICE LB", async () => {
+    test("historical PRICE LB and margin columns are ignored, including invalid old values", async () => {
         const workbook = await fixture()
-        addPhysical(workbook, { ...physicalValues(), displayLabel: "12x354", bottlesPerCase: 12, pricePerPound: 3 })
-        await expect(run(workbook)).rejects.toMatchObject({ rowIssues: expect.arrayContaining([expect.objectContaining({ key: "errors.juice_import_price_mismatch" })]) })
-        expect(written).toHaveLength(0)
+        const sheet = workbook.getWorksheet(names.presentations)!
+        const next = sheet.columnCount + 1
+        sheet.getCell(1, next).value = "PRICE LB"
+        sheet.getCell(1, next + 1).value = "Margen por caja"
+        sheet.getCell(2, next).value = "obsolete price"
+        sheet.getCell(2, next + 1).value = -999
+        addPhysical(workbook, { ...physicalValues(), displayLabel: "12x354", bottlesPerCase: 12 })
+        await expect(run(workbook)).resolves.toMatchObject({ presentations: 2 })
+        for (const row of written) {
+            expect(row).not.toHaveProperty("pricePerPound")
+            expect(row).not.toHaveProperty("marginPerCase")
+        }
     })
-    test("new juice needs at least one presentation; existing juice cannot be recreated", async () => {
+    test("new juice can configure shared presentations later; existing juice cannot be recreated", async () => {
         const workbook = await fixture()
         workbook.getWorksheet(names.presentations)!.spliceRows(2, 1)
-        await expect(run(workbook)).rejects.toMatchObject({ rowIssues: expect.arrayContaining([expect.objectContaining({ key: "errors.juice_import_presentation_required" })]) })
+        await expect(run(workbook)).resolves.toMatchObject({ juices: 1, presentations: 0 })
+        expect(Presentation.create).not.toHaveBeenCalled()
         jest.mocked(Juice.findAll).mockResolvedValue([{ id: 7, code: "cp", displayName: "CP", isActive: false }] as never)
         await expect(run(await fixture())).rejects.toMatchObject({ rowIssues: expect.arrayContaining([expect.objectContaining({ key: "errors.juice_duplicate" })]) })
     })
-    test("requires global config without writing or resetting globals/overrides", async () => {
-        jest.mocked(Global.findOne).mockResolvedValue(null)
-        await expect(run(await fixture())).rejects.toMatchObject({ rowIssues: expect.arrayContaining([expect.objectContaining({ key: "errors.juice_config_required" })]) })
-        expect(written).toHaveLength(0)
-    })
+
     test("rejects missing sheets, headers, duplicate headers and corrupted files", async () => {
         const workbook = await fixture()
         workbook.removeWorksheet(names.materials)

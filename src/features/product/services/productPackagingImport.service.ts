@@ -1,5 +1,6 @@
 import type { ParsedWorkbook } from "../../../shared/utils/parsedWorkbook"
 import { resolvePalletConsumptionRule } from "../../packaging/services/packagingConsumption.service"
+import { isPalletKitType } from "../../packaging/constants/packagingMaterialType.constant"
 import ExcelJS from "exceljs"
 import { createHash } from "node:crypto"
 import { col, fn, Op, Transaction, where } from "sequelize"
@@ -108,7 +109,7 @@ async function parseFile(buffer: Buffer): Promise<ParsedPackagingRow[]> {
 }
 
 export interface InitialPackagingContext {
-    variants: { id: number; skuCode: string; productId: number; isActive: boolean; boxesPerPallet?: number | null; bagsPerBox?: number | null; unitsPerIntermediatePackage?: number | null }[]
+    variants: { id: number; skuCode: string; productId: number; isActive: boolean; boxesPerPallet?: number | null; bagsPerBox?: number | null; unitsPerIntermediatePackage?: number | null; usesPalletKit?: boolean }[]
     products: { id: number; isActive: boolean }[]
 }
 
@@ -153,6 +154,8 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
         if (row.group && !group) error("group", "unknown_group", { group: row.group })
         if (group && !group.isActive) error("group", "inactive_group", { group: group.displayName })
         if (!row.group && row.isDefault) error("isDefault", "fixed_default")
+        // A SKU that uses the pallet kit gets tarima, esquineros and stretch from it; repeating them would charge twice.
+        if (variant && variant.usesPalletKit !== false && packaging?.packagingRole === "pallet" && isPalletKitType(packaging.materialType)) error("packagingCode", "pallet_kit_type", { code: packaging.code })
         const level = packaging?.packagingRole as Level | undefined
         if (row.expectedRole && packaging && level !== row.expectedRole) error("materialType", "type_role", { type: row.materialType, role: level })
         if (initial && packaging?.packagingRole === "pallet" && (packaging.defaultQuantityBasis != null || packaging.defaultQuantityValue != null)) {
@@ -248,9 +251,9 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
     // Bind approval to the full relevant DB state, not just uploaded data. Revalidate in
     // SERIALIZABLE isolation at confirmation; concurrent edits require a new preview.
     const state = {
-        variants: variants.map(row => [row.id, row.skuCode, row.isActive, row.productId, row.boxesPerPallet, row.bagsPerBox, row.unitsPerIntermediatePackage]).sort(),
+        variants: variants.map(row => [row.id, row.skuCode, row.isActive, row.productId, row.boxesPerPallet, row.bagsPerBox, row.unitsPerIntermediatePackage, row.usesPalletKit]).sort(),
         products: products.map(row => [row.id, row.isActive]).sort(),
-        packagings: packagings.map(row => [row.id, row.code, row.isActive, row.packagingRole, row.unitCost, row.displayName, row.defaultQuantityBasis ?? null, row.defaultQuantityValue == null ? null : Number(row.defaultQuantityValue)]).sort(),
+        packagings: packagings.map(row => [row.id, row.code, row.isActive, row.packagingRole, row.materialType, row.unitCost, row.displayName, row.defaultQuantityBasis ?? null, row.defaultQuantityValue == null ? null : Number(row.defaultQuantityValue)]).sort(),
         groups: groups.map(row => [row.id, row.isActive, row.nameKey, row.displayName]).sort(),
         associations: Object.fromEntries(Object.entries(associations).map(([level, rows]) => [level, rows.map(row => [row.id, associationValues(row, level as Level)]).sort()])),
     }

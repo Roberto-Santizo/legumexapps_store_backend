@@ -29,6 +29,8 @@ export const productIdParamSchema = z.object({
     id: z.string().regex(/^\d+$/),
 })
 
+export const productDetailsIdParamSchema = productIdParamSchema.refine(({ id }) => Number(id) > 0 && Number(id) <= 2147483647)
+
 export const updateProductStatusSchema = z.object({
     isActive: z.boolean(),
 })

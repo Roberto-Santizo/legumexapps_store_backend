@@ -1,6 +1,12 @@
-/** Canonical boolean structure for the two supported CHECK contracts; never evaluates SQL. */
+/** Canonical boolean structure for current CHECK contracts; never evaluates SQL. */
 export function predicateContract(source: string): string {
-    const scalar = (text: string) => text.replace(/::(?:character varying|double precision|"[^"]+"|[a-zA-Z_]\w*)(?:\[\])?/gi, "")
+    // Normalize PostgreSQL's transparent renderings, never erase arbitrary column casts.
+    // In particular, numeric::integer changes rounding and must fail the contract.
+    const scalar = (text: string) => text
+        .replace(/('(?:''|[^'])*')\s*::(?:"enum_[^"]+"|enum_[a-zA-Z_]\w*)/g, "$1")
+        .replace(/\(\s*(-?\d+(?:\.\d+)?)\s*\)\s*::numeric\b/g, "$1")
+        .replace(/\b(\d+(?:\.\d+)?)\s*::numeric\b/g, "$1")
+        .replace(/::(?:text|character varying)(?:\[\])?/gi, "")
         .split(/('(?:''|[^'])*')/).map(part => part.startsWith("'") ? part : part.toLowerCase().replace(/[\s"()]/g, "")).join("")
     function boundaries(text: string, keyword?: string): number[] {
         let depth = 0, quote = ""

@@ -1,23 +1,23 @@
-import { packagingNames } from "../../../shared/utils/packagingName.util"
+import { loadGenericProfiles } from "../../genericPackaging/services/genericPackaging.service"
+import { genericConfigurationOption } from "../../genericPackaging/services/genericQuoteAdapter"
+import Juice from "../../juice/models/Juice.model"
 import type { Transaction } from "sequelize"
 import Product from "../../product/models/Product.model"
-import ProductVariant from "../../product/models/ProductVariant.model"
 import ProductRawMaterial from "../../product/models/ProductRawMaterial.model"
-import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
-import ProductVariantIntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
-import ProductVariantPalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
 import Category from "../../category/models/Category.model"
 import CategoryTranslation from "../../category/models/CategoryTranslation.model"
 import SubCategory from "../../category/models/SubCategory.model"
 import SubCategoryTranslation from "../../category/models/SubCategoryTranslation.model"
-import Presentation from "../../presentation/models/Presentation.model"
-import Packaging from "../../packaging/models/Packaging.model"
 import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import RawMaterialTranslation from "../../rawMaterial/models/RawMaterialTranslation.model"
 import Unit from "../../unit/models/Unit.model"
-import { bucketMaterialsByGroup } from "../../quote/services/quoteMaterialSelection"
 import { ContentLanguage, pickTranslatedName } from "../../../shared/utils/translation.util"
-import { configurationIdentity, digest, validConfiguration } from "./catalogQuoteIdentity"
+import { loadPalletKit, palletKitOptions } from "../../palletKit/services/palletKit.service"
+
+const QUOTABLE_TYPES = ["fruit", "vegetable", "pulp", "other"]
+
+export type CompositionMode = "single" | "blend"
+export type SubCategoryAvailability = "ready" | "missing_recipe" | "missing_raw_materials" | "missing_pallet_kit" | "missing_configuration"
 
 export async function loadCatalogContext(transaction?: Transaction) {
     const subCategories = await SubCategory.findAll({ transaction, where: { isActive: true }, include: [
@@ -29,64 +29,57 @@ export async function loadCatalogContext(transaction?: Transaction) {
             model: RawMaterial, as: "usedRawMaterial", include: [{ model: Unit, as: "costUnit" }, { model: RawMaterialTranslation, as: "translations" }],
         }],
     }] })
-    const variants = await ProductVariant.findAll({ transaction, where: { isActive: true }, include: [
-        { model: Product, as: "parentProduct", required: true, where: { isActive: true } },
-        { model: Presentation, as: "sizePresentation" },
-        { model: ProductVariantUnitMaterial, as: "unitMaterials", required: false, where: { isActive: true }, include: [{ model: Packaging, as: "usedUnitMaterial" }] },
-        { model: ProductVariantIntermediateMaterial, as: "intermediateMaterials", required: false, where: { isActive: true }, include: [{ model: Packaging, as: "usedIntermediateMaterial" }] },
-        { model: ProductVariantPalletMaterial, as: "palletMaterials", required: false, where: { isActive: true }, include: [{ model: Packaging, as: "usedPalletMaterial" }] },
-    ] })
-    return { subCategories, products, variants }
+    const rawMaterials = await RawMaterial.findAll({ transaction, where: { isActive: true }, include: [{ model: Unit, as: "costUnit" }, { model: RawMaterialTranslation, as: "translations" }] })
+    const linked = new Set((await Juice.findAll({ transaction, attributes: ["productId"] })).map(row => row.productId).filter(Boolean))
+    return { subCategories, products: products.filter(product => !linked.has(product.id)), rawMaterials }
 }
 
-export function availableRawMaterials(products: Product[], subCategoryId: number): RawMaterial[] {
-    const materials = new Map<number, RawMaterial>()
-    products.filter(product => product.isActive && product.subCategoryId === subCategoryId).forEach(product => {
-        (product.productRawMaterials ?? []).filter(row => row.isActive).forEach(row => {
-            const raw = row.usedRawMaterial
-            if (raw?.isActive && ["fruit", "vegetable", "pulp", "other"].includes(raw.ingredientType)
-                && raw.costPerUnit != null && Number.isFinite(Number(raw.costPerUnit)) && Number(raw.costPerUnit) >= 0
-                && raw.costUnit?.isActive && raw.costUnit.unitType === "weight" && Number.isFinite(Number(raw.costUnit.baseFactor)) && Number(raw.costUnit.baseFactor) > 0) materials.set(raw.id, raw)
-        })
-    })
-    return [...materials.values()].sort((a, b) => a.id - b.id)
+// Type and mode come only from the recipes of the subcategory's fixed products: one distinct raw
+// material in every recipe = single, two or more in any recipe = blend. No recipes = no classification.
+export function subCategoryComposition(products: Product[], subCategoryId: number): { mode: CompositionMode; types: string[] } | null {
+    const recipes = products.filter(product => product.isActive && product.subCategoryId === subCategoryId)
+        .map(product => (product.productRawMaterials ?? []).filter(row => row.isActive && row.usedRawMaterial))
+        .filter(rows => rows.length > 0)
+    const types = [...new Set(recipes.flatMap(rows => rows.map(row => row.usedRawMaterial.ingredientType)))].filter(type => QUOTABLE_TYPES.includes(type)).sort()
+    if (!recipes.length || !types.length) return null
+    const blend = recipes.some(rows => new Set(rows.map(row => row.rawMaterialId)).size >= 2)
+    return { mode: blend ? "blend" : "single", types }
 }
 
-function packagingLevel<T extends { id?: number; packagingId: number; optionGroup: string | null; optionGroupId?: number | null; isDefault: boolean }>(rows: T[], packagingOf: (row: T) => Packaging) {
-    const { fixedRows, groups } = bucketMaterialsByGroup(rows)
-    const option = (row: T) => ({ id: row.id!, packagingId: row.packagingId, ...packagingNames(packagingOf(row)), isDefault: row.isDefault })
-    return { fixed: fixedRows.map(option), groups: [...groups.entries()].map(([key, group]) => ({ key, group: group.label, options: group.rows.map(option) })) }
-}
-
-export function configurationOption(variant: ProductVariant) {
-    return { id: variant.id, fingerprint: digest(configurationIdentity(variant, variant.parentProduct.subCategoryId)),
-        presentationId: variant.presentationId, displayLabel: variant.sizePresentation.displayLabel,
-        netWeightGrams: Number(variant.sizePresentation.netWeightGrams), bagsPerBox: variant.bagsPerBox,
-        boxesPerPallet: variant.boxesPerPallet, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null,
-        packaging: {
-            unit: packagingLevel(variant.unitMaterials ?? [], row => row.usedUnitMaterial),
-            intermediate: packagingLevel(variant.intermediateMaterials ?? [], row => row.usedIntermediateMaterial),
-            pallet: packagingLevel(variant.palletMaterials ?? [], row => row.usedPalletMaterial),
-        } }
+// Eligible list = active catalog raw materials of the subcategory's types with a usable cost per weight.
+export function eligibleRawMaterials(rawMaterials: RawMaterial[], types: string[]): RawMaterial[] {
+    return rawMaterials.filter(raw => raw.isActive && types.includes(raw.ingredientType)
+        && raw.costPerUnit != null && Number.isFinite(Number(raw.costPerUnit)) && Number(raw.costPerUnit) >= 0
+        && raw.costUnit?.isActive && raw.costUnit.unitType === "weight" && Number.isFinite(Number(raw.costUnit.baseFactor)) && Number(raw.costUnit.baseFactor) > 0)
+        .sort((a, b) => a.id - b.id)
 }
 
 export async function discoverCatalog(language: ContentLanguage) {
-    const { subCategories, products, variants } = await loadCatalogContext()
-    const categories = new Map<number, { id: number; displayName: string; subCategories: { id: number; displayName: string; rawMaterials: { rawMaterialId: number; displayName: string; ingredientType: string }[]; configurations: ReturnType<typeof configurationOption>[] }[] }>()
+    const { subCategories, products, rawMaterials: catalogRawMaterials } = await loadCatalogContext()
+    const profiles = await loadGenericProfiles()
+    const kit = await loadPalletKit()
+    const kitReady = kit.every(part => part.options.length > 0)
+    type DiscoveredSubCategory = { id: number; displayName: string; imageUrl: string | null; availability: SubCategoryAvailability; compositionMode: CompositionMode | null; rawMaterials: { rawMaterialId: number; displayName: string; ingredientType: string }[]; configurations: ReturnType<typeof genericConfigurationOption>[] }
+    // Same category/subcategory images that fixed products show in their quote wizard.
+    const categories = new Map<number, { id: number; displayName: string; imageUrl: string | null; subCategories: DiscoveredSubCategory[] }>()
     for (const subCategory of subCategories) {
-        const rawMaterials = availableRawMaterials(products, subCategory.id)
-        const unique = new Map<string, ReturnType<typeof configurationOption>>()
-        variants.filter(variant => variant.parentProduct.subCategoryId === subCategory.id && validConfiguration(variant)).sort((a, b) => a.id - b.id).forEach(variant => {
-            const option = configurationOption(variant)
-            if (!unique.has(option.fingerprint)) unique.set(option.fingerprint, option)
-        })
-        if (!rawMaterials.length || !unique.size) continue
+        const composition = subCategoryComposition(products, subCategory.id)
+        const rawMaterials = composition ? eligibleRawMaterials(catalogRawMaterials, composition.types) : []
+        // The representative only receives configurations that can be quoted right now.
+        const configurations = profiles.filter(profile => profile.isActive && profile.categoryId === subCategory.categoryId && profile.presentation?.isActive)
+            .map(profile => genericConfigurationOption(profile)).filter(option => !option.configurationIssue)
+        let availability: SubCategoryAvailability = "ready"
+        if (!composition) availability = "missing_recipe"
+        else if (!rawMaterials.length) availability = "missing_raw_materials"
+        else if (!kitReady) availability = "missing_pallet_kit"
+        else if (!configurations.length) availability = "missing_configuration"
         const parent = subCategory.parentCategory
-        const category: NonNullable<ReturnType<typeof categories.get>> = categories.get(parent.id) ?? { id: parent.id, displayName: pickTranslatedName(parent.displayName, parent.translations, language), subCategories: [] }
-        category.subCategories.push({ id: subCategory.id, displayName: pickTranslatedName(subCategory.displayName, subCategory.translations, language),
+        const category = categories.get(parent.id) ?? { id: parent.id, displayName: pickTranslatedName(parent.displayName, parent.translations, language), imageUrl: parent.imageUrl ?? null, subCategories: [] as DiscoveredSubCategory[] }
+        category.subCategories.push({ id: subCategory.id, displayName: pickTranslatedName(subCategory.displayName, subCategory.translations, language), imageUrl: subCategory.imageUrl ?? null, availability, compositionMode: composition?.mode ?? null,
             rawMaterials: rawMaterials.map(raw => ({ rawMaterialId: raw.id, displayName: pickTranslatedName(raw.displayName, raw.translations, language), ingredientType: raw.ingredientType })),
-            configurations: [...unique.values()] })
+            configurations: availability === "ready" ? configurations : [] })
         categories.set(parent.id, category)
     }
-    return { categories: [...categories.values()] }
+    const palletKit = palletKitOptions(kit, language)
+    return { categories: [...categories.values()], palletKit }
 }

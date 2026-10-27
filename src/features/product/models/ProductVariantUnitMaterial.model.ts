@@ -46,7 +46,10 @@ class ProductVariantUnitMaterial extends BaseCatalogModel {
     declare optionGroup: string | null
 
     @ForeignKey(() => PackagingGroup)
-    @Column({ type: DataType.INTEGER, allowNull: true })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: true
+    })
     declare optionGroupId: number | null
 
     @BelongsTo(() => PackagingGroup, "optionGroupId")

@@ -3,7 +3,7 @@
 // en sí (contador, 15 min, reset) ya tiene su propia cobertura exhaustiva en
 // shared/services/accountLockout.service.test.ts -- acá lo que importa es que login.service
 // llame a las funciones correctas en el orden correcto.
-jest.mock("../../user/models/user.model", () => ({
+jest.mock("../../user/models/User.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn() }
 }))
@@ -17,7 +17,7 @@ jest.mock("../../../../config/env", () => ({
 
 import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
-import User from "../../user/models/user.model"
+import User from "../../user/models/User.model"
 import { authService } from "./login.service"
 import { AppError } from "../../../../shared/errors/AppError"
 

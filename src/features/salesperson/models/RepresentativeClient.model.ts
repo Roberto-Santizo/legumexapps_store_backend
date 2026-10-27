@@ -3,20 +3,45 @@ import Salesperson from "./Salesperson.model"
 import Client from "../../client/models/Client.model"
 
 // Presence means assigned. No surrogate ID, soft-delete flag or nullable columns.
-@Table({ tableName: "representative_clients", timestamps: false })
+@Table({
+    tableName: "representative_clients",
+    timestamps: false,
+    indexes: [
+        {
+            name: "representative_clients_client_idx",
+            fields: ["clientId"]
+        }
+    ]
+})
 class RepresentativeClient extends Model {
     @ForeignKey(() => Salesperson)
-    @Column({ type: DataType.INTEGER, primaryKey: true, allowNull: false })
+    @Column({
+        type: DataType.INTEGER,
+        primaryKey: true,
+        allowNull: false
+    })
     declare representativeId: number
 
     @ForeignKey(() => Client)
-    @Column({ type: DataType.INTEGER, primaryKey: true, allowNull: false })
+    @Column({
+        type: DataType.INTEGER,
+        primaryKey: true,
+        allowNull: false
+    })
     declare clientId: number
 
-    @BelongsTo(() => Salesperson, { foreignKey: "representativeId", onDelete: "RESTRICT", onUpdate: "CASCADE" })
+    @BelongsTo(() => Salesperson, {
+        foreignKey: "representativeId",
+        onDelete: "RESTRICT",
+        onUpdate: "CASCADE"
+    })
     declare representative: Salesperson
 
-    @BelongsTo(() => Client, { foreignKey: "clientId", onDelete: "RESTRICT", onUpdate: "CASCADE" })
+    @BelongsTo(() => Client, {
+        foreignKey: "clientId",
+        onDelete: "RESTRICT",
+        onUpdate: "CASCADE"
+    })
     declare client: Client
 }
 

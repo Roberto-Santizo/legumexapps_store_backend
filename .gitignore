@@ -33,10 +33,6 @@ npm-debug.log*
 /scripts/diagnose-*.cjs
 /scripts/inspect-*.cjs
 /scripts/**/*.py
-/scripts/start-local-no-sync.cjs
-
-# Audit output containing live catalog data
-/docs/packaging-consumption-audit-result.json
 
 # Local cleanup worktrees/backups, if created inside this repository
 /.legacy-config-cleanup/
@@ -44,35 +40,8 @@ npm-debug.log*
 /.local-build-backups/
 
 # Personal documentation and local investigation artifacts
-/AGENTS.md
-/CLAUDE.md
-/CLAUDE.local.md
 /docs/**/*.md
-/docs/catalog-customizable-quotes.md
-/docs/fixed-product-details.md
-/docs/frontend-cors.md
-/docs/ingredient-precision-validation.md
-/docs/initial-product-import.md
-/docs/legacy-custom-quote-config-retirement.md
-/docs/migration-history.md
-/docs/migration-runner-safety.md
-/docs/packaging-classification.md
-/docs/packaging-consumption.md
-/docs/pallet-material-rules.md
-/docs/product-packaging-import.md
-/docs/product-xlsx-parser-diagnosis.md
-/docs/readiness-approval.md
-/docs/readiness-command.md
-/docs/readiness-diagnostics.md
-/docs/readiness-postgres.md
-/docs/representative-clients.md
-/docs/startup-sync-safety.md
-/docs/xlsx-fallback-imports.md
-/scripts/**/*.py
 /*.py
-/scripts/diagnose-*.cjs
-/scripts/inspect-*.cjs
-/scripts/start-local-no-sync.cjs
 /scripts/review-*.cjs
 /scratchpad/
 /artifacts/
@@ -81,7 +50,6 @@ npm-debug.log*
 /tmp/
 /temp/
 *.tmp
-*.log
 /docs/*-audit-result.json
 /docs/*.pdf
 /docs/*.png

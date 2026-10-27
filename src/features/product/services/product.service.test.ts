@@ -1,3 +1,4 @@
+import { createProductSchema, updateProductSchema } from "../schemas/product.schema"
 jest.mock("../models/Product.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn(), create: jest.fn(), findAll: jest.fn(), findAndCountAll: jest.fn(),
@@ -164,6 +165,16 @@ describe("productService.createProduct -- clientId (2026-09-16, requerido)", () 
         )
     })
 
+    it("permite crear individualmente un producto orgánico", async () => {
+        mockClientFindOne.mockResolvedValue({ id: 7, isActive: true })
+        mockProductCreate.mockResolvedValue({ id: 100 })
+        const input = createProductSchema.parse({ ...validCreateInput, isOrganic: true })
+        stubProductFindOneHappyPath({ id: 100, ...input })
+        const product = await productService.createProduct(input)
+        expect(mockProductCreate).toHaveBeenCalledWith(expect.objectContaining({ isOrganic: true }))
+        expect(product.isOrganic).toBe(true)
+    })
+
     it("valida el clientId ANTES de crear -- nunca llega a Product.create si el Client no existe", async () => {
         mockClientFindOne.mockResolvedValue(null)
         stubProductFindOneHappyPath({ id: 100 })
@@ -203,6 +214,14 @@ describe("productService.updateProduct -- clientId (2026-09-16, requerido tambi�
         await expect(
             productService.updateProduct(5, { clientId: 999 } as never)
         ).rejects.toMatchObject({ statusCode: 404, key: "errors.not_found", params: expect.objectContaining({ resource: "Client", id: 999 }) })
+    })
+
+    it.each([true, false])("permite cambiar isOrganic a %s en edición individual", async isOrganic => {
+        const existing = stubExistingProduct({ isOrganic: !isOrganic })
+        mockClientFindOne.mockResolvedValue({ id: 7, isActive: true })
+        const input = updateProductSchema.parse({ clientId: 7, isOrganic })
+        await productService.updateProduct(5, input)
+        expect(existing.update).toHaveBeenCalledWith(expect.objectContaining({ isOrganic }))
     })
 
     it("persiste el nuevo clientId cuando el Client existe y está activo", async () => {

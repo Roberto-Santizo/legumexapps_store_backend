@@ -3,9 +3,9 @@ import jwt from "jsonwebtoken"
 import { env } from "../../../../config/env"
 import { AppError } from "../../../../shared/errors/AppError"
 import { clearFailedAttempts, isAccountLocked, registerFailedAttempt } from "../../../../shared/services/accountLockout.service"
-import User from "../../user/models/user.model"
-import Role from "../../roles/models/role.model"
-import Permission from "../../permissions/models/permission.model"
+import User from "../../user/models/User.model"
+import Role from "../../roles/models/Role.model"
+import Permission from "../../permissions/models/Permission.model"
 import { LoginInput } from "../schemas/login.schema"
 
 interface LoginResult {

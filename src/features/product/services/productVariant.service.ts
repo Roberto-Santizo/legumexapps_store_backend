@@ -2,6 +2,9 @@ import { Op, WhereOptions, col, fn, where, UniqueConstraintError } from "sequeli
 import ProductVariant from "../models/ProductVariant.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CreateProductVariantInput, UpdateProductVariantInput } from "../schemas/productVariant.schema"
+import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
+import Packaging from "../../packaging/models/Packaging.model"
+import { PALLET_KIT_TYPES } from "../../packaging/constants/packagingMaterialType.constant"
 
 async function listProductVariants(): Promise<ProductVariant[]> {
     return ProductVariant.findAll({ where: { isActive: true }, order: [["id", "DESC"]] })
@@ -71,7 +74,15 @@ async function updateProductVariant(id: number, input: UpdateProductVariantInput
     await assertPresentationNotAlreadyUsed(effectiveProductId, productVariant.presentationId, id)
 
     await assertSkuCodeIsUnique(input.skuCode, id)
+    if (input.usesPalletKit === true && !productVariant.usesPalletKit) await assertNoOwnPalletKitRows(id)
     return writeVariant(input.skuCode, () => productVariant.update(input))
+}
+
+// Turning the pallet kit on requires removing the SKU's own tarima, esquinero and stretch rows first.
+async function assertNoOwnPalletKitRows(productVariantId: number): Promise<void> {
+    const own = await ProductVariantPalletMaterial.count({ where: { productVariantId, isActive: true },
+        include: [{ model: Packaging, as: "usedPalletMaterial", required: true, where: { materialType: [...PALLET_KIT_TYPES] } }] })
+    if (own > 0) throw new AppError(422, "errors.product_variant_pallet_kit_conflict")
 }
 
 async function deleteProductVariant(id: number): Promise<void> {

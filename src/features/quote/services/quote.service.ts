@@ -1,9 +1,11 @@
+import { isPalletKitType } from "../../packaging/constants/packagingMaterialType.constant"
 import { packagingNames, packagingName } from "../../../shared/utils/packagingName.util"
 import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
 import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { Op } from "sequelize"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
+import Client from "../../client/models/Client.model"
 import ProductTranslation from "../../product/models/ProductTranslation.model"
 import ProductRawMaterial from "../../product/models/ProductRawMaterial.model"
 import ProductIngredient from "../../product/models/ProductIngredient.model"
@@ -23,26 +25,22 @@ import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitM
 import ProductVariantIntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
 import Destination from "../../destination/models/Destination.model"
 import Salesperson from "../../salesperson/models/Salesperson.model"
-import Quote from "../models/Quote.model"
+import User from "../../accessControl/user/models/User.model"
+import Quote, { QuoteEmailDelivery } from "../models/Quote.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CalculateQuoteInput, SalespersonQuoteInput } from "../schemas/quote.schema"
+import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, sumMoney } from "../../../shared/utils/money.util"
 import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
 import Decimal from "decimal.js"
-import type { QuoteOrderIdentity } from "../schemas/quoteOrder.schema"
 import {
-    AdjustmentLine,
+    assertFixedPackaging,
+    assertPackagingQuantity,
     IngredientLine,
-    IntermediateMaterialLine,
     MIX_PERCENTAGE_TOLERANCE,
-    PalletMaterialLine,
-    PercentageCostLine,
-    ProcessingCostLine,
     RawMaterialLine,
-    TransportLine,
-    UnitMaterialLine,
     assembleQuoteTotals,
     buildAdjustmentLine,
     buildIngredientLine,
@@ -52,50 +50,21 @@ import {
     buildPerWeightProcessingCostLines,
     buildTransportLine,
     buildUnitMaterialLine
-} from "./quoteCostLines"
-import { GroupedMaterialRow, bucketMaterialsByGroup, resolveMaterialsForQuote } from "./quoteMaterialSelection"
+} from "../../pricing/services/quoteCostLines"
+import { GroupedMaterialRow, bucketMaterialsByGroup, resolveMaterialsForQuote } from "../../pricing/services/quoteMaterialSelection"
 
 // La matemática por línea (materia prima, ingredientes, empaque por nivel, costos adicionales,
 // transporte, ajuste y el total) vive en quoteCostLines.ts, y la resolución de grupos de opciones en
 // quoteMaterialSelection.ts. Este archivo es el motor de PRODUCTOS DEFINIDOS: lee esos valores de la
 // variante (SKU) y los pasa a los builders compartidos.
 
-export interface QuoteCalculation {
-    productVariantId: number
-    // null cuando no se mandó destinationId -- ver TransportLine.destinationId en quoteCostLines.ts.
-    destinationId: number | null
-    productDisplayName: string
-    variantLabel: string | null
-    requestedPallets: number
-    totalUnits: number
-    boxesPerPallet: number
-    rawMaterialCost: number
-    ingredientCost: number
-    unitPackagingCost: number
-    intermediatePackagingCost: number
-    processingCostTotal: number
-    palletMaterialCost: number
-    percentageCostTotal: number
-    transportCost: number
-    adjustmentCost: number
-    totalCost: number
-    breakdown: {
-        order?: QuoteOrderIdentity
-        production?: { productId: number; skuCode: string; boxesPerPallet: number; bagsPerBox: number; netWeightGrams: number | null }
-        rawMaterials: RawMaterialLine[]
-        ingredients: IngredientLine[]
-        unitMaterials: UnitMaterialLine[]
-        // Array (no un único objeto o null) -- el nivel intermedio admite N filas fijas + N grupos
-        // de opciones, igual que unit/pallet.
-        intermediateMaterials: IntermediateMaterialLine[]
-        processingCosts: ProcessingCostLine[]
-        palletMaterials: PalletMaterialLine[]
-        percentageCosts: PercentageCostLine[]
-        transport: TransportLine
-        adjustment: AdjustmentLine | null
-        language: ContentLanguage
-    }
-}
+import type { QuoteCalculation } from "../../pricing/services/quoteCalculation"
+import { loadPalletKit, palletKitLines, palletKitOptions } from "../../palletKit/services/palletKit.service"
+export type { QuoteCalculation }
+
+// Autor de una Quote guardada: representante o usuario staff, nunca ambos (ver Quote.model.ts).
+type QuoteAuthor = { salespersonId: number } | { createdByUserId: number }
+export type AdminQuoteInput = CalculateQuoteInput & { order: QuoteOrderIdentity }
 
 // Receta del producto: el % de cada materia prima lo fija el admin
 // (ProductRawMaterial.percentage) y el cliente nunca puede alterarlo. Si el producto no tiene ninguna materia prima activa todavía, se devuelve $0 sin exigir peso
@@ -223,7 +192,8 @@ async function loadQuoteVariant(productVariantId: number): Promise<{ variant: Pr
         throw new AppError(422, "errors.unit_materials_not_configured")
     }
 
-    if ((variant.palletMaterials ?? []).length === 0) {
+    // With the pallet kit a SKU may have no palletizing rows of its own.
+    if ((variant.palletMaterials ?? []).length === 0 && !variant.usesPalletKit) {
         throw new AppError(422, "errors.pallet_materials_not_configured")
     }
 
@@ -309,12 +279,16 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     const ingredientCost = sumMoney(ingredients.map(line => line.lineTotal))
 
     const resolvedUnitMaterials = resolveMaterialsForQuote(variant.unitMaterials ?? [], input.selectedUnitMaterialIds, "unit")
+    for (const row of resolvedUnitMaterials) {
+        assertFixedPackaging(row.usedUnitMaterial, "unit")
+        assertPackagingQuantity(row.quantityPerUnit)
+    }
     const unitMaterials = resolvedUnitMaterials.map(unitMaterial =>
         buildUnitMaterialLine(
             unitMaterial.packagingId,
             unitMaterial.usedUnitMaterial,
             unitMaterial.optionGroup,
-            unitMaterial.quantityPerUnit ?? 1,
+            unitMaterial.quantityPerUnit,
             totalUnits
         )
     )
@@ -325,6 +299,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
         input.selectedIntermediateMaterialIds,
         "intermediate"
     )
+    for (const row of resolvedIntermediateMaterials) assertFixedPackaging(row.usedIntermediateMaterial, "intermediate")
     const intermediateMaterials = resolvedIntermediateMaterials.map(material =>
         buildIntermediateMaterialLine(
             material.packagingId,
@@ -340,15 +315,25 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     const processingCostTotal = sumMoney(processingCosts.map(line => line.lineTotal))
 
     const resolvedPalletMaterials = resolveMaterialsForQuote(variant.palletMaterials ?? [], input.selectedPalletMaterialIds, "pallet")
-    const palletMaterials = resolvedPalletMaterials.map(palletMaterial =>
+    for (const row of resolvedPalletMaterials) {
+        assertFixedPackaging(row.usedPalletMaterial, "pallet")
+        if (variant.usesPalletKit && isPalletKitType(row.usedPalletMaterial?.materialType)) throw new AppError(422, "errors.pallet_material_in_kit")
+        assertPackagingQuantity(row.quantityValue)
+        if (row.quantityBasis !== "per_box" && row.quantityBasis !== "per_pallet") throw new AppError(422, "errors.pallet_consumption_invalid")
+    }
+    const ownPalletMaterials = resolvedPalletMaterials.map(palletMaterial =>
         buildPalletMaterialLine(
             palletMaterial.packagingId,
             palletMaterial.usedPalletMaterial,
             palletMaterial.optionGroup,
-            toDecimal(palletMaterial.quantityValue ?? 0).times(palletMaterial.quantityBasis === "per_box" ? variant.boxesPerPallet : 1).toString(),
+            toDecimal(palletMaterial.quantityValue).times(palletMaterial.quantityBasis === "per_box" ? variant.boxesPerPallet : 1).toString(),
             requestedPallets
         )
     )
+    // SKUs that use the pallet kit add tarima, esquineros and stretch per pallet from it; the others keep their own.
+    if (!variant.usesPalletKit && input.palletKitSelections?.length) throw new AppError(422, "errors.pallet_kit_selection")
+    const kitLines = variant.usesPalletKit ? palletKitLines(await loadPalletKit(), input.palletKitSelections, requestedPallets, language) : []
+    const palletMaterials = [...ownPalletMaterials, ...kitLines.map(row => row.line)]
     const palletMaterialCost = sumMoney(palletMaterials.map(line => line.lineTotal))
 
     const { transportCost, transport } = buildTransportLine(destination, language)
@@ -457,6 +442,8 @@ interface QuotableVariant {
     netWeightGrams: number | null
     packagingLabel: string | null
     unitMaterialOptionGroups: QuotableMaterialOptionGroup[]
+    // Pallet kit types for SKUs that use it (one material = included, several = the representative chooses).
+    palletKit: ReturnType<typeof palletKitOptions>
     intermediateMaterialOptionGroups: QuotableMaterialOptionGroup[]
     palletMaterialOptionGroups: QuotableMaterialOptionGroup[]
 }
@@ -481,14 +468,18 @@ interface QuotableProduct {
     subCategoryId: number
     subCategoryName: string
     subCategoryImageUrl: string | null
+    // Cliente real dueño del producto: el cotizador admin ve el catálogo completo y lo usa para
+    // distinguir productos parecidos de clientes distintos.
+    clientName: string | null
     fixedRecipe: QuotableFixedRawMaterial[]
     variants: QuotableVariant[]
 }
 
 
-async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuotableProduct[]> {
+async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE, clientIds?: readonly number[]): Promise<QuotableProduct[]> {
+    if (clientIds && !clientIds.length) return []
     const products = await Product.findAll({
-        where: { isActive: true },
+        where: { isActive: true, ...(clientIds ? { clientId: { [Op.in]: clientIds } } : {}) },
         include: [
             {
                 model: ProductVariant,
@@ -547,11 +538,13 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                     include: [{ model: RawMaterialTranslation, as: "translations" }]
                 }]
             },
-            { model: ProductTranslation, as: "translations" }
+            { model: ProductTranslation, as: "translations" },
+            { model: Client, as: "client", attributes: ["id", "name"] }
         ],
         order: [["displayName", "ASC"]]
     })
 
+    const kitOptions = palletKitOptions(await loadPalletKit(), language)
     return products.map(product => {
         const plain = product.toJSON()
         const category = plain.parentSubCategory?.parentCategory
@@ -566,6 +559,7 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
             subCategoryId: plain.subCategoryId,
             subCategoryName: pickTranslatedName(plain.parentSubCategory?.displayName ?? "", plain.parentSubCategory?.translations, language),
             subCategoryImageUrl: plain.parentSubCategory?.imageUrl ?? null,
+            clientName: plain.client?.name ?? null,
             // El cliente no puede editar la receta, pero sí debe ver qué está cotizando --
             // ver comentario de QuotableFixedRawMaterial arriba.
             fixedRecipe: (plain.productRawMaterials ?? []).map((productRawMaterial: ProductRawMaterial) => ({
@@ -596,7 +590,8 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                     variant.intermediateMaterials ?? [],
                     row => row.usedIntermediateMaterial
                 ),
-                palletMaterialOptionGroups: buildMaterialOptionGroups(variant.palletMaterials ?? [], row => row.usedPalletMaterial)
+                palletMaterialOptionGroups: buildMaterialOptionGroups(variant.palletMaterials ?? [], row => row.usedPalletMaterial),
+                palletKit: variant.usesPalletKit ? kitOptions : [],
             }))
         }
     })
@@ -616,8 +611,41 @@ async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, la
     const calculation = await calculateQuote(calculationInput, language)
     if (order) calculation.breakdown.order = order
 
-    const quote = await Quote.create({
-        salespersonId,
+    const quote = await createQuoteRecord({ salespersonId }, calculation)
+
+    if (draftKey) {
+        try {
+            await quoteDraftService.markConverted(draftKey, salespersonId, quote.id)
+        } catch (error) {
+            console.error("[quoteDraft] no se pudo marcar el borrador como convertido; detalles sensibles omitidos")
+        }
+    }
+
+    return {
+        ...calculation,
+        id: quote.id,
+        createdAt: quote.get("createdAt") as Date
+    }
+}
+
+// Cotizador del admin: mismo cálculo y mismo snapshot que el representante, a nombre del usuario staff.
+// `order` ya viene resuelto por el servidor (resolveAdminQuoteOrder). Sin borradores (quoteDraft/).
+async function saveAdminQuote(createdByUserId: number, input: AdminQuoteInput, language: ContentLanguage = DEFAULT_CONTENT_LANGUAGE): Promise<QuoteCalculation & { id: number; createdAt: Date }> {
+    const { order, ...calculationInput } = input
+    const calculation = await calculateQuote(calculationInput, language)
+    calculation.breakdown.order = order
+
+    const quote = await createQuoteRecord({ createdByUserId }, calculation)
+    return {
+        ...calculation,
+        id: quote.id,
+        createdAt: quote.get("createdAt") as Date
+    }
+}
+
+function createQuoteRecord(author: QuoteAuthor, calculation: QuoteCalculation): Promise<Quote> {
+    return Quote.create({
+        ...author,
         productVariantId: calculation.productVariantId,
         destinationId: calculation.destinationId,
         productDisplayName: calculation.productDisplayName,
@@ -636,29 +664,34 @@ async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, la
         totalCost: calculation.totalCost,
         breakdown: calculation.breakdown
     })
-
-    if (draftKey) {
-        try {
-            await quoteDraftService.markConverted(draftKey, salespersonId, quote.id)
-        } catch (error) {
-            console.error("[quoteDraft] no se pudo marcar el borrador como convertido; detalles sensibles omitidos")
-        }
-    }
-
-    return {
-        ...calculation,
-        id: quote.id,
-        createdAt: quote.get("createdAt") as Date
-    }
 }
 
+
+// Antes de enviar el correo: todas las cotizaciones a registrar existen. Así un id inválido no deja un
+// correo enviado sin registro.
+async function assertQuotesExist(quoteIds: number[]): Promise<void> {
+    const found = new Set((await Quote.findAll({ where: { id: { [Op.in]: quoteIds } }, attributes: ["id"] })).map(quote => quote.id))
+    const missing = quoteIds.find(id => !found.has(id))
+    if (missing !== undefined) throw new NotFoundError("Quote", missing)
+}
+
+// Agrega el envío al final de emailDeliveries de cada cotización en una sola sentencia (|| de jsonb):
+// dos envíos simultáneos no se pisan. validate:false porque solo cambia esta columna.
+async function recordEmailDelivery(quoteIds: number[], delivery: QuoteEmailDelivery): Promise<void> {
+    const entry = Quote.sequelize!.escape(JSON.stringify([delivery]))
+    await Quote.update(
+        { emailDeliveries: Quote.sequelize!.literal(`"emailDeliveries" || ${entry}::jsonb`) },
+        { where: { id: { [Op.in]: quoteIds } }, validate: false }
+    )
+}
 
 async function listAllQuotes(filters: AdminQuoteListQuery = {}): Promise<Quote[]> {
     const createdAt = businessDayRangeFilter(filters.startDate, filters.endDate)
     return Quote.findAll({
         ...(createdAt ? { where: { createdAt } } : {}),
         include: [
-            { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] }
+            { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] },
+            { model: User, as: "quotingUser", attributes: ["id", "name", "username"] }
         ],
         order: [["createdAt", "DESC"]]
     })
@@ -669,5 +702,8 @@ export const quoteService = {
     listQuotableProducts,
     listQuoteDestinations,
     saveQuote,
+    saveAdminQuote,
+    assertQuotesExist,
+    recordEmailDelivery,
     listAllQuotes,
 }

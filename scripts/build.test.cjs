@@ -86,6 +86,7 @@ test("Windows locked directory falls back to exact fresh files, preserves old ou
     await fs.writeFile(path.join(base, "dist/.build-integrity"), "old seal")
     const result = await run({ base, platform: "win32", rename: lockedDirectory(base), compiler: freshCompiler })
     assert.equal(result.promotion, "files")
+    assert.deepEqual((await fs.readdir(base)).filter(name => name.startsWith(".build-stage-")), [])
     assert.equal(await fs.readFile(path.join(result.backup, "obsolete.js"), "utf8"), "old obsolete file")
     assert.equal(await fs.readFile(path.join(result.backup, ".build-integrity"), "utf8"), "old seal")
     await assert.rejects(fs.access(path.join(result.dist, "obsolete.js")), { code: "ENOENT" })

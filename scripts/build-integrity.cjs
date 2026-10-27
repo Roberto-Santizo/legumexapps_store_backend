@@ -21,11 +21,10 @@ async function snapshot(base = root) {
     if (!outputs.includes(path.join(base, 'dist', 'index.js'))) throw new Error('Missing build entrypoint')
     const relative = name => path.relative(base, name).split(path.sep).join('/')
     const administrative = []
-    for (const name of ['scripts/build.cjs', 'scripts/migrate.cjs', 'scripts/bootstrap.cjs', 'scripts/release.cjs', 'scripts/readiness.cjs', 'scripts/readiness-approval.cjs', 'scripts/migration-targets.json']) {
+    for (const name of ['scripts/build.cjs', 'scripts/database-input.cjs', 'scripts/schema-sync.cjs', 'scripts/release.cjs']) {
         const filename = path.join(base, name)
         try { await fs.access(filename); administrative.push(filename) } catch (error) { if (error.code !== 'ENOENT') throw error }
     }
-    try { administrative.push(...await files(path.join(base, 'migrations'), ['.sql'])) } catch (error) { if (error.code !== 'ENOENT') throw error }
     const names = [...inputs, ...outputs, ...administrative, ...['tsconfig.json', 'tsconfig.build.json', 'package.json', 'package-lock.json', 'scripts/build-integrity.cjs'].map(name => path.join(base, name))].sort((a, b) => relative(a) < relative(b) ? -1 : relative(a) > relative(b) ? 1 : 0)
     const hash = createHash('sha256')
     for (const name of names) {

@@ -1,9 +1,8 @@
 import { z } from "zod"
 
 const id = z.number().int().positive().max(2147483647)
-const money = z.number().nonnegative().max(9999999999.9999).multipleOf(0.0001)
 const preciseCost = z.number().nonnegative().max(99999999.999999).multipleOf(0.000001)
-// Source costs/PRICE LB retain spreadsheet precision; quote amounts still round to 4 places.
+// Source costs retain spreadsheet precision; quote amounts still round to 4 places.
 const sourceCost = z.number().nonnegative().max(9999999999.9999).multipleOf(0.000000000001)
 const name = z.string().trim().min(1).max(120)
 const code = z.string().trim().min(1).max(60)
@@ -25,10 +24,10 @@ export const createJuiceSchema = z.strictObject({
     code,
     displayName: name,
     clientId: id,
-    pricePerPound: sourceCost.positive(),
     image: z.string().nullable().optional(),
 })
 export const updateJuiceSchema = createJuiceSchema
+export const createLinkedJuiceSchema = createJuiceSchema.extend({ subCategoryId: id })
 
 export const createJuicePresentationSchema = z.strictObject({
     juiceId: id,
@@ -43,7 +42,6 @@ export const createJuicePresentationSchema = z.strictObject({
     secondStickerQuantityPerCase: preciseCost,
     bottleUnitCost: sourceCost,
     capUnitCost: sourceCost,
-    marginPerCase: money,
 })
 export const updateJuicePresentationSchema = createJuicePresentationSchema.omit({ juiceId: true })
 
@@ -56,5 +54,7 @@ export const updateJuiceMixSchema = createJuiceMixSchema.pick({ percentage: true
 
 export const createJuiceSpiceMaterialSchema = z.strictObject({ code, displayName: name, costPerGram: sourceCost })
 export const updateJuiceSpiceMaterialSchema = createJuiceSpiceMaterialSchema
-export const createJuiceSpiceSchema = z.strictObject({ juiceId: id, spiceMaterialId: id, gramsPerLiter: preciseCost.positive() })
-export const updateJuiceSpiceSchema = createJuiceSpiceSchema.pick({ gramsPerLiter: true })
+export const createJuiceSpiceSchema = z.strictObject({ juiceId: id, ingredientId: id.optional(), spiceMaterialId: id.optional(), gramsPerLiter: preciseCost.positive() })
+    .refine(value => Boolean(value.ingredientId) !== Boolean(value.spiceMaterialId), { path: ["ingredientId"], message: "Choose exactly one ingredient reference" })
+export const updateJuiceSpiceSchema = z.strictObject({ ingredientId: id.optional(), gramsPerLiter: preciseCost.positive() })
+export const linkJuiceProductSchema = z.strictObject({ subCategoryId: id })

@@ -10,5 +10,4 @@ export const PRODUCT_PACKAGING_IMPORT_COLUMNS = {
     materialName: { header: "NOMBRE MP", aliases: ["nombre mp", "material name"] },
     unitCost: { header: "COSTO POR UNIDAD (USD)", aliases: ["costo por unidad (usd)", "unit cost (usd)"] },
 } satisfies Record<string, ImportColumnDef>
-export type ProductPackagingImportField = keyof typeof PRODUCT_PACKAGING_IMPORT_COLUMNS
 export const MAX_PRODUCT_PACKAGING_IMPORT_ROWS = 1000

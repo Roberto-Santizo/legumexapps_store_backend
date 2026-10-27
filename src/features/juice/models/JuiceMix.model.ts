@@ -5,18 +5,32 @@ import JuiceRawMaterial from "./JuiceRawMaterial.model"
 
 @Table({
     tableName: "juiceMixes",
-    indexes: [{ unique: true, fields: ["juiceId", "rawMaterialId"] }],
+    indexes: [
+        {
+            unique: true,
+            fields: ["juiceId", "rawMaterialId"]
+        }
+    ]
 })
 class JuiceMix extends BaseCatalogModel {
     @ForeignKey(() => Juice)
-    @Column({ type: DataType.INTEGER, allowNull: false })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false
+    })
     declare juiceId: number
 
     @ForeignKey(() => JuiceRawMaterial)
-    @Column({ type: DataType.INTEGER, allowNull: false })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false
+    })
     declare rawMaterialId: number
 
-    @Column({ type: DataType.DECIMAL(14, 6), allowNull: false })
+    @Column({
+        type: DataType.DECIMAL(14, 6),
+        allowNull: false
+    })
     declare percentage: number
 
     @BelongsTo(() => Juice, "juiceId")

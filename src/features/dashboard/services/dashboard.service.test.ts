@@ -44,7 +44,9 @@ const mockProductFindAll = Product.findAll as unknown as jest.Mock
 const mockRawMaterialFindAll = RawMaterial.findAll as unknown as jest.Mock
 
 interface StubQuoteInput {
-    salespersonId: number
+    salespersonId: number | null
+    createdByUserId?: number | null
+    quotingUser?: { id: number; name: string } | null
     totalCost: number
     requestedPallets: number
     totalUnits: number
@@ -293,6 +295,25 @@ describe("dashboardService.getSummary", () => {
 
         expect(summary.topSalespeople[0]).toMatchObject({ salespersonId: 2, name: "Cliente Grande", totalRevenue: 500, quoteCount: 1 })
         expect(summary.topSalespeople[1]).toMatchObject({ salespersonId: 1, name: "Cliente Frecuente", totalRevenue: 100, quoteCount: 2 })
+    })
+
+    it("cuenta las cotizaciones guardadas por el admin en todo el resumen, con el usuario staff en el ranking", async () => {
+        const admin = { salespersonId: null, createdByUserId: 1, quotingSalesperson: null, quotingUser: { id: 1, name: "Ana Admin" } }
+        mockQuoteFindAll.mockResolvedValue([
+            stubQuote({ totalCost: 300, requestedPallets: 2, ...admin }),
+            stubQuote({ totalCost: 100, ...admin }),
+            // Mismo id numérico que el usuario staff: no se mezclan.
+            stubQuote({ totalCost: 50, quotingSalesperson: { id: 1, name: "Representante Uno", companyName: null, email: "uno@legumex.com" } }),
+        ])
+
+        const summary = await dashboardService.getSummary()
+
+        expect(summary.overview).toMatchObject({ totalQuotes: 3, totalRevenue: 450, uniqueSalespeople: 1 })
+        expect(summary.topProducts[0]).toMatchObject({ quoteCount: 3, totalRevenue: 450 })
+        expect(summary.topSalespeople).toEqual([
+            { salespersonId: null, userId: 1, isAdmin: true, name: "Ana Admin", companyName: null, email: null, quoteCount: 2, totalPallets: 3, totalRevenue: 400 },
+            expect.objectContaining({ salespersonId: 1, userId: null, isAdmin: false, totalRevenue: 50 }),
+        ])
     })
 
     it("agrega materias primas desde el snapshot congelado (breakdown.rawMaterials), sumando costo por materia prima", async () => {

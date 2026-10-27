@@ -1,5 +1,5 @@
 import { Request } from "express"
-import Permission from "../models/permission.model"
+import Permission from "../models/Permission.model"
 
 const KNOWN_ACTIONS = new Set(["view", "create", "edit", "delete", "calculate"])
 

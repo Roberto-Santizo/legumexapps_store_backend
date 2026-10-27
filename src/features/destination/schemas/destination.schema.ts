@@ -2,7 +2,7 @@ import z from "zod"
 import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema"
 
 
-export const destinationCountryEnum = z.enum(["GT", "US"])
+const destinationCountryEnum = z.enum(["GT", "US"])
 
 export const createDestinationSchema = z.object({
     displayName: z.string().trim().min(1).max(120),

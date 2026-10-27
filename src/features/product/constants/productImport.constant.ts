@@ -11,7 +11,6 @@ export type ProductImportField =
     | "client"
     | "displayName"
     | "displayNameEn"
-    | "isOrganic"
     | "additionalCostPerUnit"
 
 interface ImportColumnDef {
@@ -27,12 +26,11 @@ export const PRODUCT_IMPORT_COLUMNS: Record<ProductImportField, ImportColumnDef>
     boxesPerPallet: { header: "Cajas por palet", aliases: ["cajas por palet", "cajas por pallet"] },
     bagsPerBox: { header: "Bolsas por caja", aliases: ["bolsas por caja", "unidades por caja"] },
     unitsPerIntermediatePackage: { header: "Unidades por empaque intermedio", aliases: ["unidades por empaque intermedio"] },
-    subCategory: { header: "Subcategoría", aliases: ["subcategoria", "sub categoria", "subcategory"] },
     category: { header: "Categoría", aliases: ["categoria", "category"] },
+    subCategory: { header: "Subcategoría", aliases: ["subcategoria", "sub categoria", "subcategory"] },
     client: { header: "Cliente", aliases: ["cliente", "client"] },
     displayName: { header: "Nombre del producto", aliases: ["nombre del producto", "nombre", "product name"] },
     displayNameEn: { header: "Nombre del producto (inglés)", aliases: ["nombre del producto (ingles)", "nombre (ingles)", "product name (english)"] },
-    isOrganic: { header: "Orgánico", aliases: ["organico", "organic"] },
     additionalCostPerUnit: { header: "Costo adicional por unidad", aliases: ["costo adicional por unidad", "costo adicional", "additional cost per unit"] },
 }
 
@@ -42,6 +40,7 @@ export const REQUIRED_PRODUCT_IMPORT_FIELDS: ProductImportField[] = [
     "presentationLabel",
     "boxesPerPallet",
     "bagsPerBox",
+    "category",
     "subCategory",
     "client",
     "displayName",

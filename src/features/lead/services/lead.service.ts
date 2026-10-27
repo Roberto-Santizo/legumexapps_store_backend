@@ -4,7 +4,7 @@ import { NotFoundError } from "../../../shared/errors/AppError"
 import { PublicCreateLeadInput, UpdateLeadInput, LeadQuery } from "../schemas/lead.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
 
-export type CreateLeadData = Omit<PublicCreateLeadInput, "website">
+type CreateLeadData = Omit<PublicCreateLeadInput, "website">
 
 async function createLead(input: CreateLeadData): Promise<Lead> {
     return Lead.create(input)

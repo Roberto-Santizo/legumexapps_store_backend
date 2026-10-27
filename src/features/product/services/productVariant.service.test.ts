@@ -7,7 +7,10 @@ jest.mock("../models/ProductVariant.model", () => ({
     default: { findOne: jest.fn(), create: jest.fn() }
 }))
 
+jest.mock("../models/ProductVariantPalletMaterial.model", () => ({ __esModule: true, default: { count: jest.fn().mockResolvedValue(0) } }))
+
 import ProductVariant from "../models/ProductVariant.model"
+import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
 import { productVariantService } from "./productVariant.service"
 
 const mockVariantFindOne = ProductVariant.findOne as unknown as jest.Mock
@@ -158,5 +161,26 @@ describe("SKU global", () => {
         mockVariantFindOne.mockImplementation(({ where }) => Promise.resolve(where.isActive ? { id: 1, productId: 1, presentationId: 3, update } : where[Op.and] ? { id: 99 } : null))
         await expect(productVariantService.updateProductVariant(1, BASE_CREATE_INPUT)).rejects.toMatchObject({ key: "errors.product_variant_skucode_already_exists" })
         expect(update).not.toHaveBeenCalled()
+    })
+})
+
+describe("pallet kit switch on a SKU", () => {
+    beforeEach(() => mockVariantFindOne.mockReset())
+    it("turning the kit on requires removing its own tarima, esquinero and stretch rows first", async () => {
+        const mockUpdate = jest.fn().mockResolvedValue(undefined)
+        stubVariantFindOne({ existing: { id: 1, productId: 1, presentationId: 3, usesPalletKit: false, update: mockUpdate } })
+        jest.mocked(ProductVariantPalletMaterial.count).mockResolvedValueOnce(2)
+        await expect(productVariantService.updateProductVariant(1, { ...BASE_CREATE_INPUT, usesPalletKit: true })).rejects.toMatchObject({ statusCode: 422, key: "errors.product_variant_pallet_kit_conflict" })
+        expect(mockUpdate).not.toHaveBeenCalled()
+        jest.mocked(ProductVariantPalletMaterial.count).mockResolvedValueOnce(0)
+        await productVariantService.updateProductVariant(1, { ...BASE_CREATE_INPUT, usesPalletKit: true })
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ usesPalletKit: true }))
+    })
+    it("turning it off never needs the check", async () => {
+        const mockUpdate = jest.fn().mockResolvedValue(undefined)
+        stubVariantFindOne({ existing: { id: 1, productId: 1, presentationId: 3, usesPalletKit: true, update: mockUpdate } })
+        await productVariantService.updateProductVariant(1, { ...BASE_CREATE_INPUT, usesPalletKit: false })
+        expect(ProductVariantPalletMaterial.count).not.toHaveBeenCalledWith(expect.anything())
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ usesPalletKit: false }))
     })
 })

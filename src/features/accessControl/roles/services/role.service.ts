@@ -1,7 +1,7 @@
 import { Op, WhereOptions } from "sequelize"
 import {CreateRoleInput,UpdateRoleInput} from "../schemas/role.schema"
 import { NotFoundError } from "../../../../shared/errors/AppError"
-import Role from "../models/role.model"
+import Role from "../models/Role.model"
 import { paginate, PaginatedResult, PaginationParams } from "../../../../shared/utils/pagination.util"
 
 async function listRoles(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<Role>> {

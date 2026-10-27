@@ -9,6 +9,7 @@ export const createProductVariantSchema = z.object({
     boxesPerPallet: z.number().int().positive(),
     bagsPerBox: z.number().int().positive(),
     unitsPerIntermediatePackage: z.number().int().positive().optional(),
+    usesPalletKit: z.boolean().optional(),
 })
 
 export const productVariantIdParamSchema = z.object({

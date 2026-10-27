@@ -1,9 +1,10 @@
+jest.mock("../services/juiceProductLink.service", () => ({ linkJuiceProduct: jest.fn() }))
+jest.mock("../services/juiceProductCreate.service", () => ({ createLinkedJuice: jest.fn() }))
 jest.mock("../../../config/env", () => ({ env: { jwtSecret: "test-secret" } }))
 jest.mock("../services/juiceCatalog.service", () => {
     const service = () => ({ list: jest.fn(), get: jest.fn(), create: jest.fn(), update: jest.fn(), setStatus: jest.fn() })
     return { juiceService: service(), juiceRawMaterialService: service(), juicePresentationService: service(), juiceMixService: service(), juiceSpiceMaterialService: service(), juiceSpiceService: service() }
 })
-jest.mock("../services/juiceConfig.service", () => ({ juiceConfigService: {} }))
 jest.mock("../services/juiceImport.service", () => ({ bulkImportJuices: jest.fn(), buildJuiceImportTemplate: jest.fn() }))
 
 import request from "supertest"
@@ -20,7 +21,7 @@ const creator = auth(["juices:create"])
 beforeEach(() => {
     jest.resetAllMocks()
     jest.mocked(buildJuiceImportTemplate).mockResolvedValue(Buffer.from("xlsx"))
-    jest.mocked(bulkImportJuices).mockResolvedValue({ rawMaterials: 3, spiceMaterials: 1, juices: 1, mixRows: 3, spiceRows: 1, presentations: 1, globalRevision: 2, clientOverrideIds: [] })
+    jest.mocked(bulkImportJuices).mockResolvedValue({ rawMaterials: 3, spiceMaterials: 1, juices: 1, mixRows: 3, spiceRows: 1, presentations: 1 })
 })
 
 describe("juice import HTTP contract", () => {

@@ -225,7 +225,7 @@ function toListItem(transformation: RawMaterialTransformation) {
     }
 }
 
-export type RawMaterialTransformationListItem = ReturnType<typeof toListItem>
+type RawMaterialTransformationListItem = ReturnType<typeof toListItem>
 
 async function listTransformations(pagination?: PaginationParams, search?: string): Promise<PaginatedResult<RawMaterialTransformationListItem>> {
     const pattern = search ? `%${search}%` : undefined

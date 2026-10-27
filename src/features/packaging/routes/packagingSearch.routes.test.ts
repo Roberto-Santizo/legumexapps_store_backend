@@ -26,7 +26,7 @@ it.each(["T-ME-AB083", "T-ME", "AB083", "ab083", "Tapa", "verde"])("preserves se
             { displayNameEn: { [Op.iLike]: `%${search}%` } },
             { code: { [Op.iLike]: `%${search}%` } },
         ] },
-        order: [["displayName", "DESC"]], limit: 10, offset: 0, distinct: true,
+        order: [["createdAt", "DESC"], ["id", "DESC"]], limit: 10, offset: 0, distinct: true,
     })
 })
 it("returns zero results for NO-EXISTE", async () => {
@@ -47,7 +47,7 @@ it("trims query whitespace, preserves hyphens and passes custom page/limit", asy
     expect(findAndCountAll).toHaveBeenCalledWith({
         where: { isActive: true, [Op.or]: [{ displayName: { [Op.iLike]: "%T-ME%" } },
             { displayNameEn: { [Op.iLike]: "%T-ME%" } }, { code: { [Op.iLike]: "%T-ME%" } }] },
-        order: [["displayName", "DESC"]], limit: 5, offset: 5, distinct: true,
+        order: [["createdAt", "DESC"], ["id", "DESC"]], limit: 5, offset: 5, distinct: true,
     })
 })
 

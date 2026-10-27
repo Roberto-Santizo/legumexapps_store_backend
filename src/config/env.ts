@@ -28,8 +28,6 @@ export const env = {
     dbSyncAlter,
     jwtSecret: getRequiredEnv("JWT_SECRET"),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "8h",
-    seedAdminUsername: process.env.SEED_ADMIN_USERNAME,
-    seedAdminPassword: process.env.SEED_ADMIN_PASSWORD,
     awsRegion: getRequiredEnv("AWS_REGION"),
     awsAccessKeyId: getRequiredEnv("AWS_ACCESS_KEY_ID"),
     awsSecretAccessKey: getRequiredEnv("AWS_SECRET_ACCESS_KEY"),

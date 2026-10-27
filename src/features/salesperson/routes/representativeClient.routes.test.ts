@@ -1,6 +1,6 @@
 jest.mock("../../../config/env", () => ({ env: { jwtSecret: "test-secret" } }))
 jest.mock("../services/salesperson.service", () => ({ salespersonService: {} }))
-jest.mock("../services/representativeClient.service", () => ({ representativeClientService: { list: jest.fn(), assign: jest.fn(), remove: jest.fn() } }))
+jest.mock("../services/representativeClient.service", () => ({ representativeClientService: { list: jest.fn(), assign: jest.fn(), assignAll:jest.fn(), remove: jest.fn() } }))
 
 import request from "supertest"
 import jwt from "jsonwebtoken"
@@ -17,6 +17,7 @@ beforeEach(() => {
     ;(service.list as jest.Mock).mockResolvedValue([])
     ;(service.assign as jest.Mock).mockResolvedValue([{ id: 2, name: "Client", isActive: true }])
     ;(service.remove as jest.Mock).mockResolvedValue([])
+    ;(service.assignAll as jest.Mock).mockResolvedValue([{id:2,name:'Client',isActive:true}])
 })
 
 test.each(["get", "put", "delete"] as const)("%s rejects absent and representative tokens", async method => {
@@ -32,12 +33,25 @@ test.each([
     ["get", "/clients", ["clients:view"]],
     ["put", "/clients", ["salespeople:view", "clients:view"]],
     ["put", "/clients", ["salespeople:edit"]],
+    ["put", "/clients/all", ["salespeople:edit"]],
+    ["put", "/clients/all", ["clients:view"]],
     ["delete", "/clients/2", ["salespeople:view", "clients:view"]],
 ] as const)("%s enforces permissions %j", async (method, suffix, granted) => {
     const res = await request(app)[method](`/api/salespeople/1${suffix}`).set("Authorization", `Bearer ${token([...granted])}`).send({ clientIds: [2] })
     expect(res.status).toBe(403)
     expect(service.assign).not.toHaveBeenCalled()
+    expect(service.assignAll).not.toHaveBeenCalled()
     expect(service.remove).not.toHaveBeenCalled()
+})
+
+test("assign-all authenticates staff, validates the representative and never trusts client IDs from the body",async()=>{
+    expect((await request(app).put('/api/salespeople/7/clients/all')).status).toBe(401)
+    expect((await request(app).put('/api/salespeople/7/clients/all').set('Authorization',`Bearer ${token(permissions,'customer')}`)).status).toBe(401)
+    expect((await request(app).put('/api/salespeople/0/clients/all').set('Authorization',`Bearer ${token(permissions)}`)).status).toBe(400)
+    const response=await request(app).put('/api/salespeople/7/clients/all').set('Authorization',`Bearer ${token(permissions)}`).send({clientIds:[999]})
+    expect(response.status).toBe(200)
+    expect(service.assignAll).toHaveBeenCalledWith(7)
+    expect(service.assign).not.toHaveBeenCalled()
 })
 test("reads and adds multiple clients using parsed IDs", async () => {
     const header = `Bearer ${token(permissions)}`

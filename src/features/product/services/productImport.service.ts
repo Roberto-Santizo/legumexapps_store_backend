@@ -1,3 +1,4 @@
+import { addImportValidation } from "../../../shared/utils/excelImport.util"
 import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
 import { createHash } from "node:crypto"
 import { Transaction } from "sequelize"
@@ -6,6 +7,10 @@ import { parseInitialPackagingSheet } from "./initialPackagingImport.service"
 import PackagingGroup from "../../packagingGroup/models/PackagingGroup.model"
 import { MAX_PRODUCT_PACKAGING_IMPORT_ROWS } from "../constants/productPackagingImport.constant"
 import { INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, INITIAL_PACKAGING_COLUMNS, INITIAL_MATERIAL_TYPES } from "../constants/initialPackagingImport.constant"
+import { isPalletKitType } from "../../packaging/constants/packagingMaterialType.constant"
+
+// New SKUs use the pallet kit, so its types are not offered for their own packaging rows.
+const SKU_MATERIAL_TYPES = Object.keys(INITIAL_MATERIAL_TYPES).filter(type => !isPalletKitType(type))
 import ExcelJS from "exceljs"
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"
@@ -26,7 +31,6 @@ import {
     loadWorkbookFromBuffer,
     mapImportHeaders,
     normalizeImportText,
-    parseImportBoolean,
     readImportCell,
     writeWorkbookToBuffer,
 } from "../../../shared/utils/excelImport.util"
@@ -77,11 +81,12 @@ function isBlankCell(value: ImportCellValue): boolean {
     return value === null || String(value).trim() === ""
 }
 
-// "Categoría" (opcional): solo sirve para desambiguar Subcategorías con el mismo nombre en
-// categorías distintas. null = columna vacía (no filtra); undefined = se escribió pero no resolvió
-// (el error ya quedó registrado y la subcategoría no se intenta resolver, para no duplicar ruido).
+// La categoría es obligatoria y limita la resolución a sus propias subcategorías.
 function resolveCategoryField(rawCategory: ImportCellValue, catalogs: NamedCatalogs, ctx: RowValidation): number | null | undefined {
-    if (isBlankCell(rawCategory)) return null
+    if (isBlankCell(rawCategory)) {
+        ctx.rowIssues.push({ row: ctx.rowNumber, field: "category", key: "errors.bulk_import_category_required" })
+        return undefined
+    }
     const value = String(rawCategory).trim()
     const matches = catalogs.categoriesByNormalizedName.get(normalizeImportText(value)) ?? []
     if (matches.length === 0) {
@@ -139,15 +144,6 @@ function resolveClientField(rawClient: ImportCellValue, catalogs: NamedCatalogs,
     return matches[0].id
 }
 
-function resolveIsOrganicField(rawIsOrganic: ImportCellValue, ctx: RowValidation): boolean {
-    const isOrganic = parseImportBoolean(rawIsOrganic, false)
-    if (isOrganic === undefined) {
-        ctx.rowIssues.push({ row: ctx.rowNumber, field: "isOrganic", key: "errors.bulk_import_invalid_boolean", params: { value: rawIsOrganic } })
-        return false
-    }
-    return isOrganic
-}
-
 function collectRowZodIssues(
     candidate: unknown,
     manuallyValidatedFields: Set<string>,
@@ -183,10 +179,9 @@ function processProductImportRow(
     const categoryId = resolveCategoryField(read("category"), catalogs, ctx)
     const subCategoryId = resolveSubCategoryField(read("subCategory"), categoryId, category, catalogs, ctx)
     const clientId = resolveClientField(read("client"), catalogs, ctx)
-    const isOrganic = resolveIsOrganicField(read("isOrganic"), ctx)
     const en = readTrimmedText(read("displayNameEn"))
     const { validated, issues } = collectRowZodIssues({
-        subCategoryId, clientId, displayName: readTrimmedText(read("displayName")), isOrganic,
+        subCategoryId, clientId, displayName: readTrimmedText(read("displayName")), isOrganic: false,
         additionalCostPerUnit: isBlankCell(read("additionalCostPerUnit")) ? null : Number(read("additionalCostPerUnit")),
         ...(en ? { translations: { en: { displayName: en } } } : {}),
     }, ctx.manuallyValidatedFields, rowNumber)
@@ -282,7 +277,7 @@ async function buildProductImportPlan(buffer: Buffer, transaction?: Transaction)
         const presentationsSeen = new Set<number>()
         for (const row of rows) {
             if (row.categoryId !== first.categoryId) rowIssues.push({ row: row.rowNumber, field: "category", key: "errors.bulk_import_product_group_inconsistent", params: { group, field: "category", firstRow: first.rowNumber } })
-            for (const field of ["displayName", "clientId", "subCategoryId", "isOrganic", "additionalCostPerUnit", "translations"] as const) {
+            for (const field of ["displayName", "clientId", "subCategoryId", "additionalCostPerUnit", "translations"] as const) {
                 if (JSON.stringify(row.input[field]) !== JSON.stringify(first.input[field])) {
                     rowIssues.push({ row: row.rowNumber, field, key: "errors.bulk_import_product_group_inconsistent", params: { group, field, firstRow: first.rowNumber } })
                 }
@@ -385,19 +380,50 @@ async function buildProductImportTemplate(instructions: string[] = []): Promise<
     help.columns = [{ header: "Instrucciones / Instructions", key: "help", width: 130 }]
     help.getRow(1).font = { bold: true }
     for (const line of instructions) help.addRow({ help: line })
-    help.addRow({ help: "Productos y Variantes: ASIAN-1 | AB-816 | Bolsa 16 oz | 60 | 8 | 6 | Congelados | [vacío] | Walmart | Asian Blend | Asian Blend | NO | [vacío]" })
-    for (const type of Object.keys(INITIAL_MATERIAL_TYPES)) help.addRow({ help: `Materiales de Empaque: AB-816 | CODIGO-MP-REAL | ${type} | [grupo real o vacío] | [SI/NO con grupo] | ${type === "OTRO PALETIZACIÓN" ? "POR PALLET | 2.5" : "[vacío] | [vacío]"}` })
+    help.addRow({ help: "Productos y Variantes: ASIAN-1 | AB-816 | Bolsa 16 oz | 60 | 8 | 6 | Vegetales | Congelados | Walmart | Asian Blend | Asian Blend | [vacío]" })
+    help.addRow({ help: "Los SKU nuevos usan el kit de paletizado: TARIMA, ESQUINERO y STRETCH se suman solos por pallet, no los agregues aquí." })
+    for (const type of SKU_MATERIAL_TYPES) help.addRow({ help: `Materiales de Empaque: AB-816 | CODIGO-MP-REAL | ${type} | [grupo real o vacío] | [SI/NO con grupo] | ${type === "OTRO PALETIZACIÓN" ? "POR PALLET | 2.5" : "[vacío] | [vacío]"}` })
+    const [categories, subCategories] = await Promise.all([
+        Category.findAll({ where: { isActive: true }, order: [["displayName", "ASC"]] }),
+        SubCategory.findAll({ where: { isActive: true }, order: [["displayName", "ASC"]] }),
+    ])
+    const catalogs = workbook.addWorksheet("CATALOGOS")
+    catalogs.state = "hidden"
+    catalogs.addRow(["Categoría", "Lista de subcategorías"])
+    // Rangos por ID: los nombres con espacios o acentos no se usan como nombres de Excel.
+    categories.forEach((category, index) => {
+        catalogs.getCell(index + 2, 1).value = category.displayName
+        catalogs.getCell(index + 2, 2).value = `ProductSubCategories_${category.id}`
+        const column = index + 3
+        const children = subCategories.filter(row => row.categoryId === category.id)
+        children.forEach((child, offset) => { catalogs.getCell(offset + 2, column).value = child.displayName })
+        const letter = catalogs.getColumn(column).letter
+        workbook.definedNames.add(`'CATALOGOS'!$${letter}$2:$${letter}$${Math.max(2, children.length + 1)}`, `ProductSubCategories_${category.id}`)
+    })
+    workbook.definedNames.add(`'CATALOGOS'!$A$2:$A$${Math.max(2, categories.length + 1)}`, "ProductCategories")
+    workbook.definedNames.add(`'CATALOGOS'!$A$2:$B$${Math.max(2, categories.length + 1)}`, "ProductCategoryLookup")
+    const categoryColumn = sheet.getColumn("category").letter
+    for (let row = 2; row <= MAX_PRODUCT_IMPORT_ROWS + 1; row++) {
+        sheet.getCell(row, sheet.getColumn("category").number).dataValidation = {
+            type: "list", allowBlank: false, formulae: ["ProductCategories"], showErrorMessage: true, errorStyle: "stop",
+            error: "Seleccione una categoría de la lista / Select a category from the list.",
+        }
+        sheet.getCell(row, sheet.getColumn("subCategory").number).dataValidation = {
+            type: "list", allowBlank: false, showErrorMessage: true, errorStyle: "stop",
+            formulae: [`INDIRECT(IFERROR(VLOOKUP($${categoryColumn}${row},ProductCategoryLookup,2,FALSE),""))`],
+            error: "Seleccione una subcategoría de esa categoría / Select a subcategory of that category.",
+        }
+    }
     const groups = await PackagingGroup.findAll({ where: { isActive: true }, order: [["displayName", "ASC"]] })
     const firstGroupRow = help.rowCount + 2
     help.addRow({ help: "PackagingGroup" })
     for (const group of groups) help.addRow({ help: group.displayName })
     if (groups.length) workbook.definedNames.add(`'INSTRUCCIONES'!$A$${firstGroupRow}:$A$${firstGroupRow + groups.length - 1}`, "InitialPackagingGroups")
-    for (let row = 2; row <= MAX_PRODUCT_PACKAGING_IMPORT_ROWS + 1; row++) {
-        materials.getCell(row, 3).dataValidation = { type: "list", allowBlank: false, formulae: [`"${Object.keys(INITIAL_MATERIAL_TYPES).join(",")}"`] }
-        materials.getCell(row, 5).dataValidation = { type: "list", allowBlank: true, formulae: ['"SI,NO"'] }
-        materials.getCell(row, 6).dataValidation = { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] }
-        if (groups.length) materials.getCell(row, 4).dataValidation = { type: "list", allowBlank: true, formulae: ["InitialPackagingGroups"] }
-    }
+    const lastMaterialRow = MAX_PRODUCT_PACKAGING_IMPORT_ROWS + 1
+    addImportValidation(materials, `C2:C${lastMaterialRow}`, { type: "list", allowBlank: false, formulae: [`"${SKU_MATERIAL_TYPES.join(",")}"`] })
+    addImportValidation(materials, `E2:E${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ['"SI,NO"'] })
+    addImportValidation(materials, `F2:F${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] })
+    if (groups.length) addImportValidation(materials, `D2:D${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ["InitialPackagingGroups"] })
     return writeWorkbookToBuffer(workbook)
 }
 

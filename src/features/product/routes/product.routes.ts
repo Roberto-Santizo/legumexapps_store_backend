@@ -1,15 +1,14 @@
 import { Router } from "express"
 import multer from "multer"
-import { productController } from "../controllers/Product.controller"
+import { productController } from "../controllers/product.controller"
 import { showFixedProductDetails } from "../controllers/productDetails.controller"
 import { exportProductCatalog } from "../controllers/productExport.controller"
 import { validate } from "../../../shared/middlewares/validate"
 import { authenticate } from "../../../shared/middlewares/authenticate"
 import { authorize } from "../../../shared/middlewares/authorize"
-import { createProductSchema, updateProductSchema, updateProductStatusSchema, productIdParamSchema, productQuerySchema } from "../schemas/product.schema"
+import { createProductSchema, updateProductSchema, updateProductStatusSchema, productIdParamSchema, productQuerySchema, productDetailsIdParamSchema } from "../schemas/product.schema"
 
 const productRouter = Router()
-const detailsIdSchema = productIdParamSchema.refine(({ id }) => Number(id) > 0 && Number(id) <= 2147483647)
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -29,7 +28,7 @@ productRouter.post("/bulk-import", authorize("products:create"), upload.single("
 
 productRouter.get("/:id", authorize("products:view"), validate(productIdParamSchema, "params"), productController.show)
 productRouter.get("/:id/details", authorize("products:view"),
-    validate(detailsIdSchema, "params"), showFixedProductDetails)
+    validate(productDetailsIdParamSchema, "params"), showFixedProductDetails)
 productRouter.post("/", authorize("products:create"), validate(createProductSchema), productController.store)
 productRouter.put("/:id", authorize("products:edit"), validate(productIdParamSchema, "params"), validate(updateProductSchema), productController.update)
 productRouter.patch("/:id/status", authorize("products:edit"), validate(productIdParamSchema, "params"), validate(updateProductStatusSchema), productController.updateStatus)

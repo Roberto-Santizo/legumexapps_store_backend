@@ -1,5 +1,4 @@
 jest.mock("../../../config/env", () => ({ env: { databaseUrl: "postgres://test:test@localhost:5432/test", nodeEnv: "test" } }))
-jest.mock("../../../database/seeders", () => ({ runSeeders: jest.fn() }))
 
 import sequelize from "../../../database/connection"
 import Product from "../models/Product.model"

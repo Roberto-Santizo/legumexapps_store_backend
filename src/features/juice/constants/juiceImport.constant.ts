@@ -12,7 +12,7 @@ export const JUICE_PRESENTATION_HEADERS = {
     bottlesPerCase: "Botellas por caja", casesPerPallet: "Cajas por palet",
     boxUnitCost: "Costo caja", stickerUnitCost: "Costo sticker 1", stickerQuantityPerCase: "Cantidad sticker 1",
     secondStickerUnitCost: "Costo sticker 2", secondStickerQuantityPerCase: "Cantidad sticker 2",
-    bottleUnitCost: "Costo botella", capUnitCost: "Costo tapa", pricePerPound: "PRICE LB", marginPerCase: "Margen por caja",
+    bottleUnitCost: "Costo botella", capUnitCost: "Costo tapa",
 } as const
 
 // Same tolerant header plumbing as product imports; canonical templates define the layout.

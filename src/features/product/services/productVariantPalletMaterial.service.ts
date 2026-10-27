@@ -4,6 +4,8 @@ import { Op } from "sequelize"
 import ProductVariantPalletMaterial from "../models/ProductVariantPalletMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { packagingService } from "../../packaging/services/packaging.service"
+import { isPalletKitType } from "../../packaging/constants/packagingMaterialType.constant"
+import type Packaging from "../../packaging/models/Packaging.model"
 import { resolveOptionGroupSpelling } from "../../../shared/utils/optionGroup.util"
 import { materialGroupIdentity } from "../../../shared/utils/materialGroupIdentity.util"
 import { resolveUnitMaterialGroup } from "../../packagingGroup/services/packagingGroup.service"
@@ -130,10 +132,18 @@ async function assertVariantSupportsRule(id: number, basis: string): Promise<voi
     if (!variant || !Number.isFinite(Number(variant.boxesPerPallet)) || !(Number(variant.boxesPerPallet) > 0)) throw new AppError(422, "errors.pallet_boxes_required")
 }
 
+// A SKU that uses the pallet kit already gets tarima, esquineros and stretch per pallet; repeating them charges twice.
+async function assertNotCoveredByPalletKit(productVariantId: number, packaging: Packaging | null): Promise<void> {
+    if (!packaging || !isPalletKitType(packaging.materialType)) return
+    const variant = await ProductVariant.findOne({ where: { id: productVariantId }, attributes: ["id", "usesPalletKit"] })
+    if (variant?.usesPalletKit) throw new AppError(422, "errors.pallet_material_in_kit")
+}
+
 async function createProductVariantPalletMaterial(
     input: CreateProductVariantPalletMaterialInput
 ): Promise<ProductVariantPalletMaterial> {
     const packaging = await packagingService.assertPackagingHasRole(input.packagingId, "pallet")
+    await assertNotCoveredByPalletKit(input.productVariantId, packaging)
     const rule = resolvePalletConsumptionRule(packaging ?? { code: String(input.packagingId) }, input)
     await assertVariantSupportsRule(input.productVariantId, rule.quantityBasis)
     const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup)
@@ -154,6 +164,7 @@ async function updateProductVariantPalletMaterial(
         sameMaterial ? { quantityBasis: productVariantPalletMaterial.quantityBasis, quantityValue: Number(productVariantPalletMaterial.quantityValue) } : undefined)
 
     const effectiveProductVariantId = input.productVariantId ?? productVariantPalletMaterial.productVariantId
+    await assertNotCoveredByPalletKit(effectiveProductVariantId, packaging)
     await assertVariantSupportsRule(effectiveProductVariantId, rule.quantityBasis)
     const effectiveRequestedIsDefault = input.isDefault ?? productVariantPalletMaterial.isDefault
     const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup, productVariantPalletMaterial.optionGroupId)

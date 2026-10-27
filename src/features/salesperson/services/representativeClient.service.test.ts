@@ -33,6 +33,21 @@ test("batch assignment uses a single transaction, lock and additive conflict han
     expect(RepresentativeClient.bulkCreate).toHaveBeenCalledWith([{ representativeId: 1, clientId: 2 }, { representativeId: 1, clientId: 3 }], { transaction, ignoreDuplicates: true })
     expect(RepresentativeClient.destroy).not.toHaveBeenCalled()
 })
+
+test("all-clients assignment resolves active clients on the server without the manual batch limit",async()=>{
+    const clients=Array.from({length:125},(_,i)=>({id:i+1,isActive:true}))
+    ;(Client.findAll as jest.Mock).mockResolvedValue(clients)
+    await service.assignAll(1)
+    expect(Client.findAll).toHaveBeenCalledWith(expect.objectContaining({where:{isActive:true},transaction,lock:'SHARE'}))
+    expect((RepresentativeClient.bulkCreate as jest.Mock).mock.calls[0][0]).toHaveLength(125)
+    expect(RepresentativeClient.destroy).not.toHaveBeenCalled()
+})
+
+test("assigning all with no active clients preserves existing assignments",async()=>{
+    ;(Client.findAll as jest.Mock).mockResolvedValue([])
+    expect(await service.assignAll(1)).toEqual([{id:2,name:'Client',isActive:true}])
+    expect(RepresentativeClient.bulkCreate).not.toHaveBeenCalled()
+})
 test.each([
     [[], "errors.assignment_client_missing"],
     [[{ id: 2, isActive: true }, { id: 3, isActive: false }], "errors.assignment_inactive_client"],

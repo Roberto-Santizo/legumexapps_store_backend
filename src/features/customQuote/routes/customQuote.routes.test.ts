@@ -4,8 +4,6 @@ jest.mock("../services/catalogQuote.service", () => ({ previewCatalogQuote: jest
 
 import request from "supertest"
 import jwt from "jsonwebtoken"
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import { buildTestApp } from "../../../shared/test-utils/testApp"
 import router from "./customQuote.routes"
 import { discoverCatalog } from "../services/catalogQuoteDiscovery.service"
@@ -25,12 +23,4 @@ it.each([
     expect(discoverCatalog).not.toHaveBeenCalled()
     expect(previewCatalogQuote).not.toHaveBeenCalled()
     expect(confirmCatalogQuote).not.toHaveBeenCalled()
-})
-
-it("the main router no longer mounts the exclusive legacy administration", () => {
-    const source = readFileSync(resolve(__dirname, "../../../routes/index.ts"), "utf8")
-    expect(source).not.toContain("customQuoteConfigRouter")
-    expect(source).not.toContain('"/admin/custom-quote-config"')
-    expect(source).toContain('appRouter.use("/custom-quotes", customQuoteRouter)')
-    expect(source).toContain('appRouter.use("/admin/custom-quotes", adminCustomQuoteRouter)')
 })

@@ -73,15 +73,15 @@ describe("juice catalog domain validation", () => {
     test("juice validates active client, generates slug and delegates image handling", async () => {
         jest.mocked(Juice.findOne).mockResolvedValue(null)
         jest.mocked(Juice.create).mockImplementation(async values => row({ id: 1, ...values }) as never)
-        const result = await juiceService.create({ code: "CP", displayName: "Carrot Pineapple", clientId: 1, pricePerPound: 2 })
-        expect(result).toMatchObject({ urlSlug: "carrot-pineapple", imageUrl: null, pricePerPound: 2 })
+        const result = await juiceService.create({ code: "CP", displayName: "Carrot Pineapple", clientId: 1 })
+        expect(result).toMatchObject({ urlSlug: "carrot-pineapple", imageUrl: null })
         expect(Client.findOne).toHaveBeenCalledWith({ where: { id: 1, isActive: true } })
         expect(jest.requireMock("../../../shared/utils/catalogImage.util").resolveCatalogImage).toHaveBeenCalledWith(undefined, undefined, "juices")
     })
     test("juice rejects an inactive/missing client", async () => {
         jest.mocked(Juice.findOne).mockResolvedValue(null)
         jest.mocked(Client.findOne).mockResolvedValue(null)
-        await expect(juiceService.create({ code: "CP", displayName: "CP", clientId: 7, pricePerPound: 2 })).rejects.toMatchObject({ statusCode: 404, params: { resource: "Client", id: 7 } })
+        await expect(juiceService.create({ code: "CP", displayName: "CP", clientId: 7 })).rejects.toMatchObject({ statusCode: 404, params: { resource: "Client", id: 7 } })
     })
     test("mix locks its parent and accepts an incomplete recipe while building", async () => {
         jest.mocked(Raw.findOne).mockResolvedValue(row({ id: 2 }) as never)

@@ -1,4 +1,4 @@
-// Opt-in real PostgreSQL integration; never loads application credentials or starts sync/seeders.
+// Opt-in real PostgreSQL integration; never loads application credentials or initializes a real database.
 jest.mock("../../../config/env", () => ({ env: {
     databaseUrl: process.env.TEST_DATABASE_URL ?? "postgres://unused:unused@127.0.0.1:1/unused",
     nodeEnv: "test",
@@ -13,7 +13,8 @@ import Salesperson from "../models/Salesperson.model"
 import ClientModel from "../../client/models/Client.model"
 import RepresentativeClient from "../models/RepresentativeClient.model"
 const { Client: PgClient } = require("pg")
-const { migrate, readPlan } = require("../../../../scripts/migrate.cjs")
+import { databaseModels } from "../../../database/models"
+import { createFixtureModels } from "../../../shared/test-utils/schemaFixture"
 
 const integration = ownedPostgresEnabled() ? describe : describe.skip
 integration("representative clients â€” PostgreSQL", () => {
@@ -30,7 +31,8 @@ integration("representative clients â€” PostgreSQL", () => {
         await database.query('CREATE TABLE customers (id INTEGER PRIMARY KEY, "isActive" BOOLEAN NOT NULL)')
         await database.query('CREATE TABLE clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "isActive" BOOLEAN NOT NULL)')
         await createPackagingDatabase(database)
-        await migrate(database, (await readPlan()).filter((item: { version: string }) => ["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"].includes(item.version)))
+        await createFixtureModels(database, ["representative_clients"])
+        sequelize.addModels(databaseModels)
         // Test URL controls TLS; local temporary PostgreSQL has no TLS configured.
         sequelize.addHook("beforeConnect", (config: any) => {
             config.dialectOptions = {}
@@ -51,11 +53,10 @@ integration("representative clients â€” PostgreSQL", () => {
         if (database) await database.end()
     })
 
-    test("migration is versioned and replay is harmless", async () => {
-        await migrate(database, (await readPlan()).filter((item: { version: string }) => ["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"].includes(item.version)))
-        const result = await database.query("SELECT version FROM schema_migrations")
-        expect(result.rows.map((row: { version: string }) => row.version).sort()).toEqual(["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"])
+    test("current assignment model starts empty with its foreign keys", async () => {
         expect((await database.query("SELECT * FROM representative_clients")).rowCount).toBe(0)
+        const keys=(await database.query("SELECT contype FROM pg_constraint WHERE conrelid='representative_clients'::regclass")).rows
+        expect(keys.filter((row:any)=>row.contype==='f')).toHaveLength(2)
     })
     test("both real Sequelize many-to-many associations work", async () => {
         await service.assign(1, [1, 2])
@@ -74,6 +75,21 @@ integration("representative clients â€” PostgreSQL", () => {
         await service.remove(1, 1)
         expect(await service.authorizedClientIds(1)).toEqual([])
         expect(await service.authorizedClientIds(2)).toEqual([1])
+    })
+
+    test("assign-all includes more than 100 active clients, preserves inactive assignments and isolates representatives",async()=>{
+        await database.query("INSERT INTO clients SELECT n, 'Client '||n, true FROM generate_series(5,130) n")
+        await service.assign(1,[1])
+        await service.assign(2,[2])
+        await database.query('INSERT INTO representative_clients VALUES (1,4)')
+        await service.assignAll(1)
+        await service.assignAll(1)
+        expect(await RepresentativeClient.count({where:{representativeId:1}})).toBe(130)
+        expect(await service.authorizedClientIds(1)).toHaveLength(129)
+        expect(await service.authorizedClientIds(2)).toEqual([2])
+        await expect(service.assignAll(3)).rejects.toMatchObject({statusCode:422})
+        await database.query("INSERT INTO clients VALUES(131,'Future client',true)")
+        expect(await service.authorizedClientIds(1)).not.toContain(131)
     })
     test("revocation is immediate, idempotent and requires no token change", async () => {
         await service.assign(1, [1, 2])
@@ -117,12 +133,5 @@ integration("representative clients â€” PostgreSQL", () => {
         await expect(database.query('INSERT INTO representative_clients VALUES (1, 99)')).rejects.toMatchObject({ code: "23503" })
         await expect(database.query('DELETE FROM clients WHERE id = 1')).rejects.toMatchObject({ code: "23503" })
         await expect(database.query('DELETE FROM customers WHERE id = 1')).rejects.toMatchObject({ code: "23503" })
-    })
-    test("changed applied migration checksum is rejected", async () => {
-        await database.query("BEGIN")
-        try {
-            await database.query("UPDATE schema_migrations SET checksum = 'invalid'")
-            await expect(migrate(database, (await readPlan()).filter((item: { version: string }) => ["202610120001_representative_clients.sql", "202610120002_packaging_classification.sql"].includes(item.version)))).rejects.toThrow(/^Applied migration checksum mismatch$/i)
-        } finally { await database.query("ROLLBACK") }
     })
 })

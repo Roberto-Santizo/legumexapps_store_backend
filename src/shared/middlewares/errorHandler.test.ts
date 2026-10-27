@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { ValidationError as SequelizeValidationError, UniqueConstraintError } from "sequelize"
+import { ValidationError as SequelizeValidationError, UniqueConstraintError, DatabaseError } from "sequelize"
 import { Request, Response, NextFunction } from "express"
 import { errorHandler } from "./errorHandler"
 import { AppError, ExcelImportParseError, NotFoundError } from "../errors/AppError"
@@ -88,7 +88,8 @@ describe("errorHandler", () => {
         expect(res.status).toHaveBeenCalledWith(409)
         const payload = (res.json as jest.Mock).mock.calls[0][0]
         expect(payload.message).toBe("errors.unique_constraint")
-        expect(payload.details).toEqual(["email must be unique"])
+        expect(payload.details).toEqual(["errors.unique_constraint"])
+        expect(JSON.stringify(payload)).not.toContain("email")
     })
 
     it("mapea SequelizeValidationError (no unique) a 400", () => {
@@ -100,7 +101,8 @@ describe("errorHandler", () => {
 
         expect(res.status).toHaveBeenCalledWith(400)
         const payload = (res.json as jest.Mock).mock.calls[0][0]
-        expect(payload.details).toEqual(["netWeightGrams cannot be null"])
+        expect(payload.details).toEqual(["errors.validation"])
+        expect(JSON.stringify(payload)).not.toContain("netWeightGrams")
     })
 
     it("cualquier error no reconocido cae a 500 genérico y se loguea server-side, sin filtrar detalles internos al cliente", () => {
@@ -114,4 +116,41 @@ describe("errorHandler", () => {
         expect(consoleErrorSpy).toHaveBeenCalled()
         expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("detalles internos sensibles")
     })
+})
+
+test.each(["development", "production"])("database diagnostics expose no SQL, secrets or row values in %s", mode => {
+    const previous = process.env.NODE_ENV
+    const log = jest.spyOn(console, "error").mockImplementation(() => {})
+    process.env.NODE_ENV = mode
+    try {
+        const secret = "synthetic-sensitive-value"
+        const parent = Object.assign(new Error(secret), { code: "23502", table: "juices", column: "pricePerPound", sql: secret, detail: secret, parameters: [secret] })
+        const res = fakeRes()
+        errorHandler(new DatabaseError(parent), fakeReq(), res, next)
+        expect(res.status).toHaveBeenCalledWith(500)
+        expect(res.json).toHaveBeenCalledWith({ message: "errors.internal" })
+        if (mode === "development") expect(log).toHaveBeenCalledWith("Local database request failed", { code: "23502", table: "juices", column: "pricePerPound" })
+        else expect(log).not.toHaveBeenCalledWith("Local database request failed", expect.anything())
+        expect(JSON.stringify(log.mock.calls)).not.toContain(secret)
+    } finally {
+        if (previous === undefined) delete process.env.NODE_ENV
+        else process.env.NODE_ENV = previous
+        log.mockRestore()
+    }
+})
+
+test("unsafe database diagnostic identifiers are suppressed", () => {
+    const previous = process.env.NODE_ENV
+    const log = jest.spyOn(console, "error").mockImplementation(() => {})
+    process.env.NODE_ENV = "development"
+    try {
+        const parent = Object.assign(new Error("suppressed"), { sql: "suppressed", code: "not-a-code-secret", table: "postgres://secret", column: "value with spaces" })
+        errorHandler(new DatabaseError(parent), fakeReq(), fakeRes(), next)
+        expect(log).toHaveBeenCalledWith("Local database request failed", { code: "unknown", table: undefined, column: undefined })
+        expect(JSON.stringify(log.mock.calls)).not.toContain("secret")
+    } finally {
+        if (previous === undefined) delete process.env.NODE_ENV
+        else process.env.NODE_ENV = previous
+        log.mockRestore()
+    }
 })

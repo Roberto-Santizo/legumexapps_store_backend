@@ -4,7 +4,7 @@ import { ZodType } from "zod"
 import { authenticate } from "../../../shared/middlewares/authenticate"
 import { authorize } from "../../../shared/middlewares/authorize"
 import { validate } from "../../../shared/middlewares/validate"
-import { juiceControllers } from "../controllers/juice.controller"
+import { juiceControllers, juiceProductController } from "../controllers/juice.controller"
 import * as schemas from "../schemas/juice.schema"
 import { juiceImportController } from "../controllers/juiceImport.controller"
 
@@ -13,6 +13,7 @@ router.use(authenticate)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 router.get("/bulk-import/template", authorize("juices:create"), juiceImportController.template)
 router.post("/bulk-import", authorize("juices:create"), upload.single("file"), juiceImportController.import)
+router.post("/with-product", authorize("juices:create"), authorize("products:create"), validate(schemas.createLinkedJuiceSchema), juiceProductController.createWithProduct)
 
 function mount(path: string, controller: typeof juiceControllers.juices, create: ZodType, update: ZodType) {
     router.get(path, authorize("juices:view"), validate(schemas.juiceListQuerySchema, "query"), controller.list)
@@ -23,6 +24,8 @@ function mount(path: string, controller: typeof juiceControllers.juices, create:
     router.patch(`${item}/status`, authorize("juices:edit"), validate(schemas.juiceIdParamSchema, "params"), validate(schemas.juiceStatusSchema), controller.status)
     router.delete(item, authorize("juices:delete"), validate(schemas.juiceIdParamSchema, "params"), controller.remove)
 }
+
+router.post("/:id/product", authorize("juices:edit"), authorize("products:create"), validate(schemas.juiceIdParamSchema, "params"), validate(schemas.linkJuiceProductSchema), juiceProductController.linkProduct)
 
 // Literal subresources precede /:id; do not let "raw-materials" be interpreted as a juice id.
 mount("/raw-materials", juiceControllers.rawMaterials, schemas.createJuiceRawMaterialSchema, schemas.updateJuiceRawMaterialSchema)

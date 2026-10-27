@@ -1,3 +1,4 @@
+import Juice from "../../juice/models/Juice.model"
 import { literal, Op, WhereOptions } from "sequelize"
 import Product from "../models/Product.model"
 import ProductVariant from "../models/ProductVariant.model"
@@ -18,7 +19,7 @@ const CLIENT_INCLUDE = { model: Client, as: "client" as const, attributes: ["id"
 async function findActiveProduct(id: number): Promise<Product> {
     const product = await Product.findOne({
         where: { id, isActive: true },
-        include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE]
+        include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE, { model: Juice, as: "juice", attributes: ["id"], required: false }]
     })
     if (!product) throw new NotFoundError("Product", id)
     return product
@@ -100,7 +101,7 @@ async function deleteProduct(id: number): Promise<void> {
 async function setProductStatus(id: number, isActive: boolean): Promise<Product> {
     const product = await Product.findOne({
         where: { id },
-        include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE]
+        include: [{ model: ProductTranslation, as: "translations" }, CLIENT_INCLUDE, { model: Juice, as: "juice", attributes: ["id"], required: false }]
     })
     if (!product) throw new NotFoundError("Product", id)
     await product.update({ isActive })

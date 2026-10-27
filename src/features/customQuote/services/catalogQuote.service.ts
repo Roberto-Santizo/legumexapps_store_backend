@@ -1,29 +1,30 @@
+import { loadGenericProfiles } from "../../genericPackaging/services/genericPackaging.service"
+import { resolveGenericPackaging } from "../../genericPackaging/services/genericPackagingResolver"
+import { loadPalletKit, palletKitLabel, resolvePalletKit } from "../../palletKit/services/palletKit.service"
 import { packagingNames } from "../../../shared/utils/packagingName.util"
 import { Transaction } from "sequelize"
 import jwt from "jsonwebtoken"
 import { AppError } from "../../../shared/errors/AppError"
 import { ContentLanguage, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { sumMoney, toDecimal } from "../../../shared/utils/money.util"
-import { buildCustomizableRawMaterials, buildUnitMaterialLine, buildIntermediateMaterialLine, buildPalletMaterialLine, buildPerWeightProcessingCostLines, assembleQuoteTotals } from "../../quote/services/quoteCostLines"
-import { resolveMaterialsForQuote, type GroupedMaterialRow } from "../../quote/services/quoteMaterialSelection"
+import { buildCustomizableRawMaterials, buildUnitMaterialLine, buildIntermediateMaterialLine, buildPalletMaterialLine, buildPerWeightProcessingCostLines, assembleQuoteTotals } from "../../pricing/services/quoteCostLines"
+import { type GroupedMaterialRow } from "../../pricing/services/quoteMaterialSelection"
 import type Packaging from "../../packaging/models/Packaging.model"
 import CustomQuote from "../models/CustomQuote.model"
 import type { CatalogQuoteInput } from "../schemas/catalogQuote.schema"
-import { availableRawMaterials, loadCatalogContext } from "./catalogQuoteDiscovery.service"
-import { configurationIdentity, decimalString, digest, validConfiguration } from "./catalogQuoteIdentity"
-import { materialGroupIdentity } from "../../../shared/utils/materialGroupIdentity.util"
-import type { QuoteOrderIdentity } from "../../quote/schemas/quoteOrder.schema"
+import { eligibleRawMaterials, loadCatalogContext, subCategoryComposition } from "./catalogQuoteDiscovery.service"
+import { digest } from "../../../shared/utils/digest.util"
+import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
+
+const decimalString = (value: number | string | null | undefined) => toDecimal(value).toString()
 
 const failure = (key: string, status = 422): never => { throw new AppError(status, `errors.catalog_quote_${key}`) }
 const secret = () => { const value = process.env.JWT_SECRET; if (!value) return failure("unavailable", 503); return value }
 
 function canonicalInput(input: CatalogQuoteInput): CatalogQuoteInput {
-    return { categoryId: input.categoryId, subCategoryId: input.subCategoryId, configurationId: input.configurationId,
-        ingredientType: input.ingredientType, isOrganic: input.isOrganic, requestedPallets: input.requestedPallets,
-        rawMaterialMix: [...input.rawMaterialMix].sort((a, b) => a.rawMaterialId - b.rawMaterialId).map(row => ({ rawMaterialId: row.rawMaterialId, percentage: row.percentage })),
-        selectedUnitMaterialIds: [...input.selectedUnitMaterialIds].sort((a,b) => a-b),
-        selectedIntermediateMaterialIds: [...input.selectedIntermediateMaterialIds].sort((a,b) => a-b),
-        selectedPalletMaterialIds: [...input.selectedPalletMaterialIds].sort((a,b) => a-b) }
+    return { configurationOrigin: "generic_configuration", palletKitSelections: [...(input.palletKitSelections ?? [])].map(row => ({ type: row.type, packagingId: row.packagingId })).sort((a, b) => a.type.localeCompare(b.type)), packagingSelections: [...(input.packagingSelections ?? [])].map(g => ({ groupId: g.groupId, optionIds: [...g.optionIds].sort((a,b)=>a-b) })).sort((a,b)=>a.groupId-b.groupId), categoryId: input.categoryId, subCategoryId: input.subCategoryId, configurationId: input.configurationId,
+        ingredientType: input.ingredientType, requestedPallets: input.requestedPallets,
+        rawMaterialMix: [...input.rawMaterialMix].sort((a, b) => a.rawMaterialId - b.rawMaterialId).map(row => ({ rawMaterialId: row.rawMaterialId, percentage: row.percentage })) }
 }
 
 export async function calculateCatalogQuote(input: CatalogQuoteInput, language: ContentLanguage, transaction?: Transaction) {
@@ -31,9 +32,22 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
     const context = await loadCatalogContext(transaction)
     const subCategory = context.subCategories.find(row => row.id === input.subCategoryId && row.categoryId === input.categoryId)
     if (!subCategory) return failure("context_invalid")
-    const variant = context.variants.find(row => row.id === input.configurationId && row.parentProduct.subCategoryId === subCategory.id)
-    if (!variant || !validConfiguration(variant)) return failure("configuration_invalid")
-    const pool = availableRawMaterials(context.products, subCategory.id)
+    const profile = (await loadGenericProfiles(transaction)).find(row => row.id === input.configurationId && row.categoryId === input.categoryId)
+    if (!profile) return failure("configuration_invalid")
+    const resolved = resolveGenericPackaging(profile, input.packagingSelections ?? [])
+    // Every pallet of a new product carries the standard kit (tarima, esquineros, stretch) from the catalog.
+    const kit = await loadPalletKit(transaction)
+    if (resolved.some(row => kit.some(part => part.options.some(option => option.id === row.option.packagingId)))) return failure("configuration_invalid")
+    const palletKit = resolvePalletKit(kit, input.palletKitSelections)
+    const rows = resolved.map(({ group, option, origin }) => ({ id: option.id, packagingId: option.packagingId, optionGroupId: group.packagingGroupId, optionGroup: group.group.displayName, isDefault: false,
+        quantityPerUnit: Number(option.quantityValue), quantityValue: Number(option.quantityValue), quantityBasis: option.quantityBasis, level: group.level, origin,
+        usedUnitMaterial: option.packaging as Packaging, usedIntermediateMaterial: option.packaging as Packaging, usedPalletMaterial: option.packaging as Packaging }))
+    const variant = { id: profile.id, presentationId: profile.presentationId, sizePresentation: profile.presentation,
+        bagsPerBox: profile.bagsPerBox, boxesPerPallet: profile.boxesPerPallet, unitsPerIntermediatePackage: profile.unitsPerIntermediatePackage,
+        unitMaterials: rows.filter(row=>row.level === "unit"), intermediateMaterials: rows.filter(row=>row.level === "intermediate"), palletMaterials: rows.filter(row=>row.level === "pallet") }
+    const composition = subCategoryComposition(context.products, subCategory.id)
+    if (!composition) return failure("context_invalid")
+    const pool = eligibleRawMaterials(context.rawMaterials, composition.types)
     const selected = input.rawMaterialMix.map(line => {
         const raw = pool.find(row => row.id === line.rawMaterialId)
         if (!raw || raw.ingredientType !== input.ingredientType) return failure("composition_invalid")
@@ -41,61 +55,69 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
     })
     if (new Set(input.rawMaterialMix.map(line => line.rawMaterialId)).size !== input.rawMaterialMix.length) return failure("composition_invalid")
     if (!input.rawMaterialMix.length || !input.rawMaterialMix.reduce((sum, line) => sum.plus(line.percentage), toDecimal(0)).equals(100)) return failure("total_100")
+    // Single: exactly one raw material at 100%. Blend: two or more of the same type.
+    if (composition.mode === "single" ? input.rawMaterialMix.length !== 1 : input.rawMaterialMix.length < 2) return failure("composition_invalid")
     const totalUnits = input.requestedPallets * variant.boxesPerPallet * variant.bagsPerBox
     if (!Number.isSafeInteger(totalUnits) || totalUnits <= 0) return failure("quantity_invalid")
     const weight = Number(variant.sizePresentation.netWeightGrams)
     const rawMaterials = buildCustomizableRawMaterials(selected.map(raw => ({ rawMaterialId: raw.id, usedRawMaterial: raw })), input.rawMaterialMix, weight, totalUnits, language)
-    const unit = resolveMaterialsForQuote(variant.unitMaterials ?? [], input.selectedUnitMaterialIds, "unit")
-    const intermediate = resolveMaterialsForQuote(variant.intermediateMaterials ?? [], input.selectedIntermediateMaterialIds, "intermediate")
-    const pallet = resolveMaterialsForQuote(variant.palletMaterials ?? [], input.selectedPalletMaterialIds, "pallet")
+    const unit = variant.unitMaterials
+    const intermediate = variant.intermediateMaterials
+    const pallet = variant.palletMaterials
     const unitMaterials = unit.map(row => buildUnitMaterialLine(row.packagingId, row.usedUnitMaterial, row.optionGroup, row.quantityPerUnit, totalUnits))
     const intermediateMaterials = intermediate.map(row => buildIntermediateMaterialLine(row.packagingId, row.usedIntermediateMaterial, row.optionGroup, variant.unitsPerIntermediatePackage, totalUnits))
-    const palletMaterials = pallet.map(row => buildPalletMaterialLine(row.packagingId, row.usedPalletMaterial, row.optionGroup, toDecimal(row.quantityValue).times(row.quantityBasis === "per_box" ? variant.boxesPerPallet : 1).toString(), input.requestedPallets))
+    const configuredPalletMaterials = pallet.map(row => buildPalletMaterialLine(row.packagingId, row.usedPalletMaterial, row.optionGroup, toDecimal(row.quantityValue).times(row.quantityBasis === "per_box" ? variant.boxesPerPallet : 1).toString(), input.requestedPallets))
+    const kitLabel = palletKitLabel(language)
+    const kitLines = palletKit.map(({ material }) => buildPalletMaterialLine(material.id!, material, kitLabel, toDecimal(material.defaultQuantityValue).toString(), input.requestedPallets))
+    const palletMaterials = [...configuredPalletMaterials, ...kitLines]
     const processingCosts = await buildPerWeightProcessingCostLines(weight, totalUnits, language, transaction)
     const subtotals = { rawMaterialCost: sumMoney(rawMaterials.map(row => row.lineTotal)), ingredientCost: 0,
         unitPackagingCost: sumMoney(unitMaterials.map(row => row.lineTotal)), intermediatePackagingCost: sumMoney(intermediateMaterials.map(row => row.lineTotal)),
         processingCostTotal: sumMoney(processingCosts.map(row => row.lineTotal)), palletMaterialCost: sumMoney(palletMaterials.map(row => row.lineTotal)), transportCost: 0, adjustmentCost: 0 }
     const totals = await assembleQuoteTotals(subtotals, language, transaction)
     const { percentageCosts, percentageCostTotal, totalCost } = totals
-    const productDisplayName = `${language === "en" ? "CUSTOM" : "MEZCLA PERSONALIZADA"} ${input.ingredientType === "fruit" ? (language === "en" ? "FRUIT BLEND" : "DE FRUTAS") : input.ingredientType === "vegetable" ? (language === "en" ? "VEGETABLE BLEND" : "DE VEGETALES") : input.ingredientType === "pulp" ? (language === "en" ? "PULP BLEND" : "DE PULPAS") : (language === "en" ? "BLEND" : "DE MATERIAS PRIMAS")}`
+    const blendName = `${language === "en" ? "CUSTOM" : "MEZCLA PERSONALIZADA"} ${input.ingredientType === "fruit" ? (language === "en" ? "FRUIT BLEND" : "DE FRUTAS") : input.ingredientType === "vegetable" ? (language === "en" ? "VEGETABLE BLEND" : "DE VEGETALES") : input.ingredientType === "pulp" ? (language === "en" ? "PULP BLEND" : "DE PULPAS") : (language === "en" ? "BLEND" : "DE MATERIAS PRIMAS")}`
+    const productDisplayName = composition.mode === "single" ? pickTranslatedName(selected[0].displayName, selected[0].translations, language) : blendName
     const variantLabel = `${variant.bagsPerBox} × ${variant.sizePresentation.displayLabel}`
-    const fingerprint = digest(configurationIdentity(variant, subCategory.id))
+    const fingerprint = digest(profile)
     const rawSnapshot = rawMaterials.map((line, index) => ({ ...line, percentage: input.rawMaterialMix[index].percentage,
         gramsPerUnit: toDecimal(weight).times(input.rawMaterialMix[index].percentage).dividedBy(100).toString(),
         totalQuantity: toDecimal(weight).times(input.rawMaterialMix[index].percentage).dividedBy(100).dividedBy(selected[index].costUnit.baseFactor).times(totalUnits).toString(),
         costUnit: { id: selected[index].costUnitId, displayName: selected[index].costUnit.displayName, unitType: selected[index].costUnit.unitType, baseFactor: decimalString(selected[index].costUnit.baseFactor) } }))
-    const packagingSnapshot = (rows: (GroupedMaterialRow & { packagingId: number })[], level: "unit" | "intermediate" | "pallet", ids: number[], packagingOf: (index: number) => Packaging) => rows.map((row, index) => {
+    const packagingSnapshot = (rows: (GroupedMaterialRow & { packagingId: number })[], level: "unit" | "intermediate" | "pallet", packagingOf: (index: number) => Packaging) => rows.map((row, index) => {
         const line = level === "unit" ? unitMaterials[index] : level === "intermediate" ? intermediateMaterials[index] : palletMaterials[index]
         const quantity = level === "unit" ? unit[index].quantityPerUnit : level === "pallet" ? pallet[index].quantityValue : 1
         const basis = level === "unit" ? "per_unit" : level === "pallet" ? pallet[index].quantityBasis : "per_intermediate"
         const effectiveQuantity = level === "intermediate" ? intermediateMaterials[index].packagesNeeded : level === "unit" ? toDecimal(quantity).times(totalUnits).toNumber() : toDecimal(palletMaterials[index].quantityPerPallet).times(input.requestedPallets).toNumber()
         return { sourceAssociationId: row.id, packagingId: row.packagingId, ...packagingNames(packagingOf(index)), level,
-            optionGroupId: row.optionGroupId ?? null, optionGroup: row.optionGroup, selectionOrigin: materialGroupIdentity(row) === null ? "fixed" : ids.includes(row.id!) ? "customer" : "default",
+            optionGroupId: row.optionGroupId ?? null, optionGroup: row.optionGroup, selectionOrigin: resolved.find(r=>r.option.id === row.id)?.origin === "included" ? "included" : "customer",
             quantityBasis: basis, quantityValue: Number(quantity), effectiveQuantity, unitCost: line.unitCost, lineTotal: line.lineTotal }
     })
-    const snapshot = { schemaVersion: 2 as const, kind: "customizable" as const, language, productDisplayName,
+    const snapshot = { schemaVersion: 3 as const, kind: "customizable" as const, language, productDisplayName,
         category: { id: subCategory.parentCategory.id, displayName: pickTranslatedName(subCategory.parentCategory.displayName, subCategory.parentCategory.translations, language) },
         subCategory: { id: subCategory.id, displayName: pickTranslatedName(subCategory.displayName, subCategory.translations, language) },
-        isOrganic: input.isOrganic, ingredientType: input.ingredientType,
-        source: { productVariantId: variant.id, skuCode: variant.skuCode, configurationFingerprint: fingerprint },
+        ingredientType: input.ingredientType, compositionMode: composition.mode,
+        source: { genericConfigurationId: profile.id, configurationFingerprint: fingerprint },
         presentation: { id: variant.presentationId, displayLabel: variant.sizePresentation.displayLabel, netWeightGrams: weight },
         logistics: { unitsPerBox: variant.bagsPerBox, boxesPerPallet: variant.boxesPerPallet, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null },
         rawMaterials: rawSnapshot, ingredients: [], packaging: [
-            ...packagingSnapshot(unit, "unit", input.selectedUnitMaterialIds, index => unit[index].usedUnitMaterial),
-            ...packagingSnapshot(intermediate, "intermediate", input.selectedIntermediateMaterialIds, index => intermediate[index].usedIntermediateMaterial),
-            ...packagingSnapshot(pallet, "pallet", input.selectedPalletMaterialIds, index => pallet[index].usedPalletMaterial),
+            ...packagingSnapshot(unit, "unit", index => unit[index].usedUnitMaterial),
+            ...packagingSnapshot(intermediate, "intermediate", index => intermediate[index].usedIntermediateMaterial),
+            ...packagingSnapshot(pallet, "pallet", index => pallet[index].usedPalletMaterial),
+            ...palletKit.map(({ material, chosen }, index) => ({ sourceAssociationId: null, packagingId: material.id!, ...packagingNames(material), level: "pallet" as const, optionGroupId: null, optionGroup: kitLabel, selectionOrigin: chosen ? "customer" : "included",
+                quantityBasis: "per_pallet", quantityValue: Number(material.defaultQuantityValue), effectiveQuantity: toDecimal(kitLines[index].quantityPerPallet).times(input.requestedPallets).toNumber(), unitCost: kitLines[index].unitCost, lineTotal: kitLines[index].lineTotal })),
         ], quantity: { requestedPallets: input.requestedPallets, totalUnits, totalBoxes: input.requestedPallets * variant.boxesPerPallet, totalWeightGrams: toDecimal(weight).times(totalUnits).toString() },
         costs: { currency: "USD", calculationPolicyVersion: "shared-v1", ...subtotals, percentageCostTotal, processingCosts, percentageCosts, totalCost } }
     // Capture all offered packaging dependencies, not only the selected alternative.
-    const version = digest({ snapshot, configuration: configurationIdentity(variant, subCategory.id), rawDependencies: selected.map(raw => ({ id: raw.id, cost: decimalString(raw.costPerUnit), type: raw.ingredientType, factor: decimalString(raw.costUnit.baseFactor) })) })
-    const configuration = { subCategoryId: subCategory.id, presentationId: variant.presentationId, isOrganic: input.isOrganic, requestedPallets: input.requestedPallets, destinationId: null,
+    const version = digest({ snapshot, configuration: profile, palletKit: kit.map(part => ({ type: part.type, options: part.options.map(material => ({ id: material.id, cost: decimalString(material.unitCost), basis: material.defaultQuantityBasis, quantity: decimalString(material.defaultQuantityValue) })) })), rawDependencies: selected.map(raw => ({ id: raw.id, cost: decimalString(raw.costPerUnit), type: raw.ingredientType, factor: decimalString(raw.costUnit.baseFactor) })) })
+    const configuration = { subCategoryId: subCategory.id, presentationId: variant.presentationId, requestedPallets: input.requestedPallets, destinationId: null,
         rawMaterialMix: input.rawMaterialMix, ingredients: [], pallet: { boxesPerPallet: variant.boxesPerPallet, bagsPerBox: variant.bagsPerBox, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null },
         packaging: {
             unit: snapshot.packaging.filter(row => row.level === "unit").map(row => ({ packagingOptionId: row.sourceAssociationId!, packagingId: row.packagingId, optionGroup: row.optionGroup, quantity: row.quantityValue, quantityBasis: row.quantityBasis })),
             intermediate: snapshot.packaging.filter(row => row.level === "intermediate").map(row => ({ packagingOptionId: row.sourceAssociationId!, packagingId: row.packagingId, optionGroup: row.optionGroup, quantity: row.quantityValue, quantityBasis: row.quantityBasis })),
             pallet: snapshot.packaging.filter(row => row.level === "pallet").map(row => ({ packagingOptionId: row.sourceAssociationId!, packagingId: row.packagingId, optionGroup: row.optionGroup, quantity: row.quantityValue, quantityBasis: row.quantityBasis })),
         }, snapshot: { ...snapshot, calculationVersion: version } }
-    return { configurationOrigin: "catalog_variant" as const, snapshotVersion: 2, sourceProductVariantId: variant.id, subCategoryId: subCategory.id, presentationId: variant.presentationId, isOrganic: input.isOrganic,
+    return { configurationOrigin: "generic_configuration" as const, snapshotVersion: 3, sourceProductVariantId: null, sourceGenericConfigurationId: profile.id, subCategoryId: subCategory.id, presentationId: variant.presentationId,
         bagsPerBox: variant.bagsPerBox, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null,
         destinationId: null, productDisplayName, variantLabel, requestedPallets: input.requestedPallets, totalUnits, boxesPerPallet: variant.boxesPerPallet,
         ...subtotals, percentageCostTotal, totalCost, configuration,
@@ -105,7 +127,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
 
 type Calculation = Awaited<ReturnType<typeof calculateCatalogQuote>>
 function publicResult(calculation: Calculation & { confirmationKey?: string; confirmationRequestHash?: string; salespersonId?: number }) {
-    const { sourceProductVariantId: _source, confirmationKey: _key, confirmationRequestHash: _hash, salespersonId: _owner, ...result } = calculation
+    const { sourceGenericConfigurationId: _genericSource, sourceProductVariantId: _source, confirmationKey: _key, confirmationRequestHash: _hash, salespersonId: _owner, ...result } = calculation
     const { source: _audit, ...snapshot } = result.configuration.snapshot
     return { ...result, configuration: { ...result.configuration, snapshot } }
 }

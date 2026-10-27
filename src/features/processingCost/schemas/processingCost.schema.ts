@@ -1,7 +1,7 @@
 import z from "zod"
 import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema"
 
-export const processingCostCalculationTypeEnum = z.enum(["per_weight", "percentage"])
+const processingCostCalculationTypeEnum = z.enum(["per_weight", "percentage"])
 
 const MAX_PERCENTAGE_VALUE = 100
 

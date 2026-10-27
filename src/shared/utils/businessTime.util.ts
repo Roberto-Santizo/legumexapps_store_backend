@@ -10,7 +10,7 @@ export const BUSINESS_TIME_ZONE = "America/Guatemala"
 const BUSINESS_UTC_OFFSET_MS = -6 * 60 * 60 * 1000
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
-export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 function parseIsoDate(isoDate: string): number {
     const [year, month, day] = isoDate.split("-").map(Number)

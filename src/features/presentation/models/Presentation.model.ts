@@ -7,6 +7,12 @@ import ProductVariant from "../../product/models/ProductVariant.model";
 })
 class Presentation extends BaseCatalogModel {
     @Column({
+        type: DataType.DECIMAL(14, 3),
+        allowNull: true
+    })
+    declare netVolumeMl: number | null
+
+    @Column({
         type: DataType.STRING(40),
         allowNull: false
     })

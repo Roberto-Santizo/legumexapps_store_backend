@@ -1,3 +1,4 @@
+import GenericPackagingConfiguration from "../../genericPackaging/models/GenericPackagingConfiguration.model"
 import { Table, Column, DataType, ForeignKey, BelongsTo, Model } from "sequelize-typescript";
 import Salesperson from "../../salesperson/models/Salesperson.model";
 import SubCategory from "../../category/models/SubCategory.model";
@@ -22,27 +23,73 @@ const MONEY = DataType.DECIMAL(12, 4);
 
 @Table({
     tableName: "customQuotes",
-    indexes: [{ name: "customQuotes_confirmation_unique", unique: true, fields: ["salespersonId", "confirmationKey"] }],
+    indexes: [
+        {
+            name: "customQuotes_source_variant_idx",
+            fields: ["sourceProductVariantId"]
+        },
+        {
+            name: "customQuotes_confirmation_unique",
+            unique: true,
+            fields: ["salespersonId", "confirmationKey"]
+        }
+    ]
 })
 class CustomQuote extends Model {
-    @Column({ type: DataType.STRING(30), allowNull: false, defaultValue: "legacy_options" })
-    declare configurationOrigin: "legacy_options" | "catalog_variant"
+    @Column({
+        type: DataType.STRING(30),
+        allowNull: false,
+        defaultValue: "legacy_options"
+    })
+    declare configurationOrigin: "legacy_options" | "catalog_variant" | "generic_configuration"
 
-    @Column({ type: DataType.SMALLINT, allowNull: false, defaultValue: 1 })
+    @Column({
+        type: DataType.SMALLINT,
+        allowNull: false,
+        defaultValue: 1
+    })
     declare snapshotVersion: number
 
     @ForeignKey(() => ProductVariant)
-    @Column({ type: DataType.INTEGER, allowNull: true })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: true
+    })
     declare sourceProductVariantId: number | null
 
-    @BelongsTo(() => ProductVariant, { foreignKey: "sourceProductVariantId", onDelete: "SET NULL", onUpdate: "CASCADE" })
+    @BelongsTo(() => ProductVariant, {
+        foreignKey: "sourceProductVariantId",
+        onDelete: "SET NULL",
+        onUpdate: "CASCADE"
+    })
     declare sourceProductVariant: ProductVariant | null
 
-    @Column({ type: DataType.UUID, allowNull: true })
+    @ForeignKey(() => GenericPackagingConfiguration)
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: true
+    })
+    declare sourceGenericConfigurationId: number | null
+
+    @BelongsTo(() => GenericPackagingConfiguration, {
+        foreignKey: "sourceGenericConfigurationId",
+        onDelete: "RESTRICT",
+        onUpdate: "CASCADE"
+    })
+    declare sourceGenericConfiguration: GenericPackagingConfiguration | null
+
+    @Column({
+        type: DataType.UUID,
+        allowNull: true
+    })
     declare confirmationKey: string | null
 
-    @Column({ type: DataType.STRING(64), allowNull: true })
+    @Column({
+        type: DataType.STRING(64),
+        allowNull: true
+    })
     declare confirmationRequestHash: string | null
+
     @ForeignKey(() => Salesperson)
     @Column({
         type: DataType.INTEGER,
@@ -84,57 +131,95 @@ class CustomQuote extends Model {
     })
     declare variantLabel: string | null
 
-    @Column({
-        type: DataType.BOOLEAN,
-        allowNull: false,
-        defaultValue: false
+@Column({
+        type: DataType.INTEGER,
+        allowNull: false
     })
-    declare isOrganic: boolean
-
-    @Column({ type: DataType.INTEGER, allowNull: false })
     declare requestedPallets: number
 
-    @Column({ type: DataType.INTEGER, allowNull: false })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false
+    })
     declare totalUnits: number
 
-    // Composición de palet con la que se cotizó (copiada de customQuotePresentationOptions al guardar).
-    @Column({ type: DataType.INTEGER, allowNull: false })
+    // Logistics captured when the quote was calculated; independent of current catalogs.
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false
+    })
     declare boxesPerPallet: number
 
-    @Column({ type: DataType.INTEGER, allowNull: false })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: false
+    })
     declare bagsPerBox: number
 
-    @Column({ type: DataType.INTEGER, allowNull: true })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: true
+    })
     declare unitsPerIntermediatePackage: number | null
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare rawMaterialCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare ingredientCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare unitPackagingCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare intermediatePackagingCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare processingCostTotal: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare palletMaterialCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare percentageCostTotal: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare transportCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare adjustmentCost: number
 
-    @Column({ type: MONEY, allowNull: false })
+    @Column({
+        type: MONEY,
+        allowNull: false
+    })
     declare totalCost: number
 
     @Column({

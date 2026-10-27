@@ -15,6 +15,7 @@ const upload = multer({
 quoteRouter.use(authenticateSalesperson)
 
 quoteRouter.get("/products", quoteController.products)
+quoteRouter.get("/clients", quoteController.clients)
 quoteRouter.get("/destinations", quoteController.destinations)
 // Recálculo en vivo: misma respuesta que /admin/quotes/preview y NUNCA guarda una Quote. El wizard
 // lo llama con debounce al cambiar materiales, palets o SKU. A diferencia del admin, si llega

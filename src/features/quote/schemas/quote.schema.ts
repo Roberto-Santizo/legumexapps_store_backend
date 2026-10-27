@@ -1,12 +1,5 @@
 import z from "zod"
-import { quoteOrderSchema } from "./quoteOrder.schema"
-
-// Línea de mezcla por % -- la usa el motor compartido (buildCustomizableRawMaterials) de las
-// cotizaciones a la medida; el producto de catálogo nunca recibe mezcla del cliente.
-const rawMaterialMixLineSchema = z.object({
-    rawMaterialId: z.number().int().positive(),
-    percentage: z.number().min(0).max(100).multipleOf(0.01),
-})
+import { quoteOrderSchema } from "../../quoteOrder/schemas/quoteOrder.schema"
 
 export const calculateQuoteSchema = z.object({
     productVariantId: z.number().int().positive(),
@@ -21,6 +14,8 @@ export const calculateQuoteSchema = z.object({
     selectedUnitMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
     selectedIntermediateMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
     selectedPalletMaterialIds: z.array(z.number().int().positive()).max(50).optional(),
+    // SKUs that use the pallet kit: which material of a kit type with several (e.g. corner board type), never the quantity.
+    palletKitSelections: z.array(z.strictObject({ type: z.enum(["TARIMA", "ESQUINERO", "STRETCH"]), packagingId: z.number().int().positive() })).max(3).optional(),
 })
 
 // SOLO para las rutas del representante (POST /quotes/preview y POST /quotes): draftKey identifica el
@@ -31,9 +26,15 @@ export const salespersonQuoteSchema = calculateQuoteSchema.extend({
     order: quoteOrderSchema.optional(),
 })
 
-export type RawMaterialMixLineInput = z.infer<typeof rawMaterialMixLineSchema>
+// SOLO POST /admin/quotes (guardar desde el cotizador del admin): orderId agrupa las líneas del pedido en
+// curso; el cliente lo resuelve el servidor desde el producto, nunca llega del navegador.
+export const adminSaveQuoteSchema = calculateQuoteSchema.extend({
+    orderId: z.string().uuid(),
+})
+
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
 export type SalespersonQuoteInput = z.infer<typeof salespersonQuoteSchema>
+export type AdminSaveQuoteInput = z.infer<typeof adminSaveQuoteSchema>
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),
     subject: z.string().min(1).max(200),
@@ -41,3 +42,23 @@ export const sendQuotePdfEmailSchema = z.object({
 })
 
 export type SendQuotePdfEmailInput = z.infer<typeof sendQuotePdfEmailSchema>
+
+// SOLO POST /admin/quotes/send-email. Con quoteIds (las cotizaciones guardadas del pedido que va en el PDF)
+// el envío queda registrado en ellas con el nombre y el correo del destinatario; sin quoteIds (p. ej. el
+// detalle de una cotización a la medida) solo se envía, como antes. Llega como multipart: quoteIds es un
+// arreglo JSON en texto.
+export const adminSendQuotePdfEmailSchema = sendQuotePdfEmailSchema.extend({
+    recipientName: z.string().trim().min(1).max(150).optional(),
+    quoteIds: z.preprocess(
+        value => {
+            if (typeof value !== "string") return value
+            try { return JSON.parse(value) } catch { return value }
+        },
+        z.array(z.number().int().positive()).min(1).max(100).refine(ids => new Set(ids).size === ids.length).optional()
+    ),
+}).refine(input => (input.recipientName === undefined) === (input.quoteIds === undefined), {
+    message: "recipientName y quoteIds van juntos",
+    path: ["recipientName"],
+})
+
+export type AdminSendQuotePdfEmailInput = z.infer<typeof adminSendQuotePdfEmailSchema>

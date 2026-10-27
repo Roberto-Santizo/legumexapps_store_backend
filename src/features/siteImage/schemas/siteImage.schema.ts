@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { SITE_IMAGE_SLOTS } from "../models/SiteImage.model"
 
-export const siteImageSlotEnum = z.enum(SITE_IMAGE_SLOTS)
+const siteImageSlotEnum = z.enum(SITE_IMAGE_SLOTS)
 
 // Mismo contrato que category.schema.ts/product.schema.ts para "image": string base64 nueva,
 // null para borrarla, undefined (no viene) para no tocarla. Ver catalogImage.util.ts.

@@ -384,3 +384,17 @@ it("requires SI/NO in new grouped rows while retaining legacy boolean aliases", 
     expect(result.rows[0].issues).toContainEqual(expect.objectContaining({ key: "errors.packaging_association_import.boolean" }))
     expect((await service.previewProductPackagingImport(await excel([{ ...box, isDefault: "TRUE" }]))).summary.error).toBe(0)
 })
+
+describe("pallet kit restriction in the SKU packaging import", () => {
+    it("rejects tarima, esquinero or stretch rows for a SKU that uses the pallet kit", async () => {
+        packagings.push({ id: 27, code: "MP-ESQ", displayName: "Esquinero cliente", packagingRole: "pallet", materialType: "ESQUINERO", isActive: true, unitCost: 2, defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 })
+        variants[0].usesPalletKit = true
+        await expectIssue({ skuCode: "PTC123", packagingCode: "MP-ESQ", quantityBasis: "per_pallet", quantity: 4 }, "pallet_kit_type")
+    })
+    it("accepts them for a SKU that keeps its own palletizing", async () => {
+        packagings.push({ id: 27, code: "MP-ESQ", displayName: "Esquinero cliente", packagingRole: "pallet", materialType: "ESQUINERO", isActive: true, unitCost: 2, defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 })
+        variants[0].usesPalletKit = false
+        const result = await service.previewProductPackagingImport(await excel([{ skuCode: "PTC123", packagingCode: "MP-ESQ", quantityBasis: "per_pallet", quantity: 4 }]))
+        expect(result.rows[0].issues.filter(issue => issue.key.endsWith("pallet_kit_type"))).toEqual([])
+    })
+})

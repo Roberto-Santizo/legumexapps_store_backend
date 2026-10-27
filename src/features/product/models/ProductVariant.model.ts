@@ -9,11 +9,23 @@ import ProductVariantIntermediateMaterial from "./ProductVariantIntermediateMate
 
 @Table({
     tableName: "productVariants",
-    indexes: [{ name: "productVariants_skuCode_unique", unique: true, fields: [fn("lower", col("skuCode"))] }],
+    indexes: [
+        {
+            name: "productVariants_skuCode_unique",
+            unique: true,
+            fields: [fn("lower", col("skuCode"))]
+        }
+    ]
 })
 class ProductVariant extends BaseCatalogModel {
     // SKU comercial global por presentación; reservado incluso si la variante está inactiva.
-    @Column({ type: DataType.STRING(60), allowNull: false, validate: { notEmpty: true } })
+    @Column({
+        type: DataType.STRING(60),
+        allowNull: false,
+        validate: {
+            notEmpty: true
+        }
+    })
     declare skuCode: string
 
     @ForeignKey(() => Product)
@@ -51,6 +63,15 @@ class ProductVariant extends BaseCatalogModel {
         allowNull: true
     })
     declare unitsPerIntermediatePackage: number
+
+    // On: every pallet carries the standard pallet kit (tarima, esquineros, stretch) and the SKU may not repeat
+    // those types. Off: the SKU keeps its own palletizing for products that need something different.
+    @Column({
+        type: DataType.BOOLEAN,
+        allowNull: false,
+        defaultValue: true
+    })
+    declare usesPalletKit: boolean
 
     @BelongsTo(() => Product, "productId")
     declare parentProduct: Product

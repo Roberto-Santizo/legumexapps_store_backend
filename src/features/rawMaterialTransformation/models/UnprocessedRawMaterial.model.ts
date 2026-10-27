@@ -7,20 +7,41 @@ import RawMaterialTransformation from "./RawMaterialTransformation.model"
 // compartido por todas ellas, así que cambiarlo recalcula cada transformación asociada.
 @Table({
     tableName: "unprocessedRawMaterials",
-    indexes: [{ name: "unprocessedRawMaterials_code_unique", unique: true, fields: [fn("lower", col("code"))] }],
+    indexes: [
+        {
+            name: "unprocessedRawMaterials_code_unique",
+            unique: true,
+            fields: [fn("lower", col("code"))]
+        }
+    ]
 })
 class UnprocessedRawMaterial extends Model {
-    @Column({ type: DataType.STRING(60), allowNull: false, validate: { notEmpty: true } })
+    @Column({
+        type: DataType.STRING(60),
+        allowNull: false,
+        validate: {
+            notEmpty: true
+        }
+    })
     declare code: string
 
-    @Column({ type: DataType.STRING(120), allowNull: false })
+    @Column({
+        type: DataType.STRING(120),
+        allowNull: false
+    })
     declare displayName: string
 
     // Costo por libra de entrada, en USD.
-    @Column({ type: DataType.DECIMAL(24, 12), allowNull: false })
+    @Column({
+        type: DataType.DECIMAL(24, 12),
+        allowNull: false
+    })
     declare costPerPound: number
 
-    @HasMany(() => RawMaterialTransformation, { foreignKey: "unprocessedRawMaterialId", onDelete: "RESTRICT" })
+    @HasMany(() => RawMaterialTransformation, {
+        foreignKey: "unprocessedRawMaterialId",
+        onDelete: "RESTRICT"
+    })
     declare transformations: RawMaterialTransformation[]
 }
 

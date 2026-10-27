@@ -1,5 +1,7 @@
+import genericPackagingRouter from "../features/genericPackaging/routes/genericPackaging.routes"
 import { Router } from "express"
 import packagingGroupRouter from "../features/packagingGroup/routes/packagingGroup.routes"
+import palletKitRouter from "../features/palletKit/routes/palletKit.routes"
 import categoryRouter from "../features/category/routes/category.routes"
 import subCategoryRouter from "../features/category/routes/subCategory.routes"
 import productRouter from "../features/product/routes/product.routes"
@@ -28,6 +30,7 @@ import clientImportRouter from "../features/client/routes/clientImport.routes"
 import salespersonLoginRouter from "../features/salesperson/routes/salespersonLogin.routes"
 import quoteRouter from "../features/quote/routes/quote.routes"
 import adminQuoteRouter from "../features/quote/routes/adminQuote.routes"
+import adminCatalogQuoteRouter from "../features/customQuote/routes/adminCatalogQuote.routes"
 import adminQuoteDraftRouter from "../features/quoteDraft/routes/adminQuoteDraft.routes"
 import customQuoteRouter from "../features/customQuote/routes/customQuote.routes"
 import adminCustomQuoteRouter from "../features/customQuote/routes/adminCustomQuote.routes"
@@ -39,9 +42,9 @@ import siteImageRouter from "../features/siteImage/routes/siteImage.routes"
 import adminSiteImageRouter from "../features/siteImage/routes/adminSiteImage.routes"
 
 import juiceRouter from "../features/juice/routes/juice.routes"
-import juiceConfigRouter from "../features/juice/routes/juiceConfig.routes"
 
 const appRouter = Router()
+appRouter.use("/generic-packaging-configurations", genericPackagingRouter)
 
 appRouter.use("/login", loginRouter)
 appRouter.use("/users", userRouter)
@@ -53,6 +56,7 @@ appRouter.use("/clients", clientRouter)
 appRouter.use("/admin/clients", clientImportRouter)
 appRouter.use("/salesperson-login", salespersonLoginRouter)
 appRouter.use("/quotes", quoteRouter)
+appRouter.use("/admin/quotes", adminCatalogQuoteRouter)
 appRouter.use("/admin/quotes", adminQuoteRouter)
 appRouter.use("/admin/quote-drafts", adminQuoteDraftRouter)
 appRouter.use("/custom-quotes", customQuoteRouter)
@@ -64,7 +68,6 @@ appRouter.use("/site-images", siteImageRouter)
 appRouter.use("/admin/site-images", adminSiteImageRouter)
 
 appRouter.use("/admin/juices", juiceRouter)
-appRouter.use("/admin/juice-config", juiceConfigRouter)
 
 appRouter.use("/categories", categoryRouter)
 appRouter.use("/sub-categories", subCategoryRouter)
@@ -73,6 +76,7 @@ appRouter.use("/product-packaging-materials", productPackagingImportRouter)
 appRouter.use("/units", unitRouter)
 appRouter.use("/packagings", packagingRouter)
 appRouter.use("/packaging-groups", packagingGroupRouter)
+appRouter.use("/pallet-kit", palletKitRouter)
 appRouter.use("/presentations", presentationRouter)
 appRouter.use("/raw-materials", rawMaterialRouter)
 appRouter.use("/raw-material-transformations", rawMaterialTransformationRouter)

@@ -3,7 +3,8 @@ import {
     juiceService, juiceRawMaterialService, juicePresentationService,
     juiceMixService, juiceSpiceMaterialService, juiceSpiceService,
 } from "../services/juiceCatalog.service"
-import { juiceConfigService } from "../services/juiceConfig.service"
+import { linkJuiceProduct } from "../services/juiceProductLink.service"
+import { createLinkedJuice } from "../services/juiceProductCreate.service"
 
 type Operation = (req: Request) => Promise<unknown>
 function handler(operation: Operation, resource: string, action?: "created" | "updated" | "status", status = 200): RequestHandler {
@@ -41,15 +42,8 @@ export const juiceControllers = {
     spices: catalogController(juiceSpiceService, "JuiceSpice"),
 }
 
-export const juiceConfigController = {
-    get: handler(() => juiceConfigService.getGlobal(), "JuiceCostConstants"),
-    create: handler(req => juiceConfigService.createGlobal(req.body), "JuiceCostConstants", "created", 201),
-    update: handler(req => juiceConfigService.updateGlobal(req.body), "JuiceCostConstants", "updated"),
-    listOverrides: handler(() => juiceConfigService.listOverrides(), "JuiceClientConstantOverride"),
-    getOverride: handler(req => juiceConfigService.getOverride(Number(req.params.clientId)), "JuiceClientConstantOverride"),
-    createOverride: handler(req => juiceConfigService.createOverride(req.body), "JuiceClientConstantOverride", "created", 201),
-    updateOverride: handler(req => juiceConfigService.updateOverride(Number(req.params.clientId), req.body), "JuiceClientConstantOverride", "updated"),
-    overrideStatus: handler(req => juiceConfigService.setOverrideStatus(Number(req.params.clientId), req.body.isActive), "JuiceClientConstantOverride", "status"),
-    removeOverride: handler(req => juiceConfigService.setOverrideStatus(Number(req.params.clientId), false), "JuiceClientConstantOverride", "status"),
-    resolve: handler(req => juiceConfigService.resolveConstants(Number(req.params.clientId)), "JuiceCostConstants"),
+// Juice + commercial product: create both together, or link an existing juice to a new product.
+export const juiceProductController = {
+    createWithProduct: handler(req => createLinkedJuice(req.body), "Juice", "created", 201),
+    linkProduct: handler(req => linkJuiceProduct(Number(req.params.id), req.body.subCategoryId), "Product", "created", 201),
 }

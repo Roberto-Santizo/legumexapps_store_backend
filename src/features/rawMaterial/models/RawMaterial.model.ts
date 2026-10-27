@@ -14,7 +14,6 @@ class RawMaterial extends BaseCatalogModel {
         type: DataType.STRING(60),
         allowNull: false,
         unique: true,
-
         validate: {
             notEmpty: true
         }
@@ -65,7 +64,10 @@ class RawMaterial extends BaseCatalogModel {
     declare translations: RawMaterialTranslation[]
 
     // Presente solo si el costo lo calcula el módulo de Transformación de Materia Prima.
-    @HasOne(() => RawMaterialTransformation, { foreignKey: "processedRawMaterialId", onDelete: "RESTRICT" })
+    @HasOne(() => RawMaterialTransformation, {
+        foreignKey: "processedRawMaterialId",
+        onDelete: "RESTRICT"
+    })
     declare transformation?: RawMaterialTransformation
 }
 

@@ -10,13 +10,4 @@ export const INITIAL_PACKAGING_COLUMNS = {
     quantity: { header: "CANTIDAD", aliases: ["cantidad", "quantity"] },
 }
 
-// Explicit import classifications, never inferred from Packaging labels/codes.
-export const INITIAL_MATERIAL_TYPES = {
-    INDIVIDUAL: { role: "unit", basis: "", quantity: 1 },
-    INTERMEDIO: { role: "intermediate", basis: "", quantity: null },
-    CAJA: { role: "pallet", basis: "per_box", quantity: 1 },
-    ESQUINERO: { role: "pallet", basis: "per_pallet", quantity: 4 },
-    TARIMA: { role: "pallet", basis: "per_pallet", quantity: 1 },
-    STRETCH: { role: "pallet", basis: "per_pallet", quantity: 93.3 },
-    "OTRO PALETIZACIÓN": { role: "pallet", basis: "", quantity: null },
-} as const
+export { INITIAL_MATERIAL_TYPES } from "../../packaging/constants/packagingImport.constant"

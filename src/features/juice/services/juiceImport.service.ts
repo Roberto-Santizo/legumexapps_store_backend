@@ -10,12 +10,11 @@ import { generateUniqueSlug } from "../../../shared/utils/slug.util"
 import Client from "../../client/models/Client.model"
 import Juice from "../models/Juice.model"
 import Raw from "../models/JuiceRawMaterial.model"
-import SpiceMaterial from "../models/JuiceSpiceMaterial.model"
+import Ingredient from "../../ingredient/models/Ingredient.model"
+import { unitService } from "../../unit/services/unit.service"
 import Mix from "../models/JuiceMix.model"
 import Spice from "../models/JuiceSpice.model"
 import Presentation from "../models/JuicePresentation.model"
-import Global from "../models/JuiceCostConstants.model"
-import Override from "../models/JuiceClientConstantOverride.model"
 import * as schemas from "../schemas/juice.schema"
 import { JUICE_IMPORT_SHEETS as names, JUICE_MATERIAL_HEADERS, JUICE_PRESENTATION_HEADERS, MAX_JUICE_IMPORT_ROWS, MAX_JUICE_IMPORT_COLUMNS, juiceImportColumns } from "../constants/juiceImport.constant"
 
@@ -24,8 +23,8 @@ type SpiceInput = z.infer<typeof schemas.createJuiceSpiceMaterialSchema>
 type PresentationInput = z.infer<typeof schemas.createJuicePresentationSchema>
 type Ref = { id?: number; code: string; displayName: string; isActive: boolean }
 type Material = { row: number; kind: "raw"; input: RawInput; ref: Ref } | { row: number; kind: "spice"; input: SpiceInput; ref: Ref }
-type Formula = { column: number; ref: Ref; clientId: number; price?: number; liquids: { ref: Ref; percentage: number; row: number }[]; spices: { ref: Ref; grams: number; row: number }[] }
-type Physical = { row: number; ref: Ref; input: Omit<PresentationInput, "juiceId">; price: number }
+type Formula = { column: number; ref: Ref; clientId: number; liquids: { ref: Ref; percentage: number; row: number }[]; spices: { ref: Ref; grams: number; row: number }[] }
+type Physical = { row: number; ref: Ref; input: Omit<PresentationInput, "juiceId"> }
 const codeKey = (value: string) => value.trim().toLowerCase()
 const text = (value: unknown) => value === null || value === undefined ? "" : String(value).trim()
 const numeric = (value: unknown) => value === null || value === undefined || text(value) === "" ? undefined : Number(value)
@@ -67,12 +66,12 @@ export async function bulkImportJuices(buffer: Buffer) {
     if (actual.some((value, index) => value !== normalizeImportText(labels[index]))) throw new AppError(422, "errors.juice_import_matrix_layout")
     try {
         // All database reads and all writes share the same transaction. SHARE locks protect
-        // active references/configuration until commit; a later write failure rolls back every sheet.
+        // active references until commit; a later write failure rolls back every sheet.
         return await sequelize.transaction(async transaction => {
             const query = { transaction, lock: transaction.LOCK.SHARE }
-            const [rawRows, spiceRows, juiceRows, clients, physicalRows, global, overrides] = await Promise.all([
-                Raw.findAll(query), SpiceMaterial.findAll(query), Juice.findAll(query), Client.findAll(query),
-                Presentation.findAll(query), Global.findOne({ ...query, where: { singletonKey: "global" } }), Override.findAll(query),
+            const [rawRows, spiceRows, juiceRows, clients, physicalRows] = await Promise.all([
+                Raw.findAll(query), Ingredient.findAll(query), Juice.findAll(query), Client.findAll(query),
+                Presentation.findAll(query),
             ])
             const issues: RowIssue[] = []
             function issue(worksheet: string, row: number, field: string, key: string, params: Record<string, unknown> = {}) {
@@ -130,7 +129,7 @@ export async function bulkImportJuices(buffer: Buffer) {
                 const clientName = text(cell(2))
                 const matchingClients = clients.filter(row => row.isActive && normalizeImportText(row.name) === normalizeImportText(clientName))
                 if (matchingClients.length !== 1 || !matchingClients[0].isActive) issue(names.formulas, 2, letter, "errors.juice_import_reference", { value: clientName })
-                const identity = parse(schemas.createJuiceSchema.omit({ pricePerPound: true, image: true }), { code: text(cell(3)), displayName: text(cell(4)), clientId: matchingClients[0]?.id }, names.formulas, 3, `${letter}.`)
+                const identity = parse(schemas.createJuiceSchema.omit({ image: true }), { code: text(cell(3)), displayName: text(cell(4)), clientId: matchingClients[0]?.id }, names.formulas, 3, `${letter}.`)
                 if (!identity) continue
                 const ref: Ref = { code: identity.code, displayName: identity.displayName, isActive: true }
                 if (juices.some(existing => codeKey(existing.code) === codeKey(ref.code))) { issue(names.formulas, 3, letter, "errors.juice_duplicate"); continue }
@@ -171,26 +170,18 @@ export async function bulkImportJuices(buffer: Buffer) {
                 if (isImportRowBlank(row, physicalColumns)) continue
                 const read = (field: keyof typeof JUICE_PRESENTATION_HEADERS) => readImportCell(row, physicalColumns.get(field))
                 const ref = resolve(text(read("juice")), juices, names.presentations, rowNumber, "juice")
-                const values = Object.fromEntries(Object.keys(JUICE_PRESENTATION_HEADERS).filter(key => key !== "juice" && key !== "displayLabel" && key !== "pricePerPound").map(key => [key, numeric(read(key as keyof typeof JUICE_PRESENTATION_HEADERS))]))
+                const values = Object.fromEntries(Object.keys(JUICE_PRESENTATION_HEADERS).filter(key => key !== "juice" && key !== "displayLabel").map(key => [key, numeric(read(key as keyof typeof JUICE_PRESENTATION_HEADERS))]))
                 const input = parse(schemas.createJuicePresentationSchema.omit({ juiceId: true }), { ...values, displayLabel: text(read("displayLabel")) }, names.presentations, rowNumber)
-                const price = parse(schemas.createJuiceSchema.pick({ pricePerPound: true }), { pricePerPound: numeric(read("pricePerPound")) }, names.presentations, rowNumber)
-                if (!ref || !input || !price) continue
+                if (!ref || !input) continue
                 const physicalKey = `${codeKey(ref.code)}\u0000${input.displayLabel}`
                 if (physicalKeys.has(physicalKey) || physicalRows.some(existing => existing.juiceId === ref.id && existing.displayLabel === input.displayLabel)) issue(names.presentations, rowNumber, "displayLabel", "errors.juice_duplicate")
                 physicalKeys.add(physicalKey)
                 const formula = formulas.find(candidate => candidate.ref === ref)
                 const existingJuice = juiceRows.find(candidate => candidate.id === ref.id)
-                const previousPrice = formula?.price ?? existingJuice?.pricePerPound
-                if (previousPrice !== undefined && !toDecimal(previousPrice).equals(price.pricePerPound)) issue(names.presentations, rowNumber, "pricePerPound", "errors.juice_import_price_mismatch")
-                if (formula) formula.price = price.pricePerPound
-                // One global singleton plus active overrides by external client. Imports never create or edit
-                // config.
-                if (!global) issue(names.presentations, rowNumber, "constants", "errors.juice_config_required")
                 const clientId = formula?.clientId ?? existingJuice?.clientId
                 if (!clients.some(client => client.id === clientId && client.isActive)) issue(names.presentations, rowNumber, "client", "errors.juice_import_reference", { value: String(clientId) })
-                physicals.push({ row: rowNumber, ref, input, price: price.pricePerPound })
+                physicals.push({ row: rowNumber, ref, input })
             }
-            for (const formula of formulas) if (formula.price === undefined) issue(names.formulas, 3, formulaSheet.getColumn(formula.column).letter, "errors.juice_import_presentation_required")
             if (issues.length) throw new BulkImportError(issues)
             if (!materials.length && !formulas.length && !physicals.length) throw new AppError(422, "errors.bulk_import_empty_file")
             const counts = { rawMaterials: 0, spiceMaterials: 0, juices: 0, mixRows: 0, spiceRows: 0, presentations: 0 }
@@ -200,7 +191,11 @@ export async function bulkImportJuices(buffer: Buffer) {
                     material.ref.id = (await Raw.create({ ...material.input, costPerLiter }, { transaction })).id
                     counts.rawMaterials++
                 } else {
-                    material.ref.id = (await SpiceMaterial.create(material.input, { transaction })).id
+                    const pound = await unitService.findOrCreatePoundUnit(transaction)
+                    const costPerUnit = toDecimal(material.input.costPerGram).times(pound.baseFactor).toDecimalPlaces(12)
+                    if (costPerUnit.gt("999999999999.999999999999")) throw new AppError(422, "errors.juice_cost_out_of_range")
+                    const urlSlug = await generateUniqueSlug(material.input.displayName, async candidate => Boolean(await Ingredient.findOne({ where: { urlSlug: candidate }, transaction })))
+                    material.ref.id = (await Ingredient.create({ code: material.input.code, displayName: material.input.displayName, urlSlug, costPerUnit: costPerUnit.toString(), costUnitId: pound.id }, { transaction })).id
                     counts.spiceMaterials++
                 }
             }
@@ -208,19 +203,17 @@ export async function bulkImportJuices(buffer: Buffer) {
             for (const formula of formulas) {
                 const urlSlug = await generateUniqueSlug(formula.ref.displayName.slice(0, 100), async value => slugs.has(value))
                 slugs.add(urlSlug)
-                const input = schemas.createJuiceSchema.parse({ code: formula.ref.code, displayName: formula.ref.displayName, clientId: formula.clientId, pricePerPound: formula.price })
+                const input = schemas.createJuiceSchema.parse({ code: formula.ref.code, displayName: formula.ref.displayName, clientId: formula.clientId })
                 formula.ref.id = (await Juice.create({ ...input, urlSlug, imageUrl: null }, { transaction })).id
                 counts.juices++
                 for (const liquid of formula.liquids) { await Mix.create({ juiceId: formula.ref.id, rawMaterialId: liquid.ref.id, percentage: liquid.percentage }, { transaction }); counts.mixRows++ }
-                for (const spice of formula.spices) { await Spice.create({ juiceId: formula.ref.id, spiceMaterialId: spice.ref.id, gramsPerLiter: spice.grams }, { transaction }); counts.spiceRows++ }
+                for (const spice of formula.spices) { await Spice.create({ juiceId: formula.ref.id, ingredientId: spice.ref.id, gramsPerLiter: spice.grams }, { transaction }); counts.spiceRows++ }
             }
             for (const physical of physicals) {
                 await Presentation.create({ ...physical.input, juiceId: physical.ref.id }, { transaction })
                 counts.presentations++
             }
-            const affectedClients = new Set([...formulas.map(formula => formula.clientId), ...physicals.map(physical => juiceRows.find(row => row.id === physical.ref.id)?.clientId)].filter(id => id !== undefined))
-            return { ...counts, globalRevision: global?.revision ?? null,
-                clientOverrideIds: overrides.filter(row => row.isActive && affectedClients.has(row.clientId)).map(row => row.id) }
+            return counts
         })
     } catch (error) {
         if (error instanceof UniqueConstraintError) throw new AppError(409, "errors.juice_duplicate")
@@ -240,17 +233,17 @@ export async function buildJuiceImportTemplate(): Promise<Buffer> {
     const help = workbook.addWorksheet("Instrucciones")
     help.getColumn(1).width = 150
     for (const line of [
-        "Importación de jugos fijos, create-only: las tres hojas se validan y guardan juntas; un error revierte todo el archivo. No cambia registros existentes ni sus precios.",
+        "Importación de jugos fijos, create-only: las tres hojas se validan y guardan juntas; un error revierte todo el archivo. No cambia registros existentes.",
         "Plantilla normalizada: traslada los valores del libro original; no importa su formato libre ni interpreta fórmulas. Excel debe traer números o resultados de fórmulas ya calculados.",
         "COSTO MP: Tipo = MATERIA PRIMA o ESPECIA. Código único por catálogo (incluye inactivos), Nombre, Unidad LIBRA/LITRO/GRAMO, Libras por litro positivas y Costo unitario no negativo. Costo/litro se calcula en el servidor; cero es válido.",
         "ESPECIA: Unidad GRAMO, Libras por litro vacías y Costo unitario = USD/gramo; se crea en el catálogo propio de especias, no en materias primas.",
         "% MP: A1 Tipo, B1 Referencia. Una columna por jugo desde C; fila 2 Cliente, fila 3 SKU, fila 4 Nombre. Cliente debe existir activo y su nombre resolver sin ambigüedad.",
         "Desde fila 5: A = MATERIA PRIMA o ESPECIA, B = código o nombre del material. En cada columna de jugo: fracción 0..1 para materia prima (0.15 = 15%; Excel 15% equivale a 0.15) o gramos/litro para especia. Vacío/cero omite el componente. Las fracciones activas deben sumar exactamente 1; no usar 15 para 15%.",
         "Referencias: códigos exactos sin distinguir mayúsculas primero; si no existe el código, nombre sin distinguir acentos/mayúsculas. Coincidencia inexistente, ambigua o inactiva es error. Materiales nuevos en COSTO MP están disponibles en el mismo archivo.",
-        "COSTO POR PRESENTACIÓN: una fila por jugo/presentación; Jugo = SKU o nombre. Todos los costos/cantidades son obligatorios, incluso cero para sticker 2. Cada jugo nuevo necesita al menos una presentación.",
-        "PRICE LB es el precio por libra del jugo: debe ser idéntico en todas sus presentaciones. Margen por caja es el target de esa presentación. Un jugo existente conserva su PRICE LB; solo se pueden agregar presentaciones nuevas con el mismo precio.",
-        "Constantes: configurar primero /admin/juice-config. Se usan las globales vigentes y los overrides activos del Cliente; null hereda y cero sobreescribe. Este archivo no carga, cambia ni selecciona otros conjuntos de constantes.",
-        "No cargar lbs/caja, cajas/lbs por contenedor ni costos logísticos por libra: J2 los deriva de las dimensiones y constantes. Conserva hasta 12 decimales en costos fuente y PRICE LB; gramos/porcentajes/cantidades hasta 6, ml hasta 3 y margen hasta 4.",
+        "COSTO POR PRESENTACIÓN: hoja histórica opcional (puede quedar vacía). Si contiene filas, conserva sus validaciones y datos; no configura variantes comerciales ni sustituye el catálogo de empaques.",
+        "Para cotizar: vincular el jugo a una subcategoría desde su editor, configurar variantes con presentaciones del catálogo (volumen ml y peso real) y asociar materiales del catálogo Empaques desde Productos. No duplicar esos costos en este Excel.",
+        "Las especias se resuelven en el catálogo compartido Ingredientes. COSTO MP puede crear ingredientes nuevos con conversión de USD/gramo a su unidad de compra; nunca sobrescribe costos existentes.",
+        "Solo se calculan materias primas, ingredientes/especias y empaques. Columnas antiguas PRICE LB y Margen por caja se ignoran; no son obligatorias.",
         "Las tres hojas son obligatorias; se admiten hojas de catálogos/presentaciones sin datos si no se necesitan. Máximo 1000 filas por hoja y 100 columnas de jugos. Imagen del jugo se agrega después mediante edición.",
     ]) help.addRow([line])
     for (const worksheet of [materials, formulas, presentations]) {

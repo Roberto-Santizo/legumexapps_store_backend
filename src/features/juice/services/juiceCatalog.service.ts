@@ -1,3 +1,4 @@
+import Ingredient from "../../ingredient/models/Ingredient.model"
 import { Attributes, CreationAttributes, ModelStatic, Op, Transaction, UniqueConstraintError, WhereOptions, col, fn, where } from "sequelize"
 import { z } from "zod"
 import sequelize from "../../../database/connection"
@@ -43,7 +44,7 @@ function catalogService<M extends BaseCatalogModel>(options: {
         const condition = options.hasCode
             ? { [Op.and]: [where(fn("lower", col("code")), String(values.code).toLowerCase())] }
             : options.uniqueFields ? Object.fromEntries(options.uniqueFields.map(key => [key, values[key]])) : null
-        if (!condition) return
+        if (!condition || Object.values(condition).some(value => value === undefined || value === null)) return
         const duplicate = await model.findOne({
             where: { ...condition, ...(id ? { id: { [Op.ne]: id } } : {}) } as WhereOptions<Attributes<M>>,
             ...txOptions(transaction),
@@ -69,13 +70,14 @@ function catalogService<M extends BaseCatalogModel>(options: {
             return rows.map(juiceDto)
         },
         async get(id: number) { return juiceDto(await find(id, true)) },
-        async create(body: unknown) {
+        async create(body: unknown, existingTransaction?: Transaction) {
             const input = options.createSchema.parse(body)
-            return write(async transaction => {
+            const create = async (transaction?: Transaction) => {
                 await unique(input, undefined, transaction)
                 const prepared = options.prepare ? await options.prepare(input, undefined, transaction) : input
                 return juiceDto(await model.create(prepared as CreationAttributes<M>, txOptions(transaction)))
-            })
+            }
+            return existingTransaction ? create(existingTransaction) : write(create)
         },
         async update(id: number, body: unknown) {
             const input = options.updateSchema.parse(body)
@@ -100,7 +102,7 @@ function catalogService<M extends BaseCatalogModel>(options: {
     }
 }
 
-export async function requireJuiceClient(clientId: number): Promise<void> {
+async function requireJuiceClient(clientId: number): Promise<void> {
     const client = await Client.findOne({ where: { id: clientId, isActive: true } })
     if (!client) throw new NotFoundError("Client", clientId)
 }
@@ -179,10 +181,15 @@ export const juiceSpiceMaterialService = catalogService({
 
 export const juiceSpiceService = catalogService({
     model: JuiceSpice, resource: "JuiceSpice", scopedByJuice: true,
-    uniqueFields: ["juiceId", "spiceMaterialId"],
+    uniqueFields: ["juiceId", "ingredientId"],
     createSchema: schemas.createJuiceSpiceSchema, updateSchema: schemas.updateJuiceSpiceSchema,
     async prepare(input, stored) {
         await requireJuice(Number(stored?.juiceId ?? input.juiceId))
+        const ingredientId = input.ingredientId ?? stored?.ingredientId
+        if (ingredientId) {
+            if (!await Ingredient.findOne({ where: { id: Number(ingredientId), isActive: true } })) throw new NotFoundError("Ingredient", Number(ingredientId))
+            return { ...input, ingredientId: Number(ingredientId), spiceMaterialId: null }
+        }
         const spiceMaterialId = Number(stored?.spiceMaterialId ?? input.spiceMaterialId)
         if (!await JuiceSpiceMaterial.findOne({ where: { id: spiceMaterialId, isActive: true } })) {
             throw new NotFoundError("JuiceSpiceMaterial", spiceMaterialId)

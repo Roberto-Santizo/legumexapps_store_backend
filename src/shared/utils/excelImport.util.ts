@@ -96,24 +96,7 @@ export function mapImportHeaders<TField extends string>(
     return columnIndexByField
 }
 
-// "Sí"/"No" (y variantes: true/false, 1/0, x) -- undefined = texto no reconocido, el caller debe
-// reportarlo como error de fila en vez de asumir un valor. Celda vacía = defaultValue (para que
-// el default del modelo de negocio, no un default de parseo, sea el que decide).
-const TRUE_TOKENS = new Set(["si", "true", "1", "x", "yes"])
-const FALSE_TOKENS = new Set(["no", "false", "0"])
-export function parseImportBoolean(value: ImportCellValue, defaultValue: boolean): boolean | undefined {
-    if (value === null || value === "") return defaultValue
-    const normalized = normalizeImportText(value)
-    if (TRUE_TOKENS.has(normalized)) return true
-    if (FALSE_TOKENS.has(normalized)) return false
-    return undefined
-}
 
-// Cast puntual: los tipos de exceljs declaran su propio `Buffer extends ArrayBuffer` global
-// (bug conocido de sus .d.ts), que con `"lib": ["esnext"]` de este tsconfig termina exigiendo
-// miembros nuevos de ArrayBuffer (maxByteLength/resizable/etc.) que el Buffer real de Node no
-// implementa -- un choque puramente de tipos, no de runtime. Se aísla acá (único lugar del
-// programa que toca la API de exceljs) para que cada service de import no repita el cast.
 export async function loadWorkbookFromBuffer(buffer: Buffer): Promise<ExcelJS.Workbook> {
     validateXlsxBuffer(buffer)
     let archive: Map<string, Buffer>
@@ -145,4 +128,11 @@ export async function loadWorkbookFromBuffer(buffer: Buffer): Promise<ExcelJS.Wo
 
 export async function writeWorkbookToBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
     return workbook.xlsx.writeBuffer() as unknown as Promise<Buffer>
+}
+
+// ExcelJS supports range validations, but omits this API from its Worksheet type.
+// A single range avoids materializing thousands of empty cells and compressing their validations.
+export function addImportValidation(sheet: ExcelJS.Worksheet, range: string, validation: ExcelJS.DataValidation) {
+    const ranges = (sheet as ExcelJS.Worksheet & { dataValidations: { add: (range: string, validation: ExcelJS.DataValidation) => void } }).dataValidations
+    ranges.add(range, validation)
 }

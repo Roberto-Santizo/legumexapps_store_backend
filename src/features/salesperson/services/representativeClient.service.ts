@@ -30,21 +30,29 @@ async function list(representativeId: number) {
     return assignedClients(representativeId)
 }
 
-async function assign(representativeId: number, clientIds: number[]) {
+// Validates and adds the clients inside the caller's transaction (also used when creating the representative).
+async function addClients(representativeId: number, clientIds: number[] | "all", transaction: Transaction) {
+    // Deterministic lock order protects validation from concurrent deactivation/deletion.
+    const clients = await Client.findAll({ where: clientIds === "all" ? { isActive: true } : { id: { [Op.in]: clientIds } },
+        attributes: ["id", "isActive"], order: [["id", "ASC"]], transaction, lock: transaction.LOCK.SHARE })
+    if (clientIds !== "all" && clients.length !== clientIds.length) throw new AppError(422, "errors.assignment_client_missing")
+    if (clients.some(client => !client.isActive)) throw new AppError(422, "errors.assignment_inactive_client")
+    // Additive, idempotent: another administrator's assignments are never overwritten.
+    if (clients.length) await RepresentativeClient.bulkCreate(clients.map(client => ({ representativeId, clientId: client.id })),
+        { transaction, ignoreDuplicates: true })
+}
+
+async function assignClients(representativeId: number, clientIds: number[] | "all") {
     return Salesperson.sequelize!.transaction(async transaction => {
         const representative = await requireRepresentative(representativeId, transaction)
         if (!representative.isActive) throw new AppError(422, "errors.assignment_inactive_representative")
-        // Deterministic lock order protects validation from concurrent deactivation/deletion.
-        const clients = await Client.findAll({ where: { id: { [Op.in]: clientIds } },
-            attributes: ["id", "isActive"], order: [["id", "ASC"]], transaction, lock: transaction.LOCK.SHARE })
-        if (clients.length !== clientIds.length) throw new AppError(422, "errors.assignment_client_missing")
-        if (clients.some(client => !client.isActive)) throw new AppError(422, "errors.assignment_inactive_client")
-        // Additive, idempotent: another administrator's assignments are never overwritten.
-        await RepresentativeClient.bulkCreate(clientIds.map(clientId => ({ representativeId, clientId })),
-            { transaction, ignoreDuplicates: true })
+        await addClients(representativeId, clientIds, transaction)
         return assignedClients(representativeId, transaction)
     })
 }
+
+const assign = (representativeId: number, clientIds: number[]) => assignClients(representativeId, clientIds)
+const assignAll = (representativeId: number) => assignClients(representativeId, "all")
 
 async function remove(representativeId: number, clientId: number) {
     return Salesperson.sequelize!.transaction(async transaction => {
@@ -59,9 +67,13 @@ async function remove(representativeId: number, clientId: number) {
 
 // Future quote services can call this on every request; no JWT or process cache involved.
 async function authorizedClientIds(representativeId: number): Promise<number[]> {
-    const representative = await Salesperson.findOne({ where: { id: representativeId, isActive: true }, attributes: ["id"] })
-    if (!representative) return []
-    return (await assignedClients(representativeId, undefined, true)).map(client => client.id)
+    return (await authorizedClients(representativeId)).map(client => client.id)
 }
 
-export const representativeClientService = { list, assign, remove, authorizedClientIds }
+async function authorizedClients(representativeId: number) {
+    const representative = await Salesperson.findOne({ where: { id: representativeId, isActive: true }, attributes: ["id"] })
+    if (!representative) return []
+    return assignedClients(representativeId, undefined, true)
+}
+
+export const representativeClientService = { list, assign, assignAll, remove, authorizedClientIds, authorizedClients, addClients }

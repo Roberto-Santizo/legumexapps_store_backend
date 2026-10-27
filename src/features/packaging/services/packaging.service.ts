@@ -1,7 +1,10 @@
 import type { ParsedWorkbook, ParsedRow, ParsedWorksheet } from "../../../shared/utils/parsedWorkbook"
-import { Op, WhereOptions } from "sequelize"
+import { Op, Transaction, WhereOptions } from "sequelize"
 import ExcelJS from "exceljs"
 import Packaging from "../models/Packaging.model"
+import { lockGenericCodes, nextGenericCodes } from "./packagingCode.service"
+import { PACKAGING_MATERIAL_TYPES, PALLET_MATERIAL_TYPES, fixedPalletConsumption, type PalletMaterialType } from "../constants/packagingMaterialType.constant"
+import PalletKitMaterial from "../../palletKit/models/PalletKitMaterial.model"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
 import { CreatePackagingInput, PackagingImportInput, UpdatePackagingInput, packagingDefaultsSchema, PackagingQuery, importLegacyPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
@@ -36,7 +39,8 @@ async function listPackagings(pagination?: PaginationParams, search?: string, fi
             ],
         } : {}),
     }
-    return paginate(Packaging, { where, order: [["displayName", "DESC"]] }, pagination)
+    // Newest first; id breaks ties between rows created together by a bulk import.
+    return paginate(Packaging, { where, order: [["createdAt", "DESC"], ["id", "DESC"]] }, pagination)
 }
 
 async function getPackagingById(id: number): Promise<Packaging> {
@@ -54,23 +58,70 @@ async function assertCodeIsUnique(code: string, excludeId?: number): Promise<voi
 }
 
 async function createPackaging(input: CreatePackagingInput): Promise<Packaging> {
-    await assertCodeIsUnique(input.code)
-    return Packaging.create(input)
+    if (input.classification !== "generic") {
+        await assertCodeIsUnique(input.code!)
+        return Packaging.create(resolveMaterialType(input))
+    }
+    return Packaging.sequelize!.transaction(async transaction => {
+        await lockGenericCodes(transaction)
+        const [code] = await nextGenericCodes(input.packagingRole, 1, transaction)
+        return Packaging.create({ ...resolveMaterialType(input), code }, { transaction })
+    })
+}
+
+// The stored type and its catalog consumption. Unit and intermediate materials take the level's type; pallet
+// materials need one: fixed types (caja, tarima, esquinero, stretch) take their rule, OTRO is set per association.
+// Editing a pallet material without sending a type keeps its type and consumption.
+function resolveMaterialType<T extends UpdatePackagingInput>(input: T, current?: Packaging) {
+    const { materialType, ...values } = input
+    if (input.packagingRole === "unit") return { ...values, materialType: "INDIVIDUAL" as const, defaultQuantityBasis: null, defaultQuantityValue: null }
+    if (input.packagingRole === "intermediate") return { ...values, materialType: "INTERMEDIO" as const, defaultQuantityBasis: null, defaultQuantityValue: null }
+    const keep = !materialType && current?.packagingRole === "pallet"
+    const type = (materialType ?? (keep ? current.materialType : undefined)) as PalletMaterialType | undefined
+    if (!type || !PALLET_MATERIAL_TYPES.includes(type)) throw new AppError(422, "errors.packaging_import_material_type")
+    if (keep || type === "OTRO") return { ...values, materialType: type }
+    return { ...values, materialType: type, ...fixedPalletConsumption(type) }
+}
+
+// A kit material must stay an active generic pallet material of its kit type while it is in the kit.
+async function assertKitMembershipKept(packaging: Packaging, next: { classification?: string; packagingRole?: string; materialType?: string; isActive?: boolean }) {
+    const leavesKitShape = (next.classification ?? packaging.classification) !== "generic" || (next.packagingRole ?? packaging.packagingRole) !== "pallet"
+        || (next.materialType ?? packaging.materialType) !== packaging.materialType || next.isActive === false
+    if (leavesKitShape && await PalletKitMaterial.findOne({ where: { packagingId: packaging.id } })) throw new AppError(422, "errors.packaging_in_pallet_kit")
 }
 
 async function updatePackaging(id: number, input: UpdatePackagingInput): Promise<Packaging> {
     const packaging = await getPackagingById(id)
-    if (input.code) await assertCodeIsUnique(input.code, id)
-    const values = input.packagingRole !== "pallet"
-        ? { ...input, defaultQuantityBasis: null, defaultQuantityValue: null }
-        : { ...input }
+    const classification = input.classification ?? packaging.classification
+    if (classification === "generic") {
+        if (input.code && input.code !== packaging.code) throw new AppError(422, "errors.packaging_generic_code_forbidden")
+        // Becoming generic, or changing level, takes a new code of the level's pattern.
+        if (packaging.classification !== "generic" || input.packagingRole !== packaging.packagingRole) {
+            return Packaging.sequelize!.transaction(async transaction => {
+                await lockGenericCodes(transaction)
+                const [code] = await nextGenericCodes(input.packagingRole, 1, transaction)
+                return applyPackagingUpdate(packaging, { ...input, code }, transaction)
+            })
+        }
+        return applyPackagingUpdate(packaging, { ...input, code: packaging.code })
+    }
+    if (!input.code) throw new AppError(422, "errors.packaging_code_required")
+    await assertCodeIsUnique(input.code, id)
+    return applyPackagingUpdate(packaging, input)
+}
+
+async function applyPackagingUpdate(packaging: Packaging, input: UpdatePackagingInput, transaction?: Transaction): Promise<Packaging> {
+    const values = resolveMaterialType(input, packaging)
+    await assertKitMembershipKept(packaging, values)
     const effective = packagingDefaultsSchema.safeParse({ defaultQuantityBasis: packaging.defaultQuantityBasis, defaultQuantityValue: packaging.defaultQuantityValue == null ? null : Number(packaging.defaultQuantityValue), ...values })
     if (!effective.success) throw new AppError(422, "errors.packaging_consumption_defaults")
-    return packaging.update({ ...values, ...(input.displayNameEn !== undefined ? { displayNameEn: input.displayNameEn?.trim() || null } : {}) })
+    const changes = { ...values, ...(input.displayNameEn !== undefined ? { displayNameEn: input.displayNameEn?.trim() || null } : {}) }
+    return transaction ? packaging.update(changes, { transaction }) : packaging.update(changes)
 }
 
 async function deletePackaging(id: number): Promise<void> {
     const packaging = await getPackagingById(id)
+    await assertKitMembershipKept(packaging, { isActive: false })
     await packaging.update({ isActive: false })
 }
 
@@ -119,7 +170,7 @@ function buildPackagingImportCandidate(fields: {
 }) {
     return {
         // String(...) siempre: un código entrado sin formato de texto en Excel puede llegar como number.
-        code: fields.rawCode === null ? fields.rawCode : String(fields.rawCode).trim(),
+        code: fields.rawCode === null || String(fields.rawCode).trim() === "" ? undefined : String(fields.rawCode).trim(),
         displayName: typeof fields.rawDisplayName === "string" ? fields.rawDisplayName.trim() : fields.rawDisplayName,
         packagingRole: fields.resolvedRole,
         unitCost: fields.rawUnitCost === null || fields.rawUnitCost === "" ? undefined : Number(fields.rawUnitCost),
@@ -138,7 +189,7 @@ function collectPackagingZodIssues(
     for (const issue of result.error.issues) {
         const field = issue.path.join(".") || "row"
         if (manuallyValidatedFields.has(field)) continue
-        issues.push({ row: rowNumber, field, key: `errors.zod.${issue.code}`, params: { defaultValue: issue.message } })
+        issues.push(issue.message.startsWith("errors.") ? { row: rowNumber, field, key: issue.message } : { row: rowNumber, field, key: `errors.zod.${issue.code}`, params: { defaultValue: issue.message } })
     }
     return { issues }
 }
@@ -168,8 +219,9 @@ function finalizePackagingImportCandidate(
         hasIssue = true
     }
 
-    const normalizedCode = normalizeImportText(validated.code)
-    const firstCodeRow = firstRowByNormalizedCode.get(normalizedCode)
+    // Generic rows have no code yet: the system assigns it when saving.
+    const normalizedCode = validated.code ? normalizeImportText(validated.code) : ""
+    const firstCodeRow = normalizedCode ? firstRowByNormalizedCode.get(normalizedCode) : undefined
     if (firstCodeRow) {
         rowIssues.push({
             row: rowNumber,
@@ -178,7 +230,7 @@ function finalizePackagingImportCandidate(
             params: { code: validated.code, firstRow: firstCodeRow }
         })
         hasIssue = true
-    } else if (existingCodesByNormalized.has(normalizedCode)) {
+    } else if (normalizedCode && existingCodesByNormalized.has(normalizedCode)) {
         rowIssues.push({
             row: rowNumber,
             field: "code",
@@ -191,7 +243,7 @@ function finalizePackagingImportCandidate(
     if (hasIssue) return null
 
     firstRowByNormalizedName.set(normalizedName, rowNumber)
-    firstRowByNormalizedCode.set(normalizedCode, rowNumber)
+    if (normalizedCode) firstRowByNormalizedCode.set(normalizedCode, rowNumber)
     return validated
 }
 
@@ -213,21 +265,24 @@ function processPackagingImportRow(
 
     const resolvedRole = resolvePackagingRoleField(rawRole, ctx)
     const baseCandidate = buildPackagingImportCandidate({ rawCode, rawDisplayName, resolvedRole, rawUnitCost })
-    const rawBasis = readImportCell(row, columnIndexByField.get("defaultQuantityBasis"))
-    const rawValue = readImportCell(row, columnIndexByField.get("defaultQuantityValue"))
-    const hasRule = rawBasis != null && rawBasis !== "" || rawValue != null && rawValue !== ""
-    const basisMap: Record<string, string> = { "por caja": "per_box", "por pallet": "per_pallet", per_box: "per_box", per_pallet: "per_pallet" }
     const rawClassification = readImportCell(row, columnIndexByField.get("classification"))
     const classificationKey = rawClassification == null || String(rawClassification).trim() === "" ? "specific" : normalizeImportText(String(rawClassification))
-    const classifications: Record<string, string> = { specific: "specific", especifico: "specific", especificos: "specific", generic: "generic", generico: "generic", genericos: "generic" }
+    const classifications: Record<string, string> = { specific: "specific", especifico: "specific", especificos: "specific", "especifico de cliente": "specific", generic: "generic", generico: "generic", genericos: "generic" }
     const rawNameEn = readImportCell(row, columnIndexByField.get("displayNameEn"))
     const displayNameEn = rawNameEn == null || String(rawNameEn).trim() === "" ? null : typeof rawNameEn === "string" ? rawNameEn.trim() : rawNameEn
     if (columnIndexByField.has("displayNameEn") && displayNameEn === null) ctx.rowIssues.push({ row: rowNumber, field: "displayNameEn", key: "errors.packaging_english_name_required" })
-    const candidate = { ...baseCandidate, displayNameEn, classification: classifications[classificationKey] ?? classificationKey, ...(hasRule ? {
-        defaultQuantityBasis: rawBasis == null || rawBasis === "" ? null : basisMap[normalizeImportText(rawBasis)] ?? String(rawBasis),
-        defaultQuantityValue: rawValue == null || rawValue === "" ? null : Number(rawValue),
-    } : {}) }
-
+    // Pallet rows need their type (CAJA, TARIMA, ESQUINERO, STRETCH or OTRO); unit and intermediate rows may leave
+    // it empty because it follows the level. Fixed types take their catalog consumption.
+    const rawType = readImportCell(row, columnIndexByField.get("materialType"))
+    const typeKey = rawType == null || String(rawType).trim() === "" ? "" : normalizeImportText(String(rawType))
+    const declaredType = PACKAGING_MATERIAL_TYPES.find(type => normalizeImportText(type) === typeKey) ?? (typeKey === normalizeImportText("OTRO PALETIZACIÓN") ? "OTRO" : undefined)
+    const levelType = resolvedRole === "unit" ? "INDIVIDUAL" : resolvedRole === "intermediate" ? "INTERMEDIO" : undefined
+    const palletType = resolvedRole === "pallet" && PALLET_MATERIAL_TYPES.includes(declaredType as PalletMaterialType) ? declaredType as PalletMaterialType : undefined
+    if (resolvedRole && (resolvedRole === "pallet" ? !palletType : typeKey && declaredType !== levelType)) {
+        ctx.rowIssues.push({ row: rowNumber, field: "materialType", key: "errors.packaging_import_material_type" })
+    }
+    const candidate = { ...baseCandidate, displayNameEn, classification: classifications[classificationKey] ?? classificationKey, materialType: palletType ?? levelType,
+        ...(palletType && palletType !== "OTRO" ? fixedPalletConsumption(palletType) : {}) }
     const { validated, issues: zodIssues } = collectPackagingZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
     ctx.rowIssues.push(...zodIssues)
 
@@ -297,7 +352,14 @@ async function bulkImportPackagings(buffer: Buffer): Promise<Packaging[]> {
         throw new AppError(422, "errors.bulk_import_empty_file")
     }
 
-    return Packaging.bulkCreate(candidates)
+    if (!candidates.some(row => row.classification === "generic")) return Packaging.bulkCreate(candidates)
+    return Packaging.sequelize!.transaction(async transaction => {
+        await lockGenericCodes(transaction)
+        const codes = new Map<string, string[]>()
+        for (const role of new Set(candidates.filter(row => row.classification === "generic").map(row => row.packagingRole)))
+            codes.set(role, await nextGenericCodes(role, candidates.filter(row => row.classification === "generic" && row.packagingRole === role).length, transaction))
+        return Packaging.bulkCreate(candidates.map(row => row.classification === "generic" ? { ...row, code: codes.get(row.packagingRole)!.shift() } : row), { transaction })
+    })
 }
 
 async function buildPackagingImportTemplate(): Promise<Buffer> {
@@ -306,14 +368,13 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     const sheet = workbook.addWorksheet("Empaques")
     sheet.columns = [
         // "Código" va primero en la plantilla; el parser mapea por nombre de encabezado, no por posición.
-        { header: PACKAGING_IMPORT_COLUMNS.classification.header, key: "classification", width: 20 },
+        { header: PACKAGING_IMPORT_COLUMNS.classification.header, key: "classification", width: 25 },
         { header: PACKAGING_IMPORT_COLUMNS.code.header, key: "code", width: 16 },
         { header: PACKAGING_IMPORT_COLUMNS.displayNameEn.header, key: "displayNameEn", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.displayName.header, key: "displayName", width: 32 },
         { header: PACKAGING_IMPORT_COLUMNS.packagingRole.header, key: "packagingRole", width: 34 },
         { header: PACKAGING_IMPORT_COLUMNS.unitCost.header, key: "unitCost", width: 20 },
-        { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityBasis.header, key: "defaultQuantityBasis", width: 26 },
-        { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityValue.header, key: "defaultQuantityValue", width: 26 },
+        { header: PACKAGING_IMPORT_COLUMNS.materialType.header, key: "materialType", width: 24 },
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
@@ -332,19 +393,22 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         code: "CAJ-001",
         displayName: "Caja corrugada master",
         packagingRole: PACKAGING_ROLE_LABELS.pallet,
-        unitCost: 2, defaultQuantityBasis: "POR CAJA", defaultQuantityValue: 1
+        unitCost: 2
     })
 
-    for (const [code, displayName, quantity] of [["ESQ-001", "Esquinero", 4], ["TAR-001", "Tarima", 1], ["STR-001", "Stretch", 93.3]] as const) {
-        sheet.addRow({ code, displayName, packagingRole: PACKAGING_ROLE_LABELS.pallet, unitCost: 0, defaultQuantityBasis: "POR PALLET", defaultQuantityValue: quantity })
+    for (const [code, displayName] of [["ESQ-001", "Esquinero"], ["TAR-001", "Tarima"], ["STR-001", "Stretch"]] as const) {
+        sheet.addRow({ code, displayName, packagingRole: PACKAGING_ROLE_LABELS.pallet, unitCost: 0 })
     }
     for (let row = 2; row <= sheet.rowCount; row++) {
-        sheet.getRow(row).getCell("classification").value = "specific"
+        sheet.getRow(row).getCell("classification").value = "Específico de cliente"
+        sheet.getRow(row).getCell("materialType").value = ["INDIVIDUAL", "INTERMEDIO", "CAJA", "ESQUINERO", "TARIMA", "STRETCH"][row - 2]
         sheet.getRow(row).getCell("displayNameEn").value = ["Bag", "Intermediate bag", "Master carton", "Corner protector", "Pallet", "Stretch film"][row - 2]
     }
+    // Generic example: the code stays empty, the system assigns GEN-IND-0001 style codes.
+    sheet.addRow({ classification: "Genérico", displayName: "Bolsa genérica con zipper", displayNameEn: "Generic zipper bag", packagingRole: PACKAGING_ROLE_LABELS.unit, unitCost: 0.1, materialType: "INDIVIDUAL" })
     for (let row = 2; row <= MAX_PACKAGING_IMPORT_ROWS + 1; row++) {
-        sheet.getRow(row).getCell("defaultQuantityBasis").dataValidation = { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] }
-        sheet.getRow(row).getCell("classification").dataValidation = { type: "list", allowBlank: true, formulae: ['"specific,generic"'] }
+        sheet.getRow(row).getCell("materialType").dataValidation = { type: "list", allowBlank: true, formulae: ['"INDIVIDUAL,INTERMEDIO,CAJA,ESQUINERO,TARIMA,STRETCH,OTRO"'] }
+        sheet.getRow(row).getCell("classification").dataValidation = { type: "list", allowBlank: true, formulae: ['"Específico de cliente,Genérico"'] }
     }
 
     const helpSheet = workbook.addWorksheet("Valores permitidos")
@@ -352,10 +416,10 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     helpSheet.getRow(1).font = { bold: true }
     Object.values(PACKAGING_ROLE_LABELS).forEach(label => helpSheet.addRow({ role: label }))
     helpSheet.addRow({})
-    helpSheet.addRow({ role: "Clasificación: specific/específico o generic/genérico. Columna ausente o celda vacía: specific. El código es interno, no requiere ERP." })
-    helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}" es un texto libre (letras, números y símbolos) que tú defines -- debe ser único, no puede repetirse entre materiales ni dentro del mismo archivo.` })
+    helpSheet.addRow({ role: "Clasificación: Específico de cliente (material destinado a productos de clientes) o Genérico (material para configuraciones genéricas de productos nuevos). Columna ausente o celda vacía: Específico de cliente. Se aceptan los valores de plantillas anteriores. El código es interno, no requiere ERP." })
+    helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}": obligatorio para materiales Específicos (el código que ya tiene el material del cliente; único, no puede repetirse). Para materiales Genéricos déjelo vacío: el sistema asigna GEN-IND-0001 (individual), GEN-INT-0001 (intermedio) o GEN-PAL-0001 (paletización).` })
 
-    helpSheet.addRow({ role: "Forma de consumo: POR CAJA / POR PALLET. Cantidad positiva, máximo dos decimales. Ambos campos completos o ambos vacíos; solamente para paletización. Configure esta regla antes de asociar un material nuevo. Los ejemplos son configuración explícita, no reglas por nombre." })
+    helpSheet.addRow({ role: "Tipo de material: obligatorio para materiales de paletización (CAJA = 1 por caja de la variante; ESQUINERO = 4, TARIMA = 1 y STRETCH = 93.3 metros por pallet; OTRO = consumo definido en cada SKU, p. ej. fleje). En empaque individual e intermedio puede quedar vacío: se asigna solo. El costo del stretch debe ser por metro. El tipo no se deduce del nombre." })
     return writeWorkbookToBuffer(workbook)
 }
 

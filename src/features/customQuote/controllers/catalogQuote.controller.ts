@@ -3,6 +3,7 @@ import { AppError } from "../../../shared/errors/AppError"
 import { resolveContentLanguage } from "../../../shared/utils/translation.util"
 import { discoverCatalog } from "../services/catalogQuoteDiscovery.service"
 import { confirmCatalogQuote, previewCatalogQuote } from "../services/catalogQuote.service"
+import { requireRepresentativeOrder } from "../../quoteOrder/services/representativeQuoteAccess.service"
 
 const handle = (work: (req: Request) => Promise<unknown>, status = 200) => async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -13,5 +14,8 @@ const handle = (work: (req: Request) => Promise<unknown>, status = 200) => async
 export const catalogQuoteController = {
     catalog: handle(req => discoverCatalog(resolveContentLanguage(req.language))),
     preview: handle(req => previewCatalogQuote(req.salesperson!.id, req.body, resolveContentLanguage(req.language))),
-    confirm: handle(req => confirmCatalogQuote(req.salesperson!.id, req.body, resolveContentLanguage(req.language)), 201),
+    confirm: handle(async req => {
+        const order = await requireRepresentativeOrder(req.salesperson!.id, req.body.order, false)
+        return confirmCatalogQuote(req.salesperson!.id, { ...req.body, order }, resolveContentLanguage(req.language))
+    }, 201),
 }

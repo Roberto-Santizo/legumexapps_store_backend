@@ -4,7 +4,7 @@ import { LEAD_STATUSES } from "../models/Lead.model"
 
 // Única fuente de verdad para los valores de status: deriva de LEAD_STATUSES, igual que la columna
 // ENUM de Lead.model.ts.
-export const leadStatusEnum = z.enum(LEAD_STATUSES)
+const leadStatusEnum = z.enum(LEAD_STATUSES)
 
 // Formulario público de la landing (sin auth, ver lead.routes.ts). "website" es un honeypot: un
 // campo oculto en el form real que ningún humano llena -- si un bot lo completa, el controller lo
@@ -34,7 +34,6 @@ export const leadQuerySchema = paginationQuerySchema.extend({
     status: leadStatusEnum.optional(),
 })
 
-export type LeadStatusInput = z.infer<typeof leadStatusEnum>
 export type PublicCreateLeadInput = z.infer<typeof publicCreateLeadSchema>
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>
 export type LeadQuery = z.infer<typeof leadQuerySchema>

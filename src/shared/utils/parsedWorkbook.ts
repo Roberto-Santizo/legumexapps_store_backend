@@ -1,7 +1,7 @@
 /** Read-only import contract. Parsers are adapted here; business validation never
  * selects a parser or reads ZIP/XML. ExcelJS also implements this structural API.
  */
-export interface ParsedCell { value: unknown }
+interface ParsedCell { value: unknown }
 export interface ParsedRow {
     getCell(column: number | string): ParsedCell
     eachCell(callback: (cell: ParsedCell, column: number) => void): void

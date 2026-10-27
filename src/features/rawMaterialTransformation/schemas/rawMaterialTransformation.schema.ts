@@ -31,7 +31,6 @@ const calculationFields = {
 export const previewRawMaterialTransformationSchema = z.strictObject(calculationFields)
 
 // Reemplazo completo en create y update (PUT): todos los campos alimentan el costo, ninguno puede
-// quedar opcional al editar (ver la convención "campos críticos" en CLAUDE.md §8).
 export const saveRawMaterialTransformationSchema = z.strictObject({
     unprocessedCode: z.string().trim().min(1).max(60),
     unprocessedName: z.string().trim().min(1).max(120),

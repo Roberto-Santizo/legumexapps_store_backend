@@ -5,6 +5,8 @@ const paramId = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(databaseId
 
 export const representativeClientParamsSchema = z.object({ id: paramId })
 export const representativeClientRemoveParamsSchema = representativeClientParamsSchema.extend({ clientId: paramId })
+// Same limits when assigning later and when creating the representative with its clients.
+export const representativeClientIdsSchema = z.array(databaseId).min(1).max(100).refine(ids => new Set(ids).size === ids.length)
 export const assignRepresentativeClientsSchema = z.strictObject({
-    clientIds: z.array(databaseId).min(1).max(100).refine(ids => new Set(ids).size === ids.length),
+    clientIds: representativeClientIdsSchema,
 })

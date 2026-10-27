@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { roleController } from "../controllers/role.controllers";
+import { roleController } from "../controllers/role.controller";
 import { createRoleSchema,roleIdParamSchema,updateRoleSchema,roleQuerySchema, } from "../schemas/role.schema";
 import {validate} from "../../../../shared/middlewares/validate"
 import { authenticate } from "../../../../shared/middlewares/authenticate"

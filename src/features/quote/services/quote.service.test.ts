@@ -6,6 +6,8 @@ import { Op } from "sequelize"
 // decoradores de sequelize-typescript para probar la lógica de negocio de calculateQuote.
 // Cada mock devuelve un objeto plano con exactamente la forma que calculateQuote lee
 // (ver quote.service.ts), no una instancia real de Sequelize.
+jest.mock("../../palletKit/services/palletKit.service", () => ({ ...jest.requireActual("../../palletKit/services/palletKit.service"),
+    loadPalletKit: jest.fn().mockResolvedValue([{ type: "TARIMA", options: [] }, { type: "ESQUINERO", options: [] }, { type: "STRETCH", options: [] }]) }))
 jest.mock("../../product/models/ProductVariant.model", () => ({
     __esModule: true,
     default: { findOne: jest.fn() }
@@ -40,6 +42,7 @@ import Product from "../../product/models/Product.model"
 import Destination from "../../destination/models/Destination.model"
 import Quote from "../models/Quote.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
+import { loadPalletKit } from "../../palletKit/services/palletKit.service"
 import { quoteService } from "./quote.service"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { NotFoundError } from "../../../shared/errors/AppError"
@@ -75,6 +78,26 @@ describe("quoteService.calculateQuote", () => {
         requestedPallets: 1,
     }
 
+    it.each(["unit", "intermediate", "pallet"])("rejects invalid selected %s packaging before calculating", async role => {
+        const packaging = (level: string) => ({ id: 1, isActive: true, classification: "specific", packagingRole: level, displayName: "Test", unitCost: 1 })
+        const unit = { packagingId: 1, quantityPerUnit: 1, usedUnitMaterial: packaging("unit") }
+        const intermediate = { packagingId: 2, usedIntermediateMaterial: packaging("intermediate") }
+        const pallet = { packagingId: 3, quantityBasis: "per_pallet", quantityValue: 1, usedPalletMaterial: packaging("pallet") }
+        const material = role === "unit" ? unit.usedUnitMaterial : role === "pallet" ? pallet.usedPalletMaterial : intermediate.usedIntermediateMaterial
+        for (const invalid of [{ isActive: false }, { unitCost: null }, { unitCost: NaN }, { unitCost: -1 }, { classification: "generic" }, { packagingRole: "wrong" }]) {
+            Object.assign(material, packaging(role), invalid)
+            mockVariantFindOne.mockResolvedValue({ id: 10, boxesPerPallet: 2, bagsPerBox: 3, unitsPerIntermediatePackage: 2, parentProduct: { productRawMaterials: [] }, unitMaterials: [unit], intermediateMaterials: [intermediate], palletMaterials: [pallet] })
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.fixed_quote_packaging_invalid" })
+        }
+    })
+    it.each([null, undefined, NaN, -1, 0])("rejects missing or invalid quantities %s", async quantity => {
+        const material = (role: string) => ({ isActive: true, classification: "specific", packagingRole: role, unitCost: 0 })
+        for (const level of ["unit", "pallet"]) {
+            mockVariantFindOne.mockResolvedValue({ id: 10, boxesPerPallet: 2, bagsPerBox: 3, parentProduct: { productRawMaterials: [] }, unitMaterials: [{ packagingId: 1, quantityPerUnit: level === "unit" ? quantity : 1, usedUnitMaterial: material("unit") }], palletMaterials: [{ packagingId: 2, quantityBasis: "per_pallet", quantityValue: level === "pallet" ? quantity : 1, usedPalletMaterial: material("pallet") }] })
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.pallet_consumption_invalid" })
+        }
+    })
+
     describe("guardas de negocio (config faltante / inválida)", () => {
         it("rechaza si la variante no existe (NotFoundError)", async () => {
             mockVariantFindOne.mockResolvedValue(null)
@@ -88,8 +111,8 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
             mockDestinationFindOne.mockResolvedValue(null)
 
@@ -127,8 +150,8 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 4,
                 bagsPerBox: 5,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote({ ...baseInput, requestedPallets: 3 })
@@ -153,8 +176,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
         }
 
@@ -207,8 +230,8 @@ describe("quoteService.calculateQuote", () => {
                 id: 10, productId: 8, skuCode: "PTC3010111", boxesPerPallet: 20, bagsPerBox: 2,
                 parentProduct: { isActive: true, displayName: "Pineapple", productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { code: "MP001", displayName: "Pineapple", costPerUnit: 2, costUnit: { unitCode: "kilogram", unitType: "weight", baseFactor: 1000 } } }] },
                 sizePresentation: { displayLabel: "500 g", netWeightGrams: 500 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { code: "EMP001", displayName: "Bag", unitCost: 1 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { code: "EMP002", displayName: "Pallet", unitCost: 5 } }],
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  code: "EMP001", displayName: "Bag", unitCost: 1 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  code: "EMP002", displayName: "Pallet", unitCost: 5 } }],
             })
             mockQuoteCreate.mockResolvedValueOnce({ id: 99, get: () => new Date("2026-10-08T12:00:00Z") })
             const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientName: "Customer A" }
@@ -236,10 +259,10 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
                 palletMaterials: [
-                    { packagingId: 6, quantityValue: 10, usedPalletMaterial: { displayName: "Caja corrugada", unitCost: 1 } },
-                    { packagingId: 7, quantityValue: 4, usedPalletMaterial: { displayName: "Parales", unitCost: 1 } }
+                    {quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 10, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja corrugada", unitCost: 1 } },
+                    {quantityBasis: "per_pallet",  packagingId: 7, quantityValue: 4, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Parales", unitCost: 1 } }
                 ]
             })
         }
@@ -274,8 +297,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 1 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -302,7 +325,7 @@ describe("quoteService.calculateQuote", () => {
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
                 unitMaterials: [],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.unit_materials_not_configured" })
@@ -314,8 +337,8 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque gratis", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque gratis", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -330,7 +353,7 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: []
             })
 
@@ -343,8 +366,8 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja gratis", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja gratis", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -373,8 +396,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 5 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -384,22 +407,19 @@ describe("quoteService.calculateQuote", () => {
             expect(Number.isNaN(result.totalCost)).toBe(false)
         })
 
-        it("no revienta con quantityValue = 0 en un material de palet -- la línea da 0, no negativo ni NaN", async () => {
+        it("rejects zero pallet consumption rather than silently undercharging", async () => {
             mockVariantFindOne.mockResolvedValue({
                 id: 10,
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: [
-                    { packagingId: 6, quantityValue: 0, usedPalletMaterial: { displayName: "Caja corrugada", unitCost: 5 } }
+                    {quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 0, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja corrugada", unitCost: 5 } }
                 ]
             })
 
-            const result = await quoteService.calculateQuote(baseInput)
-
-            expect(result.palletMaterialCost).toBe(0)
-            expect(result.breakdown.palletMaterials[0].lineTotal).toBe(0)
+            await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({ key: "errors.pallet_consumption_invalid" })
         })
 
         it("reconcilia exacto (sin arrastre de precisión) con 3 materias primas de receta fija en costos que drift en floats nativos", async () => {
@@ -417,8 +437,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 100 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -438,8 +458,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 0.3333 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa", unitCost: 1.11 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa", unitCost: 1.11 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote({ ...baseInput, requestedPallets: 10000 })
@@ -461,8 +481,8 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [], additionalCostPerUnit },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
         }
 
@@ -493,8 +513,8 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -523,8 +543,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
         }
 
@@ -635,8 +655,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 // sin sizePresentation -- variant.sizePresentation?.netWeightGrams debe caer a undefined, no reventar
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
             mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] }])
 
@@ -665,8 +685,8 @@ describe("quoteService.calculateQuote", () => {
                     productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 907.184 } } }]
                 },
                 sizePresentation: { displayLabel: "Bolsa", netWeightGrams: 453.592 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
             // El mock no está tipado contra el modelo real (ver "as unknown as jest.Mock" arriba),
             // así que "2" como string pasa el compilador igual que en producción: Sequelize
@@ -695,8 +715,8 @@ describe("quoteService.calculateQuote", () => {
                         productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "X", costPerUnit: 1, costUnit: { unitType: "weight", baseFactor: 1 } } }]
                     },
                     sizePresentation: { displayLabel: "Presentación", netWeightGrams },
-                    unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                    palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                    unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                    palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
                 })
             }
 
@@ -758,8 +778,8 @@ describe("quoteService.calculateQuote", () => {
                     productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "X", costPerUnit: 1, costUnit: { unitType: "weight", baseFactor: 1 } } }]
                 },
                 sizePresentation: { displayLabel: "Presentación", netWeightGrams: GRAMS_PER_POUND * 10 }, // 10 lb por unidad, 1 unidad
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
             mockProcessingCostFindAll.mockResolvedValue([
                 { id: 1, displayName: "Energía", value: 0.1, calculationType: "per_weight", translations: [] },
@@ -818,9 +838,9 @@ describe("quoteService.calculateQuote", () => {
                     additionalCostPerUnit: 0.5
                 },
                 sizePresentation: { displayLabel: "Bolsa", netWeightGrams: GRAMS_PER_POUND }, // 1 lb por unidad
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa", unitCost: 1 } }],
-                intermediateMaterials: [{ id: 60, packagingId: 6, optionGroup: null, isDefault: false, usedIntermediateMaterial: { id: 6, displayName: "Bolsa grande", unitCost: 3 } }],
-                palletMaterials: [{ packagingId: 7, quantityValue: 2, usedPalletMaterial: { displayName: "Caja", unitCost: 4 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa", unitCost: 1 } }],
+                intermediateMaterials: [{ id: 60, packagingId: 6, optionGroup: null, isDefault: false, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 6, displayName: "Bolsa grande", unitCost: 3 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 7, quantityValue: 2, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 4 } }]
             })
             mockProcessingCostFindAll.mockResolvedValue([{ id: 1, displayName: "Energía", value: 1, calculationType: "per_weight", translations: [] }])
 
@@ -872,8 +892,8 @@ describe("quoteService.calculateQuote", () => {
                     productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "X", costPerUnit: 1, costUnit: { unitType: "weight", baseFactor: 0.01 } } }]
                 },
                 sizePresentation: { displayLabel: "Presentación", netWeightGrams: 1 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 20 } }],
-                palletMaterials: [{ packagingId: 7, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 30 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 20 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 7, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 30 } }]
             })
         }
 
@@ -996,8 +1016,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 2000 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
@@ -1017,8 +1037,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 2000 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -1037,8 +1057,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 2000 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -1059,8 +1079,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 2000 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -1080,8 +1100,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 2000 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
@@ -1100,8 +1120,8 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { netWeightGrams: 2000 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
@@ -1125,10 +1145,10 @@ describe("quoteService.calculateQuote", () => {
                     ]
                 },
                 sizePresentation: { displayLabel: "Bolsita 100g", netWeightGrams: 100 },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsita individual", unitCost: 1 } }],
-                intermediateMaterials: [{ id: 80, packagingId: 8, optionGroup: null, isDefault: false, usedIntermediateMaterial: { id: 8, displayName: "Bolsa grande", unitCost: 3 } }],
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsita individual", unitCost: 1 } }],
+                intermediateMaterials: [{ id: 80, packagingId: 8, optionGroup: null, isDefault: false, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 8, displayName: "Bolsa grande", unitCost: 3 } }],
                 palletMaterials: [
-                    { packagingId: 6, quantityValue: 10, usedPalletMaterial: { displayName: "Caja corrugada", unitCost: 1 } }
+                    {quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 10, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja corrugada", unitCost: 1 } }
                 ]
             })
         }
@@ -1180,13 +1200,13 @@ describe("quoteService.calculateQuote", () => {
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
                 unitMaterials: [
-                    { id: 500, packagingId: 5, quantityPerUnit: 1, optionGroup: null, isDefault: false, usedUnitMaterial: { id: 5, displayName: "Etiqueta", unitCost: 1 } },
-                    { id: 501, packagingId: 20, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: { id: 20, displayName: "Bolsa estándar", unitCost: 2 } },
-                    { id: 502, packagingId: 21, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: false, usedUnitMaterial: { id: 21, displayName: "Bolsa con logo", unitCost: 5 } },
-                    { id: 503, packagingId: 22, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: true, usedUnitMaterial: { id: 22, displayName: "Tapa simple", unitCost: 3 } },
-                    { id: 504, packagingId: 23, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: false, usedUnitMaterial: { id: 23, displayName: "Tapa premium", unitCost: 8 } }
+                    { id: 500, packagingId: 5, quantityPerUnit: 1, optionGroup: null, isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Etiqueta", unitCost: 1 } },
+                    { id: 501, packagingId: 20, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 20, displayName: "Bolsa estándar", unitCost: 2 } },
+                    { id: 502, packagingId: 21, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 21, displayName: "Bolsa con logo", unitCost: 5 } },
+                    { id: 503, packagingId: 22, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: true, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 22, displayName: "Tapa simple", unitCost: 3 } },
+                    { id: 504, packagingId: 23, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 23, displayName: "Tapa premium", unitCost: 8 } }
                 ],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
         }
 
@@ -1259,11 +1279,11 @@ describe("quoteService.calculateQuote", () => {
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
                 unitMaterials: [
-                    { id: 501, packagingId: 20, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: { id: 20, displayName: "Bolsa A", unitCost: 2 } },
-                    { id: 503, packagingId: 22, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: false, usedUnitMaterial: { id: 22, displayName: "Tapa A", unitCost: 3 } },
-                    { id: 504, packagingId: 23, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: false, usedUnitMaterial: { id: 23, displayName: "Tapa B", unitCost: 8 } }
+                    { id: 501, packagingId: 20, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 20, displayName: "Bolsa A", unitCost: 2 } },
+                    { id: 503, packagingId: 22, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 22, displayName: "Tapa A", unitCost: 3 } },
+                    { id: 504, packagingId: 23, quantityPerUnit: 1, optionGroup: "Tapa", isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 23, displayName: "Tapa B", unitCost: 8 } }
                 ],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             await expect(quoteService.calculateQuote(baseInput)).rejects.toMatchObject({
@@ -1280,10 +1300,10 @@ describe("quoteService.calculateQuote", () => {
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
                 unitMaterials: [
-                    { id: 501, packagingId: 20, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: { id: 20, displayName: "Bolsa A", unitCost: 2 } },
-                    { id: 502, packagingId: 21, quantityPerUnit: 1, optionGroup: " bolsa  ", isDefault: false, usedUnitMaterial: { id: 21, displayName: "Bolsa B", unitCost: 5 } }
+                    { id: 501, packagingId: 20, quantityPerUnit: 1, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 20, displayName: "Bolsa A", unitCost: 2 } },
+                    { id: 502, packagingId: 21, quantityPerUnit: 1, optionGroup: " bolsa  ", isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 21, displayName: "Bolsa B", unitCost: 5 } }
                 ],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
 
             const defaultResult = await quoteService.calculateQuote(baseInput)
@@ -1325,13 +1345,13 @@ describe("quoteService.calculateQuote", () => {
                 boxesPerPallet: 10,
                 bagsPerBox: 1,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ id: 500, packagingId: 5, quantityPerUnit: 1, optionGroup: null, isDefault: false, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
+                unitMaterials: [{ id: 500, packagingId: 5, quantityPerUnit: 1, optionGroup: null, isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
                 palletMaterials: [
-                    { id: 600, packagingId: 6, quantityValue: 1, optionGroup: null, isDefault: false, usedPalletMaterial: { displayName: "Film", unitCost: 1 } },
-                    { id: 601, packagingId: 22, quantityValue: 2, optionGroup: "Caja", isDefault: true, usedPalletMaterial: { displayName: "Caja de envío", unitCost: 4 } },
-                    { id: 602, packagingId: 23, quantityValue: 2, optionGroup: "Caja", isDefault: false, usedPalletMaterial: { displayName: "Caja de estante", unitCost: 9 } },
-                    { id: 603, packagingId: 24, quantityValue: 4, optionGroup: "Esquinero", isDefault: true, usedPalletMaterial: { displayName: "Esquinero de cartón", unitCost: 0.5 } },
-                    { id: 604, packagingId: 25, quantityValue: 4, optionGroup: "Esquinero", isDefault: false, usedPalletMaterial: { displayName: "Esquinero de madera", unitCost: 2 } }
+                    {quantityBasis: "per_pallet",  id: 600, packagingId: 6, quantityValue: 1, optionGroup: null, isDefault: false, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Film", unitCost: 1 } },
+                    {quantityBasis: "per_pallet",  id: 601, packagingId: 22, quantityValue: 2, optionGroup: "Caja", isDefault: true, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja de envío", unitCost: 4 } },
+                    {quantityBasis: "per_pallet",  id: 602, packagingId: 23, quantityValue: 2, optionGroup: "Caja", isDefault: false, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja de estante", unitCost: 9 } },
+                    {quantityBasis: "per_pallet",  id: 603, packagingId: 24, quantityValue: 4, optionGroup: "Esquinero", isDefault: true, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Esquinero de cartón", unitCost: 0.5 } },
+                    {quantityBasis: "per_pallet",  id: 604, packagingId: 25, quantityValue: 4, optionGroup: "Esquinero", isDefault: false, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Esquinero de madera", unitCost: 2 } }
                 ]
             })
         }
@@ -1377,12 +1397,12 @@ describe("quoteService.calculateQuote", () => {
             const material = (id: number, groupId: number | null, basis: string, quantity: number, cost: number, isDefault = false) => ({
                 id, packagingId: id, optionGroupId: groupId, optionGroup: groupId === null ? null : `Renamed ${groupId}`,
                 quantityBasis: basis, quantityValue: quantity, isDefault,
-                usedPalletMaterial: { displayName: `Packaging ${id}`, unitCost: cost },
+                usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: `Packaging ${id}`, unitCost: cost },
             })
             mockVariantFindOne.mockResolvedValue({
                 id: 10, boxesPerPallet, bagsPerBox,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ id: 500, packagingId: 5, quantityPerUnit: 1, optionGroup: null, isDefault: false, usedUnitMaterial: { displayName: "Unit", unitCost: 0 } }],
+                unitMaterials: [{ id: 500, packagingId: 5, quantityPerUnit: 1, optionGroup: null, isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  displayName: "Unit", unitCost: 0 } }],
                 palletMaterials: [material(600, null, "per_pallet", 1, 10), material(605, null, "per_pallet", 93.3, 0.1),
                     material(601, 4, "per_box", 1, 4, true), material(602, 4, "per_box", 1, 9),
                     material(603, 5, "per_pallet", 4, 0.5, true), material(604, 5, "per_pallet", 4, 2)],
@@ -1448,15 +1468,15 @@ describe("quoteService.calculateQuote", () => {
                 bagsPerBox: 1,
                 unitsPerIntermediatePackage: 5,
                 parentProduct: { productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }],
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }],
                 intermediateMaterials
             })
         }
 
         const SACO_GROUP = [
-            { id: 700, packagingId: 30, optionGroup: "Saco", isDefault: true, usedIntermediateMaterial: { id: 30, displayName: "Saco estándar", unitCost: 3 } },
-            { id: 701, packagingId: 31, optionGroup: "Saco", isDefault: false, usedIntermediateMaterial: { id: 31, displayName: "Saco reforzado", unitCost: 7 } }
+            { id: 700, packagingId: 30, optionGroup: "Saco", isDefault: true, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 30, displayName: "Saco estándar", unitCost: 3 } },
+            { id: 701, packagingId: 31, optionGroup: "Saco", isDefault: false, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 31, displayName: "Saco reforzado", unitCost: 7 } }
         ]
 
         it("usa la alternativa default cuando el cliente no elige -- totalUnits=10, packagesNeeded=ceil(10/5)=2", async () => {
@@ -1499,8 +1519,8 @@ describe("quoteService.calculateQuote", () => {
 
         it("varias filas FIJAS + grupos: TODAS las fijas se costean además de la elegida (antes: dos fijas reventaban y una fija con menú se ignoraba)", async () => {
             stubVariantWithIntermediateRows([
-                { id: 690, packagingId: 28, optionGroup: null, isDefault: false, usedIntermediateMaterial: { id: 28, displayName: "Cinta de cierre", unitCost: 1 } },
-                { id: 691, packagingId: 29, optionGroup: null, isDefault: false, usedIntermediateMaterial: { id: 29, displayName: "Etiqueta de saco", unitCost: 0.5 } },
+                { id: 690, packagingId: 28, optionGroup: null, isDefault: false, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 28, displayName: "Cinta de cierre", unitCost: 1 } },
+                { id: 691, packagingId: 29, optionGroup: null, isDefault: false, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 29, displayName: "Etiqueta de saco", unitCost: 0.5 } },
                 ...SACO_GROUP
             ])
 
@@ -1513,7 +1533,7 @@ describe("quoteService.calculateQuote", () => {
 
         it("sin ninguna fila de grupo, una sola fila fija sigue funcionando como antes", async () => {
             stubVariantWithIntermediateRows([
-                { id: 700, packagingId: 30, optionGroup: null, isDefault: false, usedIntermediateMaterial: { id: 30, displayName: "Bolsa grande", unitCost: 3 } }
+                { id: 700, packagingId: 30, optionGroup: null, isDefault: false, usedIntermediateMaterial: {isActive: true, classification: "specific", packagingRole: "intermediate",  id: 30, displayName: "Bolsa grande", unitCost: 3 } }
             ])
 
             const result = await quoteService.calculateQuote(baseInput)
@@ -1562,8 +1582,8 @@ describe("quoteService.calculateQuote", () => {
                     productIngredients: options.productIngredients ?? [SAL]
                 },
                 sizePresentation: { displayLabel: "Bolsa", netWeightGrams: options.netWeightGrams === undefined ? 500 : options.netWeightGrams },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa", unitCost: 0.1 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 60, usedPalletMaterial: { displayName: "Caja", unitCost: 0.5 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa", unitCost: 0.1 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 60, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0.5 } }]
             })
         }
 
@@ -1729,8 +1749,8 @@ describe("quoteService.calculateQuote", () => {
                 bagsPerBox: 6,
                 parentProduct: { displayName: "Jugo Piña Zanahoria Vidassa", productRawMaterials: [] },
                 sizePresentation: overrides.sizePresentation,
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Envase", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Envase", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
         }
 
@@ -1788,8 +1808,8 @@ describe("quoteService.saveQuote", () => {
                 ]
             },
             sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
-            unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
-            palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+            palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
         })
         mockQuoteCreate.mockResolvedValue({ id: 555, get: () => new Date("2026-08-10T00:00:00Z") })
 
@@ -1813,6 +1833,34 @@ describe("quoteService.saveQuote", () => {
         )
     })
 
+    it("saveAdminQuote guarda el mismo snapshot a nombre del usuario staff, sin representante ni borrador", async () => {
+        mockVariantFindOne.mockResolvedValue({
+            id: 10,
+            boxesPerPallet: 20,
+            bagsPerBox: 1,
+            parentProduct: {
+                displayName: "Piña en Trozos",
+                productRawMaterials: [
+                    { rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }
+                ]
+            },
+            sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
+            unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+            palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
+        })
+        mockQuoteCreate.mockResolvedValue({ id: 556, get: () => new Date("2026-10-26T00:00:00Z") })
+        const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientId: 11, clientName: "Cliente real" }
+
+        const saved = await quoteService.saveAdminQuote(3, { productVariantId: 10, destinationId: 900, requestedPallets: 1, order })
+
+        expect(saved).toMatchObject({ id: 556, totalCost: 270 })
+        const created = mockQuoteCreate.mock.calls.at(-1)[0]
+        expect(created).toMatchObject({ createdByUserId: 3, totalCost: 270 })
+        expect(created).not.toHaveProperty("salespersonId")
+        expect(created.breakdown.order).toEqual(order)
+        expect(quoteDraftService.markConverted).not.toHaveBeenCalled()
+    })
+
     // Guardar una cotización no crea, busca ni vincula un prospecto (Lead).
     describe("sin vínculo con Lead (prospecto)", () => {
         function stubMinimalVariant(): void {
@@ -1821,8 +1869,8 @@ describe("quoteService.saveQuote", () => {
                 boxesPerPallet: 20,
                 bagsPerBox: 1,
                 parentProduct: { displayName: "Piña en Trozos", productRawMaterials: [] },
-                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-                palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+                unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+                palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
             })
         }
 
@@ -1863,8 +1911,8 @@ describe("quoteService.saveQuote", () => {
             },
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- catálogo estático hardcodeado, "pound" siempre existe (ver unitCatalog.ts)
             sizePresentation: { displayLabel: "Bolsa", netWeightGrams: getUnitCatalogEntry("pound")!.baseFactor },
-            unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: { id: 5, displayName: "Empaque", unitCost: 0 } }],
-            palletMaterials: [{ packagingId: 6, quantityValue: 1, usedPalletMaterial: { displayName: "Caja", unitCost: 0 } }]
+            unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Empaque", unitCost: 0 } }],
+            palletMaterials: [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }]
         })
     }
 
@@ -1977,6 +2025,18 @@ describe("quoteService.saveQuote", () => {
 })
 
 describe("quoteService.listQuotableProducts", () => {
+    it("applies assigned client IDs in the database query, while admin remains unscoped", async () => {
+        mockProductFindAll.mockResolvedValue([])
+        await quoteService.listQuotableProducts("es", [11, 12])
+        expect(mockProductFindAll).toHaveBeenLastCalledWith(expect.objectContaining({ where: { isActive: true, clientId: { [Op.in]: [11, 12] } } }))
+        await quoteService.listQuotableProducts("es")
+        expect(mockProductFindAll).toHaveBeenLastCalledWith(expect.objectContaining({ where: { isActive: true } }))
+    })
+    it("does not load the global catalog when a representative has no assigned clients", async () => {
+        mockProductFindAll.mockClear()
+        expect(await quoteService.listQuotableProducts("es", [])).toEqual([])
+        expect(mockProductFindAll).not.toHaveBeenCalled()
+    })
     it.each(["https://bucket/subcategories/berries.png", null, undefined])("returns the optional subcategory image %s in the same catalog", async (imageUrl) => {
         mockProductFindAll.mockResolvedValue([{ toJSON: () => ({
             id: 1, subCategoryId: 12, displayName: "Fresa",
@@ -2104,10 +2164,10 @@ describe("quoteService.listQuotableProducts", () => {
         it("agrupa las filas con optionGroup por grupo (una entrada por grupo, opciones ordenadas por id) -- las fijas nunca son una 'opción'", async () => {
             stubProductWithVariant({
                 palletMaterials: [
-                    { id: 600, packagingId: 6, optionGroup: null, isDefault: false, usedPalletMaterial: { displayName: "Film", unitCost: 1 } },
-                    { id: 603, packagingId: 24, optionGroup: "Esquinero", isDefault: true, usedPalletMaterial: { displayName: "Esquinero de cartón", unitCost: "0.50" } },
-                    { id: 602, packagingId: 23, optionGroup: "caja", isDefault: false, usedPalletMaterial: { displayName: "Caja de estante", unitCost: 9 } },
-                    { id: 601, packagingId: 22, optionGroup: "Caja", isDefault: true, usedPalletMaterial: { displayName: "Caja de envío", unitCost: 4 } }
+                    {quantityBasis: "per_pallet",  id: 600, packagingId: 6, optionGroup: null, isDefault: false, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Film", unitCost: 1 } },
+                    {quantityBasis: "per_pallet",  id: 603, packagingId: 24, optionGroup: "Esquinero", isDefault: true, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Esquinero de cartón", unitCost: "0.50" } },
+                    {quantityBasis: "per_pallet",  id: 602, packagingId: 23, optionGroup: "caja", isDefault: false, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja de estante", unitCost: 9 } },
+                    {quantityBasis: "per_pallet",  id: 601, packagingId: 22, optionGroup: "Caja", isDefault: true, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja de envío", unitCost: 4 } }
                 ]
             })
 
@@ -2131,10 +2191,10 @@ describe("quoteService.listQuotableProducts", () => {
         it("packagingLabel muestra lo que se costea por defecto (fijas + el default de cada grupo), no todas las alternativas", async () => {
             stubProductWithVariant({
                 unitMaterials: [
-                    { id: 500, packagingId: 5, optionGroup: null, isDefault: false, usedUnitMaterial: { displayName: "Etiqueta", unitCost: 1 } },
-                    { id: 501, packagingId: 20, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: { displayName: "Bolsa estándar", unitCost: 2 } },
-                    { id: 502, packagingId: 21, optionGroup: "Bolsa", isDefault: false, usedUnitMaterial: { displayName: "Bolsa con logo", unitCost: 5 } },
-                    { id: 503, packagingId: 22, optionGroup: "Tapa", isDefault: true, usedUnitMaterial: { displayName: "Tapa simple", unitCost: 3 } }
+                    { id: 500, packagingId: 5, optionGroup: null, isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  displayName: "Etiqueta", unitCost: 1 } },
+                    { id: 501, packagingId: 20, optionGroup: "Bolsa", isDefault: true, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  displayName: "Bolsa estándar", unitCost: 2 } },
+                    { id: 502, packagingId: 21, optionGroup: "Bolsa", isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  displayName: "Bolsa con logo", unitCost: 5 } },
+                    { id: 503, packagingId: 22, optionGroup: "Tapa", isDefault: true, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  displayName: "Tapa simple", unitCost: 3 } }
                 ]
             })
 
@@ -2146,7 +2206,7 @@ describe("quoteService.listQuotableProducts", () => {
 
         it("un nivel sin filas agrupadas expone una lista de grupos vacía", async () => {
             stubProductWithVariant({
-                unitMaterials: [{ id: 500, packagingId: 5, optionGroup: null, isDefault: false, usedUnitMaterial: { displayName: "Empaque único", unitCost: 1 } }]
+                unitMaterials: [{ id: 500, packagingId: 5, optionGroup: null, isDefault: false, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  displayName: "Empaque único", unitCost: 1 } }]
             })
 
             const [result] = await quoteService.listQuotableProducts()
@@ -2175,5 +2235,46 @@ describe("quoteService.listAllQuotes date range", () => {
         await quoteService.listAllQuotes({ endDate: "2026-10-07" })
         expect(findAll.mock.calls[1][0].where.createdAt[Op.gte]).toBeUndefined()
         expect(findAll.mock.calls[1][0].where.createdAt[Op.lte].toISOString()).toBe("2026-10-08T05:59:59.999Z")
+    })
+})
+
+describe("pallet kit in fixed products and linked SKUs", () => {
+    beforeEach(() => {
+        stubDestination()
+        mockProcessingCostFindAll.mockResolvedValue([])
+    })
+    const kitMaterial = (id: number, displayName: string, materialType: string, unitCost: string, quantity: string) => ({ id, code: `GEN-PAL-${id}`, displayName, materialType, unitCost, defaultQuantityBasis: "per_pallet", defaultQuantityValue: quantity })
+    const kit = (corners = [kitMaterial(902, "Esquinero cartón", "ESQUINERO", "2", "4.00")]) => [
+        { type: "TARIMA", options: [kitMaterial(901, "Tarima", "TARIMA", "10", "1.00")] }, { type: "ESQUINERO", options: corners }, { type: "STRETCH", options: [kitMaterial(903, "Stretch", "STRETCH", "0.05", "93.30")] }]
+    function stubVariant(usesPalletKit: boolean): void {
+        mockVariantFindOne.mockResolvedValue({
+            id: 10, boxesPerPallet: 20, bagsPerBox: 1, usesPalletKit,
+            parentProduct: { displayName: "Piña en Trozos", productRawMaterials: [{ rawMaterialId: 1, percentage: 100, usedRawMaterial: { displayName: "Piña", costPerUnit: 20, costUnit: { unitType: "weight", baseFactor: 1 } } }] },
+            sizePresentation: { displayLabel: "Bolsa 2kg", netWeightGrams: 0.5 },
+            unitMaterials: [{ packagingId: 5, quantityPerUnit: 1, usedUnitMaterial: {isActive: true, classification: "specific", packagingRole: "unit",  id: 5, displayName: "Bolsa plástica", unitCost: 1 } }],
+            palletMaterials: usesPalletKit ? [] : [{quantityBasis: "per_pallet",  packagingId: 6, quantityValue: 1, usedPalletMaterial: {isActive: true, classification: "specific", packagingRole: "pallet",  displayName: "Caja", unitCost: 0 } }],
+        })
+    }
+    const input = { productVariantId: 10, requestedPallets: 2 }
+
+    it("a SKU that uses the kit adds tarima, esquineros and stretch per pallet, even without palletizing rows of its own", async () => {
+        stubVariant(true)
+        jest.mocked(loadPalletKit).mockResolvedValueOnce(kit() as never)
+        const result = await quoteService.calculateQuote(input)
+        // 2 pallets: tarima 10×1×2 = 20, esquineros 2×4×2 = 16, stretch 0.05×93.3×2 = 9.33
+        expect(result.breakdown.palletMaterials.map(line => [line.packagingId, line.quantityPerPallet, line.lineTotal, line.optionGroup])).toEqual([[901, 1, 20, "Kit de paletizado"], [902, 4, 16, "Kit de paletizado"], [903, 93.3, 9.33, "Kit de paletizado"]])
+        expect(result.palletMaterialCost).toBe(45.33)
+    })
+    it("with two corner board types the representative chooses one; never on a SKU with its own palletizing", async () => {
+        stubVariant(true)
+        const corners = [kitMaterial(902, "Esquinero cartón", "ESQUINERO", "2", "4.00"), kitMaterial(904, "Esquinero madera", "ESQUINERO", "3", "4.00")]
+        jest.mocked(loadPalletKit).mockResolvedValue(kit(corners) as never)
+        await expect(quoteService.calculateQuote(input)).rejects.toMatchObject({ key: "errors.pallet_kit_choice" })
+        const chosen = await quoteService.calculateQuote({ ...input, palletKitSelections: [{ type: "ESQUINERO", packagingId: 904 }] })
+        expect(chosen.breakdown.palletMaterials.find(line => line.packagingId === 904)?.lineTotal).toBe(24)
+        stubVariant(false)
+        await expect(quoteService.calculateQuote({ ...input, palletKitSelections: [{ type: "ESQUINERO", packagingId: 904 }] })).rejects.toMatchObject({ key: "errors.pallet_kit_selection" })
+        const own = await quoteService.calculateQuote(input)
+        expect(own.breakdown.palletMaterials.map(line => line.packagingId)).toEqual([6])
     })
 })

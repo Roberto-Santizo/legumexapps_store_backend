@@ -88,6 +88,7 @@ function baseRow(overrides: Partial<SheetRow> = {}): SheetRow {
         "Presentación": "Bolsa 500 g",
         "Cajas por palet": 40,
         "Bolsas por caja": 12,
+        "Categoría": "Frutas",
         "Subcategoría": "Jugos",
         "Cliente": "Walmart",
         "Nombre del producto": "Jugo de piña",
@@ -122,7 +123,7 @@ describe("productImportService.bulkImportProducts", () => {
 
     it("crea un producto sin imagen dentro de UNA transacción, con su traducción al inglés", async () => {
         const buffer = await buildWorkbookBuffer([
-            baseRow({ "Nombre del producto (inglés)": "Pineapple juice", "Orgánico": "Sí", "Costo adicional por unidad": 0.05 }),
+            baseRow({ "Nombre del producto (inglés)": "Pineapple juice", "Costo adicional por unidad": 0.05 }),
         ])
 
         const result = await productImportService.bulkImportProducts(buffer)
@@ -134,7 +135,7 @@ describe("productImportService.bulkImportProducts", () => {
                 subCategoryId: JUGOS.id,
                 clientId: WALMART.id,
                 displayName: "Jugo de piña",
-                isOrganic: true,
+                isOrganic: false,
                 additionalCostPerUnit: 0.05,
                 urlSlug: "jugo-de-pina",
                 imageUrl: null,
@@ -148,7 +149,7 @@ describe("productImportService.bulkImportProducts", () => {
         )
     })
 
-    it("Orgánico vacío = No, y sin nombre en inglés no crea traducción", async () => {
+    it("Sin columna Orgánico = No, y sin nombre en inglés no crea traducción", async () => {
         const buffer = await buildWorkbookBuffer([baseRow()])
 
         await productImportService.bulkImportProducts(buffer)
@@ -157,22 +158,51 @@ describe("productImportService.bulkImportProducts", () => {
         expect(mockTranslationCreate).not.toHaveBeenCalled()
     })
 
-    it("rechaza un valor de Orgánico que no es Sí/No", async () => {
-        const buffer = await buildWorkbookBuffer([baseRow({ "Orgánico": "tal vez" })])
+    it.each(["Sí", "No", "", "tal vez"])("ignora Orgánico=%s en plantillas anteriores y crea false", async value => {
+        const buffer = await buildWorkbookBuffer([baseRow({ "Orgánico": value })], [...HEADERS, "Orgánico"])
+        await productImportService.bulkImportProducts(buffer)
+        expect(mockProductCreate).toHaveBeenCalledWith(expect.objectContaining({ isOrganic: false }), expect.anything())
+    })
 
-        await expectRowIssues(buffer, [{ row: 2, field: "isOrganic", key: "errors.bulk_import_invalid_boolean" }])
+    it("rechaza fórmulas incluso en la columna Orgánico ignorada de una plantilla antigua", async () => {
+        const workbook = new ExcelJS.Workbook()
+        const sheet = workbook.addWorksheet("Productos")
+        const headers = [...HEADERS, "Orgánico"]
+        sheet.addRow(headers)
+        const row = baseRow()
+        sheet.addRow(headers.map(header => row[header]))
+        sheet.getCell(2, headers.length).value = { formula: "1=1", result: true }
+        const buffer = await writeWorkbookToBuffer(workbook)
+        await expectRowIssues(buffer, [{ row: 2, field: "row", key: "errors.packaging_association_import.formula" }])
+    })
+
+    it("todos los productos nuevos reciben false sin columna Orgánico", async () => {
+        const buffer = await buildWorkbookBuffer([baseRow(), baseRow({
+            "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-2", "Nombre del producto": "Otro producto",
+        })])
+        await productImportService.bulkImportProducts(buffer)
+        expect(mockProductCreate).toHaveBeenCalledTimes(2)
+        for (const [input] of mockProductCreate.mock.calls) expect(input.isOrganic).toBe(false)
+    })
+
+    it.each([true, false])("rechaza SKU existente con isOrganic=%s antes de cualquier escritura", async isOrganic => {
+        const existing = { id: 5, isOrganic }
+        mockProductFindAll.mockResolvedValue([{ ...existing, urlSlug: "jugo-de-pina" }])
+        ;(ProductVariant.findAll as jest.Mock).mockResolvedValue([{ skuCode: "JUGO-PINA" }])
+        const buffer = await buildWorkbookBuffer([baseRow({ "Orgánico": "No" })], [...HEADERS, "Orgánico"])
+        await expectRowIssues(buffer, [{ field: "skuCode", key: "errors.product_variant_skucode_already_exists" }])
     })
 
     it("rechaza una Subcategoría inexistente", async () => {
         const buffer = await buildWorkbookBuffer([baseRow({ "Subcategoría": "Snacks" })])
 
-        await expectRowIssues(buffer, [{ row: 2, field: "subCategory", key: "errors.bulk_import_subcategory_not_found" }])
+        await expectRowIssues(buffer, [{ row: 2, field: "subCategory", key: "errors.bulk_import_subcategory_not_found_in_category" }])
     })
 
     it("rechaza una Subcategoría ambigua (mismo nombre en dos Categorías) si no se indica Categoría", async () => {
-        const buffer = await buildWorkbookBuffer([baseRow({ "Subcategoría": "Congelados" })])
+        const buffer = await buildWorkbookBuffer([baseRow({ "Subcategoría": "Congelados", "Categoría": "" })])
 
-        await expectRowIssues(buffer, [{ row: 2, field: "subCategory", key: "errors.bulk_import_subcategory_ambiguous" }])
+        await expectRowIssues(buffer, [{ row: 2, field: "category", key: "errors.bulk_import_category_required" }])
     })
 
     it("la columna Categoría desambigua la Subcategoría (sin importar mayúsculas/acentos)", async () => {
@@ -276,7 +306,7 @@ describe("productImportService.bulkImportProducts", () => {
 
         await expectRowIssues(buffer, [
             { row: 3, field: "client", key: "errors.bulk_import_client_not_found" },
-            { row: 3, field: "subCategory", key: "errors.bulk_import_subcategory_not_found" },
+            { row: 3, field: "subCategory", key: "errors.bulk_import_subcategory_not_found_in_category" },
         ])
     })
 
@@ -294,7 +324,6 @@ describe("productImportService.bulkImportProducts", () => {
     it.each([
         ["Nombre del producto", "Otro nombre", "displayName"],
         ["Nombre del producto (inglés)", "Different", "translations"],
-        ["Orgánico", "Sí", "isOrganic"],
         ["Costo adicional por unidad", 1, "additionalCostPerUnit"],
         ["Subcategoría", "Congelados", "subCategoryId"],
         ["Cliente", "Costco", "clientId"],
@@ -307,7 +336,7 @@ describe("productImportService.bulkImportProducts", () => {
     })
 
     it("Categoría debe repetirse consistentemente dentro del grupo", async () => {
-        await expectRowIssues(await buildWorkbookBuffer([baseRow(), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1", "Presentación": "Bolsa 2 kg", "Categoría": "Frutas" })]), [{ row: 3, field: "category", key: "errors.bulk_import_product_group_inconsistent" }])
+        await expectRowIssues(await buildWorkbookBuffer([baseRow(), baseRow({ "SKU / Número de artículo": "SECOND", "Grupo de producto": "G-1", "Presentación": "Bolsa 2 kg", "Categoría": "Vegetales", "Subcategoría": "Congelados" })]), [{ row: 3, field: "category", key: "errors.bulk_import_product_group_inconsistent" }])
     })
     it("rechaza grupo vacío y conteos inválidos sin escribir", async () => {
         await expectRowIssues(await buildWorkbookBuffer([baseRow({ "Grupo de producto": " ", "Cajas por palet": 0 })]), [{ field: "productGroup" }, { field: "boxesPerPallet" }])
@@ -338,8 +367,15 @@ describe("productImportService.bulkImportProducts", () => {
         })
     })
 
-    it("acepta un archivo sin las columnas opcionales (Categoría, inglés, Orgánico, Costo adicional)", async () => {
-        const headers = ["Grupo de producto", "SKU / Número de artículo", "Presentación", "Cajas por palet", "Bolsas por caja", "Subcategoría", "Cliente", "Nombre del producto"]
+    it("rechaza una plantilla anterior sin la columna Categoría", async () => {
+        const headers = HEADERS.filter(header => header !== "Categoría")
+        await expect(productImportService.bulkImportProducts(await buildWorkbookBuffer([baseRow()], headers)))
+            .rejects.toMatchObject({ key: "errors.bulk_import_missing_columns", params: { columns: "Categoría" } })
+        expect(mockProductCreate).not.toHaveBeenCalled()
+    })
+
+    it("acepta un archivo sin las columnas opcionales (inglés, Orgánico, Costo adicional)", async () => {
+        const headers = ["Grupo de producto", "SKU / Número de artículo", "Presentación", "Cajas por palet", "Bolsas por caja", "Categoría", "Subcategoría", "Cliente", "Nombre del producto"]
         const buffer = await buildWorkbookBuffer([baseRow()], headers)
 
         const result = await productImportService.bulkImportProducts(buffer)
@@ -369,7 +405,7 @@ describe("productImportService.buildProductImportTemplate", () => {
             await writeFile(path, download.body)
             const buffer = await readFile(path)
             const workbook = await loadWorkbookFromBuffer(buffer)
-            expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES"])
+            expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES", "CATALOGOS"])
             const original = productImportService.previewProductImport
             const received = jest.spyOn(productImportService, "previewProductImport").mockImplementation(async uploaded => {
                 expect(Buffer.isBuffer(uploaded)).toBe(true)
@@ -415,11 +451,18 @@ describe("productImportService.buildProductImportTemplate", () => {
         const headerRow = workbook.worksheets[0].getRow(1).values as unknown[]
 
         expect(headerRow.filter(Boolean)).toEqual(HEADERS.map(header => header.toUpperCase()))
-        expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES"])
-        expect(workbook.worksheets[0].rowCount).toBe(1)
+        expect(headerRow.filter(Boolean)).not.toContain("ORGÁNICO")
+        expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES", "CATALOGOS"])
+        expect(workbook.getWorksheet("CATALOGOS")!.state).toBe("hidden")
+        const products = workbook.worksheets[0]
+        expect(products.getColumn("G").values[1]).toBe("CATEGORÍA")
+        expect(products.getCell("G2").dataValidation.formulae).toEqual(["ProductCategories"])
+        expect(products.getCell("H2").dataValidation.formulae?.[0]).toContain("VLOOKUP($G2")
+        expect(workbook.definedNames.getRanges("ProductSubCategories_1").ranges).toHaveLength(1)
         const materials = workbook.worksheets[1]
         expect(materials.getRow(1).values).toEqual([undefined, ...Object.values(INITIAL_PACKAGING_COLUMNS).map(column => column.header)])
-        expect(materials.getCell("C2").dataValidation.formulae?.[0]).toContain("ESQUINERO")
+        // New SKUs use the pallet kit: its types are not offered for their own rows.
+        expect(materials.getCell("C2").dataValidation.formulae?.[0]).toBe('"INDIVIDUAL,INTERMEDIO,CAJA,OTRO PALETIZACIÓN"')
         expect(materials.getCell("D2").dataValidation.formulae).toEqual(["InitialPackagingGroups"])
         expect(materials.getCell("E2").dataValidation.formulae).toEqual(['"SI,NO"'])
         expect(materials.getCell("F2").dataValidation.formulae).toEqual(['"POR CAJA,POR PALLET"'])
@@ -494,7 +537,7 @@ describe("carga inicial conjunta", () => {
         materials.getRow(2).values = Object.keys(INITIAL_PACKAGING_COLUMNS).map(key => material()[key as keyof typeof INITIAL_PACKAGING_COLUMNS] ?? null)
         const saved = await writeWorkbookToBuffer(workbook)
         const buffer = fallback ? await prefixSpreadsheetNamespaces(saved) : saved
-        expect((await loadWorkbookFromBuffer(buffer)).worksheets).toHaveLength(3)
+        expect((await loadWorkbookFromBuffer(buffer)).worksheets).toHaveLength(4)
         const app = buildTestApp("/api/products", productRouter)
         const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
         const response = await request(app).post("/api/products/bulk-import/preview")

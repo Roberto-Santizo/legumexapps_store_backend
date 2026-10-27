@@ -1,9 +1,9 @@
 import { Router } from "express"
 import { salespersonController } from "../controllers/salesperson.controller"
-import { createSalespersonSchema, salespersonIdParamSchema, updateSalespersonSchema, updateSalespersonStatusSchema, salespersonQuerySchema } from "../schemas/salesperson.schema"
+import { createSalespersonSchema, hasInitialClients, salespersonIdParamSchema, updateSalespersonSchema, updateSalespersonStatusSchema, salespersonQuerySchema } from "../schemas/salesperson.schema"
 import { validate } from "../../../shared/middlewares/validate"
 import { authenticate } from "../../../shared/middlewares/authenticate"
-import { authorize } from "../../../shared/middlewares/authorize"
+import { authorize, authorizeWhen } from "../../../shared/middlewares/authorize"
 import { representativeClientController } from "../controllers/representativeClient.controller"
 import { representativeClientParamsSchema, representativeClientRemoveParamsSchema, assignRepresentativeClientsSchema } from "../schemas/representativeClient.schema"
 
@@ -15,12 +15,16 @@ salespersonRouter.get("/:id/clients", authorize("salespeople:view"), authorize("
     validate(representativeClientParamsSchema, "params"), representativeClientController.list)
 salespersonRouter.put("/:id/clients", authorize("salespeople:edit"), authorize("clients:view"),
     validate(representativeClientParamsSchema, "params"), validate(assignRepresentativeClientsSchema), representativeClientController.assign)
+salespersonRouter.put("/:id/clients/all", authorize("salespeople:edit"), authorize("clients:view"),
+    validate(representativeClientParamsSchema, "params"), representativeClientController.assignAll)
 salespersonRouter.delete("/:id/clients/:clientId", authorize("salespeople:edit"), authorize("clients:view"),
     validate(representativeClientRemoveParamsSchema, "params"), representativeClientController.remove)
 
 salespersonRouter.get("/", authorize("salespeople:view"), validate(salespersonQuerySchema, "query"), salespersonController.index)
 salespersonRouter.get("/:id", authorize("salespeople:view"), validate(salespersonIdParamSchema, "params"), salespersonController.show)
-salespersonRouter.post("/", authorize("salespeople:create"), validate(createSalespersonSchema), salespersonController.store)
+// Assigning clients while creating requires the same client permission as the assignment routes.
+salespersonRouter.post("/", authorize("salespeople:create"), validate(createSalespersonSchema),
+    authorizeWhen(hasInitialClients, "clients:view"), salespersonController.store)
 salespersonRouter.patch(
     "/:id",
     authorize("salespeople:edit"),

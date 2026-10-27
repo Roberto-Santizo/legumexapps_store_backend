@@ -1,6 +1,6 @@
 import { Table, Column, DataType, BelongsToMany } from "sequelize-typescript";
-import Role from "../../roles/models/role.model";
-import RolePermission from "../../rolePermissions/models/rolePermission.model";
+import Role from "../../roles/models/Role.model";
+import RolePermission from "../../rolePermissions/models/RolePermission.model";
 import BaseCatalogModel from "../../../../shared/base-model/BaseCatalogModel";
 
 @Table({

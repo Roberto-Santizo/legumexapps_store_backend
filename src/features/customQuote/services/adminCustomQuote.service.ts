@@ -4,10 +4,11 @@ import { NotFoundError } from "../../../shared/errors/AppError"
 import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE } from "../../../shared/utils/translation.util"
 import type { calculateCatalogQuote } from "./catalogQuote.service"
-type CatalogSnapshot = Awaited<ReturnType<typeof calculateCatalogQuote>>["configuration"]["snapshot"]
+type NewCatalogSnapshot = Awaited<ReturnType<typeof calculateCatalogQuote>>["configuration"]["snapshot"]
+type CatalogSnapshot = Omit<NewCatalogSnapshot, "schemaVersion" | "source"> & { schemaVersion: 2 | 3; source: { productVariantId: number; skuCode: string; configurationFingerprint: string } | NewCatalogSnapshot["source"] }
 function snapshotOf(quote: CustomQuote): CatalogSnapshot | undefined {
     const configuration = quote.configuration as { snapshot?: CatalogSnapshot }
-    return configuration.snapshot?.schemaVersion === 2 ? configuration.snapshot : undefined
+    return (configuration.snapshot?.schemaVersion === 2 || configuration.snapshot?.schemaVersion === 3) ? configuration.snapshot : undefined
 }
 
 // Lectura admin de cotizaciones a la medida (solo customQuotes -- nunca Quote ni el dashboard) y el
@@ -35,7 +36,7 @@ interface SalespersonSummary {
     email: string
 }
 
-export interface CustomQuoteListItem {
+interface CustomQuoteListItem {
     id: number
     status: CustomQuoteStatus
     createdAt: Date
@@ -47,13 +48,12 @@ export interface CustomQuoteListItem {
     presentationLabel: string | null
     productDisplayName: string
     variantLabel: string | null
-    isOrganic: boolean
     requestedPallets: number
     totalUnits: number
     totalCost: number
 }
 
-export type CustomQuoteDetail = CustomQuoteListItem & Record<MoneyField, number> & {
+type CustomQuoteDetail = CustomQuoteListItem & Record<MoneyField, number> & {
     destinationId: number | null
     destinationName: string | null
     boxesPerPallet: number
@@ -87,7 +87,6 @@ function toListItem(customQuote: CustomQuote, language: ContentLanguage): Custom
         presentationLabel: snapshotOf(customQuote)?.presentation.displayLabel ?? customQuote.variantLabel ?? null,
         productDisplayName: customQuote.productDisplayName,
         variantLabel: customQuote.variantLabel,
-        isOrganic: customQuote.isOrganic,
         requestedPallets: Number(customQuote.requestedPallets),
         totalUnits: Number(customQuote.totalUnits),
         totalCost: Number(customQuote.totalCost),

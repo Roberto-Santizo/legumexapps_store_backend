@@ -1,4 +1,5 @@
-import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany } from "sequelize-typescript";
+import Juice from "../../juice/models/Juice.model"
+import { Table, Column, DataType, ForeignKey, BelongsTo, HasMany, HasOne } from "sequelize-typescript";
 import BaseCatalogModel from "../../../shared/base-model/BaseCatalogModel";
 import SubCategory from "../../category/models/SubCategory.model";
 import Client from "../../client/models/Client.model";
@@ -7,8 +8,16 @@ import ProductRawMaterial from "./ProductRawMaterial.model";
 import ProductIngredient from "./ProductIngredient.model";
 import ProductTranslation from "./ProductTranslation.model";
 
-@Table({ tableName: "products" })
+@Table({
+    tableName: "products"
+})
 class Product extends BaseCatalogModel {
+    @HasOne(() => Juice, {
+        foreignKey: "productId",
+        onDelete: "RESTRICT"
+    })
+    declare juice: Juice | null
+
 
     @ForeignKey(() => SubCategory)
     @Column({

@@ -1,187 +1,26 @@
-import fs from "node:fs"
-import path from "node:path"
-import { DataType, Sequelize } from "sequelize-typescript"
-import { Model, ModelStatic } from "sequelize"
+import { Sequelize } from "sequelize-typescript"
 import { databaseModels } from "./models"
-
-// Metadata only: constructing Sequelize registers associations without opening a socket.
-const sequelize = new Sequelize({ dialect: "postgres", logging: false, models: databaseModels })
-const generator = sequelize.getQueryInterface().queryGenerator as any
-const sql = fs.readFileSync(path.resolve(__dirname, "../../migrations/202610110001_initial_schema.sql"), "utf8")
-const normalize = (value: string) => value.replace(/\s+/g, " ").trim()
-// Tablas creadas por migraciones incrementales posteriores al esquema inicial.
-const TRANSFORMATION_TABLES = ["unprocessedRawMaterials", "rawMaterialTransformations", "rawMaterialTransformationCosts"]
-const INCREMENTAL_TABLES = ["representative_clients", ...TRANSFORMATION_TABLES]
-// Columnas creadas por 202610140004 y eliminadas por 202610150001 (todo pasó a USD).
-const currencyEnum = () => DataType.ENUM("GTQ", "USD")
-const REMOVED_TRANSFORMATION_COLUMNS: Record<string, [string, string, any][]> = {
-    unprocessedRawMaterials: [["costPerPound", "costCurrency", { type: currencyEnum(), allowNull: false }]],
-    rawMaterialTransformations: [
-        ["freightPerPound", "freightCurrency", { type: currencyEnum(), allowNull: false }],
-        ["yieldPercentage", "exchangeRate", { type: DataType.DECIMAL(14, 6), allowNull: false }],
-    ],
-    rawMaterialTransformationCosts: [["amount", "currency", { type: currencyEnum(), allowNull: false }]],
-}
-function withCurrencyColumns(table: string, rawAttributes: Record<string, any>) {
-    const entries = Object.entries(rawAttributes)
-    for (const [after, name, definition] of REMOVED_TRANSFORMATION_COLUMNS[table]) {
-        entries.splice(entries.findIndex(([key]) => key === after) + 1, 0, [name, { ...definition, field: name }])
-    }
-    return Object.fromEntries(entries)
-}
-
-describe("initial schema contract (offline)", () => {
-    test("defines all pre-incremental tables with exact model columns, defaults, keys and foreign-key actions", () => {
-        const ordered = (sequelize.modelManager.getModelsTopoSortedByForeignKey()! as unknown as ModelStatic<Model>[]).slice().reverse()
-            .filter(model => !INCREMENTAL_TABLES.includes(model.tableName))
-        expect(databaseModels).toHaveLength(50)
-        expect(sql.match(/CREATE TABLE /g)).toHaveLength(46)
-        let previousPosition = -1
-        for (const model of ordered) {
-            let attributes = { ...model.rawAttributes }
-            if (model.tableName === "packagings") {
-                delete attributes.classification
-                delete attributes.displayNameEn
-            }
-            if (model.tableName === "rawMaterials") {
-                // Created here, dropped by 202610140003_remove_raw_material_organic.sql and
-                // 202610140001_remove_raw_material_mixability.sql respectively.
-                const entries = Object.entries(attributes)
-                const after = entries.findIndex(([name]) => name === "ingredientType") + 1
-                entries.splice(after, 0,
-                    ["isOrganic", { type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "isOrganicAvailable" } as any],
-                    ["isMixable", { type: DataType.BOOLEAN, allowNull: false, defaultValue: true, field: "isMixable" } as any])
-                attributes = Object.fromEntries(entries)
-            }
-            // Created here, dropped by 202610140002_remove_product_recipe_type.sql.
-            if (model.tableName === "products") {
-                const entries = Object.entries(attributes)
-                const after = entries.findIndex(([name]) => name === "isOrganic") + 1
-                entries.splice(after, 0, ["isCustomizable", { type: DataType.BOOLEAN, allowNull: false, defaultValue: false, field: "isCustomizable" } as any])
-                attributes = Object.fromEntries(entries)
-            }
-            if (model.tableName === "productRawMaterials") {
-                const entries = Object.entries(attributes)
-                const after = entries.findIndex(([name]) => name === "percentage") + 1
-                entries.splice(after, 0,
-                    ["minPercentage", { type: DataType.DECIMAL(5, 2), allowNull: true, field: "minPercentage" } as any],
-                    ["maxPercentage", { type: DataType.DECIMAL(5, 2), allowNull: true, field: "maxPercentage" } as any])
-                attributes = Object.fromEntries(entries)
-            }
-            const expected = generator.createTableQuery(model.tableName,
-                generator.attributesToSQL(attributes, { table: model.tableName }), model.options)
-                .replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
-            expect(normalize(sql)).toContain(normalize(expected))
-            const position = sql.indexOf(`CREATE TABLE "${model.tableName}"`)
-            expect(position).toBeGreaterThan(previousPosition)
-            previousPosition = position
-            for (const index of model.options.indexes ?? []) {
-                expect(sql).toContain(generator.addIndexQuery(model.tableName, index.fields, index) + ";")
-            }
-            for (const attribute of Object.values(model.rawAttributes)) {
-                const type = attribute.type as any
-                if (type.key === "ENUM") {
-                    const definition = `CREATE TYPE ${generator.pgEnumName(model.tableName, attribute.field)} AS ENUM (${type.values.map((value: string) => generator.escape(value)).join(", ")});`
-                    expect(sql).toContain(definition)
-                    expect(sql.indexOf(definition)).toBeLessThan(position)
-                }
-            }
-        }
-    })
-
-    test("preserves SQL-history constraints and physical aliases without inserting data or shadowing incremental migrations", () => {
-        expect(sql).toContain('CONSTRAINT "packagings_consumption_defaults_check" CHECK')
-        expect(sql).toContain('CONSTRAINT "site_images_slotkey_unique" UNIQUE ("slotKey")')
-        expect(sql).toContain('CREATE INDEX "customQuotes_source_variant_idx"')
-        expect(sql).toContain('"customerId" INTEGER NOT NULL REFERENCES "customers"')
-        expect(sql).toContain('"unitsPerBox" INTEGER')
-        expect(sql).toContain('"isOrganicAvailable" BOOLEAN NOT NULL DEFAULT false')
-        expect(sql).not.toMatch(/CREATE TABLE "representative_clients"|"classification"|"displayNameEn"/)
-        expect(sql).not.toMatch(/\b(?:INSERT INTO|UPDATE\s+"|DELETE FROM|DROP TABLE|TRUNCATE)\b/i)
-    })
+import { schemaChecks, schemaFunctions, schemaTriggers } from "./schemaExtras"
+const metadata=new Sequelize({dialect:'postgres',logging:false,models:databaseModels})
+afterAll(()=>metadata.close())
+test("the sole current schema contract has 48 models, 15 checks, 5 functions and 7 triggers",()=>{
+    expect(databaseModels).toHaveLength(48)
+    expect(new Set(metadata.modelManager.models.map(model=>model.tableName)).size).toBe(48)
+    expect(schemaChecks).toHaveLength(15)
+    expect(schemaFunctions).toHaveLength(5)
+    expect(schemaTriggers).toHaveLength(7)
+    for(const trigger of schemaTriggers) expect(schemaFunctions.some(fn=>fn.name===trigger.functionName)).toBe(true)
+})
+test("current juice and USD models exclude retired economic fields",()=>{
+    const attrs=(name:string)=>metadata.model(name).rawAttributes
+    expect(attrs('Juice')).not.toHaveProperty('pricePerPound')
+    expect(attrs('JuicePresentation')).not.toHaveProperty('marginPerCase')
+    expect(attrs('Product')).toHaveProperty('isOrganic')
+    expect(attrs('ProductVariant')).toHaveProperty('bagsPerBox.field','unitsPerBox')
 })
 
-describe("incremental migration chain (offline)", () => {
-    const directory = path.resolve(__dirname, "../../migrations")
-
-    test("keeps the applied history and appends the removals and the raw material transformation tables", () => {
-        expect(fs.readdirSync(directory).filter(name => name.endsWith(".sql")).sort()).toEqual([
-            "202610110001_initial_schema.sql",
-            "202610120001_representative_clients.sql",
-            "202610120002_packaging_classification.sql",
-            "202610140001_remove_raw_material_mixability.sql",
-            "202610140002_remove_product_recipe_type.sql",
-            "202610140003_remove_raw_material_organic.sql",
-            "202610140004_raw_material_transformations.sql",
-            "202610150001_transformation_usd_only.sql",
-        ])
-    })
-
-    test("the transformation migration creates exactly the three model tables, their enums, indexes and integrity checks", () => {
-        const migration = fs.readFileSync(path.join(directory, "202610140004_raw_material_transformations.sql"), "utf8")
-        for (const table of TRANSFORMATION_TABLES) {
-            const model = databaseModels.find(candidate => (candidate as any).tableName === table) as unknown as ModelStatic<Model>
-            const attributes = withCurrencyColumns(table, model.rawAttributes)
-            const expected = generator.createTableQuery(table, generator.attributesToSQL(attributes, { table }), model.options)
-                .replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE")
-            expect(normalize(migration)).toContain(normalize(expected))
-            for (const index of model.options.indexes ?? []) expect(migration).toContain(generator.addIndexQuery(table, index.fields, index) + ";")
-            for (const attribute of Object.values(attributes) as any[]) {
-                const type = attribute.type as any
-                if (type.key === "ENUM") expect(migration).toContain(`CREATE TYPE ${generator.pgEnumName(table, attribute.field)} AS ENUM (${type.values.map((value: string) => generator.escape(value)).join(", ")});`)
-            }
-            expect(migration).toContain(`ALTER TABLE "${table}" ADD CONSTRAINT "${table}_values_check"`)
-        }
-        expect(migration.match(/CREATE TABLE /g)).toHaveLength(3)
-        expect(migration).toMatch(/"processedRawMaterialId" INTEGER NOT NULL UNIQUE REFERENCES "rawMaterials" \("id"\) ON DELETE RESTRICT/)
-        expect(migration).toMatch(/"transformationId" INTEGER NOT NULL REFERENCES "rawMaterialTransformations" \("id"\) ON DELETE CASCADE/)
-        // Solo agrega: no toca tablas existentes ni datos (apta para el despliegue automático).
-        expect(migration).not.toMatch(/\b(?:INSERT INTO|UPDATE\s+"|DELETE\s+FROM|DROP\s|TRUNCATE|ALTER TABLE "(?!unprocessedRawMaterials|rawMaterialTransformations|rawMaterialTransformationCosts))/i)
-        expect(Object.keys((databaseModels.find(model => (model as any).tableName === "rawMaterials") as any).rawAttributes)).not.toContain("transformation")
-    })
-
-    test("the USD-only migration converts quetzal amounts first, then drops exactly the currency and exchange-rate columns", () => {
-        const migration = normalize(fs.readFileSync(path.join(directory, "202610150001_transformation_usd_only.sql"), "utf8").replace(/--.*$/gm, ""))
-        const firstDrop = migration.indexOf("DROP COLUMN")
-        for (const update of ['UPDATE "rawMaterialTransformationCosts"', 'UPDATE "rawMaterialTransformations"', 'UPDATE "unprocessedRawMaterials"']) {
-            expect(migration.indexOf(update)).toBeGreaterThanOrEqual(0)
-            expect(migration.indexOf(update)).toBeLessThan(firstDrop)
-        }
-        expect(migration.match(/DROP COLUMN "[A-Za-z]+"/g)).toEqual(['DROP COLUMN "currency"', 'DROP COLUMN "freightCurrency"', 'DROP COLUMN "exchangeRate"', 'DROP COLUMN "costCurrency"'])
-        expect(migration.match(/DROP TYPE/g)).toHaveLength(3)
-        expect(migration).toContain('ADD CONSTRAINT "rawMaterialTransformations_values_check"')
-        // Apta para el despliegue automático: sin borrado masivo.
-        expect(migration).not.toMatch(/\b(?:DROP\s+(?:TABLE|SCHEMA|DATABASE|OWNED)|TRUNCATE|DELETE\s+FROM)\b/i)
-        for (const table of TRANSFORMATION_TABLES) {
-            const fields = Object.keys((databaseModels.find(model => (model as any).tableName === table) as any).rawAttributes)
-            expect(fields).not.toEqual(expect.arrayContaining(["currency"]))
-            for (const removed of ["costCurrency", "freightCurrency", "exchangeRate"]) expect(fields).not.toContain(removed)
-        }
-    })
-
-    test("the isMixable removal drops exactly that column and nothing else", () => {
-        const removal = fs.readFileSync(path.join(directory, "202610140001_remove_raw_material_mixability.sql"), "utf8")
-        expect(normalize(removal)).toBe('ALTER TABLE public."rawMaterials" DROP COLUMN IF EXISTS "isMixable";')
-        expect(Object.keys((databaseModels.find(model => (model as any).tableName === "rawMaterials") as any).rawAttributes)).not.toContain("isMixable")
-    })
-
-    test("the recipe-type removal drops exactly isCustomizable and the product min/max percentages", () => {
-        const removal = fs.readFileSync(path.join(directory, "202610140002_remove_product_recipe_type.sql"), "utf8")
-        expect(normalize(removal)).toBe('ALTER TABLE public."products" DROP COLUMN IF EXISTS "isCustomizable"; '
-            + 'ALTER TABLE public."productRawMaterials" DROP COLUMN IF EXISTS "minPercentage", DROP COLUMN IF EXISTS "maxPercentage";')
-        const attributesOf = (table: string) => Object.keys((databaseModels.find(model => (model as any).tableName === table) as any).rawAttributes)
-        expect(attributesOf("products")).not.toContain("isCustomizable")
-        expect(attributesOf("productRawMaterials")).not.toEqual(expect.arrayContaining(["minPercentage"]))
-        expect(attributesOf("productRawMaterials")).not.toContain("maxPercentage")
-        // The independent custom-quote allowed list keeps its own min/max range.
-        expect(attributesOf("customQuoteRawMaterialOptions")).toEqual(expect.arrayContaining(["minPercentage", "maxPercentage"]))
-    })
-
-    test("the organic-variant removal drops exactly rawMaterials.isOrganicAvailable; product organic flags stay", () => {
-        const removal = fs.readFileSync(path.join(directory, "202610140003_remove_raw_material_organic.sql"), "utf8")
-        expect(normalize(removal)).toBe('ALTER TABLE public."rawMaterials" DROP COLUMN IF EXISTS "isOrganicAvailable";')
-        const attributesOf = (table: string) => Object.keys((databaseModels.find(model => (model as any).tableName === table) as any).rawAttributes)
-        expect(attributesOf("rawMaterials")).not.toContain("isOrganic")
-        expect(attributesOf("products")).toContain("isOrganic")
-    })
+test("retired option tables, juice administration tables and organic column are absent", () => {
+    const tables = metadata.modelManager.models.map(model => model.tableName)
+    for (const table of ["customQuoteRawMaterialOptions", "customQuoteIngredientOptions", "customQuotePresentationOptions", "customQuotePackagingOptions", "juiceCostConstants", "juiceClientConstantOverrides"]) expect(tables).not.toContain(table)
+    expect(metadata.model("CustomQuote").rawAttributes).not.toHaveProperty("isOrganic")
 })

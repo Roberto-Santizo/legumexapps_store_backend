@@ -29,9 +29,9 @@ interface DraftBreakdownSnapshot {
     palletMaterials?: MaterialSnapshotLine[]
 }
 
-export type QuoteDraftState = "in_progress" | "abandoned"
+type QuoteDraftState = "in_progress" | "abandoned"
 
-export interface QuoteDraftListItem {
+interface QuoteDraftListItem {
     id: number
     salesperson: { id: number; name: string; companyName: string | null; email: string } | null
     productVariantId: number

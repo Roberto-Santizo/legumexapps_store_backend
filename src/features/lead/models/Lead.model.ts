@@ -4,7 +4,7 @@ import { Table, Column, DataType, Model } from "sequelize-typescript";
 // A propósito NO extiende BaseCatalogModel: un lead no tiene concepto de "activo/inactivo" (no
 // se desactiva, se le cambia el status), así que esa columna no aplicaría acá.
 export const LEAD_STATUSES = ["new", "contacted"] as const;
-export type LeadStatus = typeof LEAD_STATUSES[number];
+type LeadStatus = typeof LEAD_STATUSES[number];
 
 @Table({
     tableName: "leads"

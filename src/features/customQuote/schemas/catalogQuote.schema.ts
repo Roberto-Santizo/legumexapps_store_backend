@@ -1,20 +1,21 @@
+import { genericSelectionsSchema } from "../../genericPackaging/schemas/genericPackaging.schema"
 import z from "zod"
-import { quoteOrderSchema } from "../../quote/schemas/quoteOrder.schema"
+import { quoteOrderSchema } from "../../quoteOrder/schemas/quoteOrder.schema"
 
 export const catalogQuoteInputSchema = z.strictObject({
+    configurationOrigin: z.literal("generic_configuration").default("generic_configuration"),
+    packagingSelections: genericSelectionsSchema.default([]),
+    // Pallet kit type with several materials (e.g. wooden or cardboard corner boards): which one; never the quantity.
+    palletKitSelections: z.array(z.strictObject({ type: z.enum(["TARIMA", "ESQUINERO", "STRETCH"]), packagingId: z.number().int().positive() })).max(3).default([]),
     categoryId: z.number().int().positive(),
     subCategoryId: z.number().int().positive(),
     configurationId: z.number().int().positive(),
     ingredientType: z.enum(["fruit", "vegetable", "pulp", "other"]),
-    isOrganic: z.boolean(),
     requestedPallets: z.number().int().positive().max(100000),
     rawMaterialMix: z.array(z.strictObject({
         rawMaterialId: z.number().int().positive(),
         percentage: z.number().positive().max(100).multipleOf(0.01),
     })).min(1).max(100),
-    selectedUnitMaterialIds: z.array(z.number().int().positive()).max(50).default([]),
-    selectedIntermediateMaterialIds: z.array(z.number().int().positive()).max(50).default([]),
-    selectedPalletMaterialIds: z.array(z.number().int().positive()).max(50).default([]),
 })
 export const catalogQuoteConfirmSchema = z.strictObject({
     input: catalogQuoteInputSchema,

@@ -36,11 +36,18 @@ class ProductVariantPalletMaterial extends BaseCatalogModel {
     declare quantityValue: number
 
     // Explicit consumption rule; labels never determine quantities.
-    @Column({ type: DataType.ENUM("per_box", "per_pallet"), allowNull: false, defaultValue: "per_pallet" })
+    @Column({
+        type: DataType.ENUM("per_box", "per_pallet"),
+        allowNull: false,
+        defaultValue: "per_pallet"
+    })
     declare quantityBasis: "per_box" | "per_pallet"
 
     @ForeignKey(() => PackagingGroup)
-    @Column({ type: DataType.INTEGER, allowNull: true })
+    @Column({
+        type: DataType.INTEGER,
+        allowNull: true
+    })
     declare optionGroupId: number | null
 
     @BelongsTo(() => PackagingGroup, "optionGroupId")

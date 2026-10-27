@@ -307,3 +307,28 @@ describe("simplified manual pallet consumption", () => {
         expect(mockCreate).not.toHaveBeenCalled()
     })
 })
+
+describe("pallet kit: a SKU that uses it cannot repeat tarima, esquineros or stretch", () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockFindAll.mockResolvedValue([])
+        mockCreate.mockImplementation(async values => values)
+    })
+    it.each(["TARIMA", "ESQUINERO", "STRETCH"])("rejects %s on a kit SKU and accepts it on a SKU with its own palletizing", async materialType => {
+        mockAssertRole.mockResolvedValue({ id: 5, code: "M-5", materialType, defaultQuantityBasis: "per_pallet", defaultQuantityValue: 1 })
+        jest.mocked(ProductVariant.findOne).mockResolvedValue({ id: 10, usesPalletKit: true, boxesPerPallet: 198 } as never)
+        await expect(productVariantPalletMaterialService.createProductVariantPalletMaterial(BASE_INPUT)).rejects.toMatchObject({ statusCode: 422, key: "errors.pallet_material_in_kit" })
+        expect(mockCreate).not.toHaveBeenCalled()
+        jest.mocked(ProductVariant.findOne).mockResolvedValue({ id: 10, usesPalletKit: false, boxesPerPallet: 198 } as never)
+        await productVariantPalletMaterialService.createProductVariantPalletMaterial(BASE_INPUT)
+        expect(mockCreate).toHaveBeenCalledTimes(1)
+    })
+    it("other pallet types (caja, otro) are allowed on a kit SKU", async () => {
+        jest.mocked(ProductVariant.findOne).mockResolvedValue({ id: 10, usesPalletKit: true, boxesPerPallet: 198 } as never)
+        for (const materialType of ["CAJA", "OTRO"]) {
+            mockAssertRole.mockResolvedValue({ id: 5, code: "M-5", materialType, defaultQuantityBasis: "per_pallet", defaultQuantityValue: 1 })
+            await productVariantPalletMaterialService.createProductVariantPalletMaterial(BASE_INPUT)
+        }
+        expect(mockCreate).toHaveBeenCalledTimes(2)
+    })
+})

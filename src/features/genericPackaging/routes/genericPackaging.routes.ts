@@ -1,0 +1,18 @@
+import { Router } from "express";
+import multer from "multer";
+import { authenticate } from "../../../shared/middlewares/authenticate";
+import { authorize } from "../../../shared/middlewares/authorize";
+import { validate } from "../../../shared/middlewares/validate";
+import { genericConfigurationSchema } from "../schemas/genericPackaging.schema";
+import { genericPackagingController as c } from "../controllers/genericPackaging.controller";
+const router = Router(), upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 1 } });
+router.use(authenticate);
+router.get("/", authorize("genericPackaging:view"), c.list);
+router.get("/options", authorize("genericPackaging:view"), c.options);
+router.get("/bulk-import/template", authorize("genericPackaging:create"), c.template);
+router.post("/bulk-import/preview", authorize("genericPackaging:create"), upload.single("file"), c.preview);
+router.post("/bulk-import/confirm", authorize("genericPackaging:create"), upload.single("file"), c.confirm);
+router.post("/materials", authorize("genericPackaging:create"), c.material);
+router.post("/", authorize("genericPackaging:create"), validate(genericConfigurationSchema), c.create);
+router.put("/:id", authorize("genericPackaging:edit"), validate(genericConfigurationSchema), c.update);
+export default router;

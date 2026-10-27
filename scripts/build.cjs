@@ -44,6 +44,32 @@ async function manifest(directory) {
 function sameManifest(actual, expected) {
     if (actual.size !== expected.size || [...expected].some(([name, hash]) => actual.get(name) !== hash)) throw new Error("Build files changed during promotion")
 }
+async function pruneCompilerBackups(base, keep = 1) {
+    const rootDirectory = path.join(await fs.realpath(base), '.local-build-backups')
+    if (!await absentOrDirectory(rootDirectory)) return
+    const verified = []
+    for (const entry of await fs.readdir(rootDirectory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !/^[a-f0-9-]{36}$/.test(entry.name)) continue
+        const directory = path.join(rootDirectory, entry.name)
+        try {
+            if (await fs.realpath(directory) !== directory) continue
+            await safeTree(directory)
+            const inventory = JSON.parse(await fs.readFile(path.join(directory, '.compiler-output.json'), 'utf8'))
+            if (inventory.producer !== 'legumex-typescript-build') continue
+            const actual = await manifest(directory)
+            actual.delete('.compiler-output.json'); actual.delete('.build-integrity')
+            if ([...actual.keys()].some(name => !/\.(?:js|js\.map|d\.ts|d\.ts\.map|json)$/.test(name))) continue
+            sameManifest(actual, new Map(Object.entries(inventory.files)))
+            verified.push({ directory, modified: (await fs.stat(directory)).mtimeMs })
+        } catch { /* Unknown, changed or recovery artifacts are preserved for manual review. */ }
+    }
+    verified.sort((a,b) => b.modified-a.modified)
+    for (const {directory} of verified.slice(keep)) {
+        if (path.dirname(directory)!==rootDirectory || await fs.realpath(directory)!==directory) throw new Error('Unsafe compiler backup cleanup path')
+        await safeTree(directory)
+        await fs.rm(directory, {recursive:true,force:false})
+    }
+}
 async function parents(rootDirectory, filename) {
     const relative = path.relative(rootDirectory, path.dirname(filename))
     if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error("Build file escapes its tree")
@@ -74,6 +100,17 @@ async function moveFiles(from, to, expected, journal, rename) {
 }
 async function restoreFiles(from, to, journal, rename) {
     for (const name of [...journal].reverse()) await moveFile(from, to, name, rename)
+}
+
+/** After a file-by-file promotion the staging tree only holds empty directories.
+ * Remove them bottom-up with a non-recursive rmdir: a directory that still has any
+ * entry (file, link or unexpected leftover) fails to delete and is kept.
+ */
+async function removeEmptyDirectories(directory) {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.isSymbolicLink()) await removeEmptyDirectories(path.join(directory, entry.name))
+    }
+    await fs.rmdir(directory).catch(error => { if (!["ENOTEMPTY", "EEXIST", "EPERM", "EBUSY"].includes(error.code)) throw error })
 }
 
 /** Windows can lock the directory entry while allowing its files to move.
@@ -141,6 +178,9 @@ async function run({ base = root, compiler = compile, rename = fs.rename, platfo
     await safeTree(stage)
     const entry = await fs.lstat(path.join(stage, "index.js"))
     if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Compiled build lacks a regular index.js; previous dist retained")
+    const generated = await manifest(stage)
+    if (generated.has('.compiler-output.json')) throw new Error('Compiler output contains a reserved inventory')
+    await fs.writeFile(path.join(stage,'.compiler-output.json'),JSON.stringify({producer:'legumex-typescript-build',files:Object.fromEntries(generated)}),{flag:'wx'})
     const fresh = await manifest(stage)
     if (fresh.has(".build-integrity")) throw new Error("Compiler output cannot contain a preexisting integrity seal")
     // Recheck destinations immediately before every rename, including Windows junctions.
@@ -159,6 +199,8 @@ async function run({ base = root, compiler = compile, rename = fs.rename, platfo
                 if (platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(error.code)) throw error
                 if (!await absentOrDirectory(dist) || await absentOrDirectory(backup)) throw error
                 await promoteFiles({ dist, stage, backup, real, fresh, rename, setPhase: value => { phase = value } })
+                await removeEmptyDirectories(stage).catch(() => console.warn('Build verified; empty staging directories retained.'))
+                await pruneCompilerBackups(real).catch(() => console.warn('Build verified; unverified recovery artifacts retained.'))
                 return { dist, backup, promotion: "files" }
             }
             saved = true
@@ -186,6 +228,7 @@ async function run({ base = root, compiler = compile, rename = fs.rename, platfo
         }
         throw error
     }
+    await pruneCompilerBackups(real).catch(() => console.warn('Build verified; unverified recovery artifacts retained.'))
     return { dist, backup: saved ? backup : undefined, promotion: "directory" }
     } catch (error) {
         error.buildPhase = phase
@@ -198,7 +241,7 @@ function failureMessage(error) {
     const code = /^[A-Z0-9_]{1,30}$/.test(error.code ?? "") ? error.code : "validation"
     return `Build failed at ${phase} (${code}); artifacts retained, no files deleted.${error.recoveryFailed ? " Recovery incomplete: inspect retained trees before retrying." : ""}`
 }
-module.exports = { run, failureMessage }
+module.exports = { run, failureMessage, pruneCompilerBackups }
 if (require.main === module) run().then(result => console.log(`Fresh build stamped and verified (${result.promotion} promotion). Previous output preserved${result.backup ? ` at ${result.backup}` : "; no previous dist"}.`)).catch(error => {
     console.error(failureMessage(error))
     process.exitCode = 1

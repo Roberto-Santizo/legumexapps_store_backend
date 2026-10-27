@@ -1,6 +1,6 @@
 import Packaging from "../../features/packaging/models/Packaging.model"
 import { packagingName, packagingNames } from "./packagingName.util"
-import { buildUnitMaterialLine, buildIntermediateMaterialLine, buildPalletMaterialLine } from "../../features/quote/services/quoteCostLines"
+import { buildUnitMaterialLine, buildIntermediateMaterialLine, buildPalletMaterialLine } from "../../features/pricing/services/quoteCostLines"
 
 it.each([null, undefined, "", "   "])("falls back without changing original catalog data: %s", displayNameEn => {
     const material = { displayName: "Original name", displayNameEn }

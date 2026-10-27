@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { installFixtureProtections } from "../../../shared/test-utils/schemaFixture"
 import { join } from "node:path"
 import { createPackagingDatabase } from "../../../shared/test-utils/packagingDatabase"
 import { ownedPostgresEnabled, verifyOwnedPostgres } from "../../../shared/test-utils/ownedPostgres"
@@ -24,7 +24,7 @@ integration("packaging classification — real PostgreSQL", () => {
         await db.query(`INSERT INTO packagings(code,"displayName","packagingRole","unitCost","isActive")
             VALUES ('PRIVATE','Private','unit',0.1234,false)`)
         await db.query('INSERT INTO "productVariantUnitMaterials"("packagingId","isActive") VALUES (1,false)')
-        await db.query(readFileSync(join(__dirname, "../../../../migrations/202610120002_packaging_classification.sql"), "utf8"))
+        await installFixtureProtections(db)
     })
     afterAll(async () => {
         if (db) {
@@ -43,7 +43,7 @@ integration("packaging classification — real PostgreSQL", () => {
         await expect(db.query("UPDATE packagings SET classification='unknown' WHERE id=1")).rejects.toBeTruthy()
         await expect(db.query(`INSERT INTO packagings(code,"displayName","packagingRole") VALUES ('PRIVATE','Duplicate','unit')`)).rejects.toMatchObject({ code: "23505" })
     })
-    test.each(["productVariantUnitMaterials", "productVariantIntermediateMaterials", "productVariantPalletMaterials", "customQuotePackagingOptions"])("rejects generic assignment through %s", async table => {
+    test.each(["productVariantUnitMaterials", "productVariantIntermediateMaterials", "productVariantPalletMaterials"])("rejects generic assignment through %s", async table => {
         const { rows } = await db.query(`INSERT INTO packagings(code,"displayName","packagingRole",classification,"unitCost") VALUES ($1,'Generic','unit','generic',1.2345) RETURNING id`, [table])
         await expect(db.query(`INSERT INTO "${table}"("packagingId") VALUES ($1)`, [rows[0].id])).rejects.toMatchObject({ constraint: "packaging_generic_not_available" })
     })

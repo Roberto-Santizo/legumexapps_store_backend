@@ -14,3 +14,12 @@ export function authorize(requiredPermission: string): RequestHandler {
         next()
     }
 }
+
+// Requires the permission only when the request asks for something that needs it (e.g. optional body fields).
+export function authorizeWhen(applies: (req: Request) => boolean, requiredPermission: string): RequestHandler {
+    const check = authorize(requiredPermission)
+    return (req: Request, res: Response, next: NextFunction): void => {
+        if (applies(req)) check(req, res, next)
+        else next()
+    }
+}

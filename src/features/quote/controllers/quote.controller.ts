@@ -10,6 +10,7 @@ import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { listProductionOrders } from "../services/productionOrder.service"
 import { representativeClientService } from "../../salesperson/services/representativeClient.service"
 import { requireRepresentativeVariantAccess, requireRepresentativeOrder } from "../../quoteOrder/services/representativeQuoteAccess.service"
+import { representativeQuoteView } from "../../pricing/services/representativeQuoteView"
 
 async function productionOrders(req: Request, res: Response, next: NextFunction): Promise<void> {
     try { res.json({ data: await listProductionOrders(req.query as AdminQuoteListQuery) }) }
@@ -24,7 +25,7 @@ async function save(req: Request, res: Response, next: NextFunction): Promise<vo
         const quote = await quoteService.saveQuote(req.salesperson.id, req.body, resolveContentLanguage(req.language))
         res.status(201).json({
             message: req.t("success.created", { resource: req.t("resources.Quote") }),
-            data: quote
+            data: representativeQuoteView(quote)
         })
     } catch (error) {
         next(error)
@@ -75,6 +76,14 @@ async function destinations(_req: Request, res: Response, next: NextFunction): P
     }
 }
 
+async function representativeDestinations(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        res.json({ data: await quoteService.listRepresentativeDestinations() })
+    } catch (error) {
+        next(error)
+    }
+}
+
 async function indexAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const data = await quoteService.listAllQuotes(req.query as AdminQuoteListQuery)
@@ -116,7 +125,7 @@ async function previewAndTrackDraft(req: Request, res: Response, next: NextFunct
             }
         }
 
-        res.json({ data: calculation })
+        res.json({ data: representativeQuoteView(calculation) })
     } catch (error) {
         next(error)
     }
@@ -183,6 +192,7 @@ export const quoteController = {
     productionOrders,
     products,
     destinations,
+    representativeDestinations,
     save,
     saveAdmin,
     indexAll,

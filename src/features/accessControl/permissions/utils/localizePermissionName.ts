@@ -1,7 +1,7 @@
 import { Request } from "express"
 import Permission from "../models/Permission.model"
 
-const KNOWN_ACTIONS = new Set(["view", "create", "edit", "delete", "calculate"])
+const KNOWN_ACTIONS = new Set(["view", "create", "edit", "delete", "calculate", "review"])
 
 function localizePermissionName(req: Request, name: string, storedDescription: string | null): string | null {
     const [resource, action] = name.split(":")

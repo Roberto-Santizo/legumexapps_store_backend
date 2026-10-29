@@ -30,8 +30,8 @@ suite("initialization only on an empty owned local database",()=>{
         const flags=(await query(db,"SELECT rolsuper,rolcreatedb,rolcreaterole FROM pg_roles WHERE rolname=current_user"))[0]
         expect(flags).toEqual({rolsuper:false,rolcreatedb:false,rolcreaterole:false})
         await bootstrapDatabase(db,credentials)
-        expect((await query(db,"SELECT count(*)::int AS n FROM pg_tables WHERE schemaname='public'"))[0].n).toBe(48)
-        expect((await query(db,'SELECT count(*)::int AS n FROM permissions'))[0].n).toBe(86)
+        expect((await query(db,"SELECT count(*)::int AS n FROM pg_tables WHERE schemaname='public'"))[0].n).toBe(49)
+        expect((await query(db,'SELECT count(*)::int AS n FROM permissions'))[0].n).toBe(87)
         expect((await query(db,'SELECT count(*)::int AS n FROM units'))[0].n).toBe(10)
         await assertDatabaseReady({query:async sql=>({rows:await query(db,sql)})},db)
         const users=await query(db,'SELECT id,username,password FROM users')

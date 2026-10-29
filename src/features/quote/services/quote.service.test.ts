@@ -24,8 +24,10 @@ jest.mock("../../destination/models/Destination.model", () => ({
 }))
 jest.mock("../models/Quote.model", () => ({
     __esModule: true,
-    default: { create: jest.fn(), findAll: jest.fn() }
+    // Una línea con pedido se guarda en una transacción, bajo el bloqueo del pedido (probado en PostgreSQL).
+    default: { create: jest.fn(), findAll: jest.fn(), sequelize: { transaction: (work: (transaction: unknown) => unknown) => work("tx") } }
 }))
+jest.mock("../../quoteReview/services/quoteOrderLock", () => ({ assertQuoteOrderOpen: jest.fn() }))
 // Catálogo de costos adicionales: por defecto SIN filas activas (ver beforeEach); los tests de
 // "costos adicionales" más abajo pisan este mock.
 jest.mock("../../processingCost/models/ProcessingCost.model", () => ({
@@ -1829,7 +1831,8 @@ describe("quoteService.saveQuote", () => {
         // rawMaterialCost(200) + unitPackagingCost(20) + palletMaterialCost(0, material de $0) + transportCost(50)
         expect(saved.totalCost).toBe(270) // recalculado server-side, no 999999
         expect(mockQuoteCreate).toHaveBeenCalledWith(
-            expect.objectContaining({ salespersonId: 42, totalCost: 270, processingCostTotal: 0 })
+            expect.objectContaining({ salespersonId: 42, totalCost: 270, processingCostTotal: 0 }),
+            expect.anything()
         )
     })
 
@@ -1943,7 +1946,7 @@ describe("quoteService.saveQuote", () => {
         expect(saved.breakdown.processingCosts).toEqual([
             expect.objectContaining({ processingCostId: 1, lineTotal: 1 })
         ])
-        expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ processingCostTotal: 1 }))
+        expect(mockQuoteCreate).toHaveBeenCalledWith(expect.objectContaining({ processingCostTotal: 1 }), expect.anything())
     })
 
     it("una cotización ya guardada NO cambia retroactivamente cuando el catálogo de costos adicionales se edita/desactiva después (el snapshot queda congelado)", async () => {
@@ -2173,17 +2176,18 @@ describe("quoteService.listQuotableProducts", () => {
 
             const [result] = await quoteService.listQuotableProducts()
 
+            // Sin unitCost: el menú de opciones nunca expone el costo del empaque (lo ve el representante).
             expect(result.variants[0].palletMaterialOptionGroups).toEqual([
                 {
                     group: "Caja",
                     options: [
-                        { id: 601, packagingId: 22, displayName: "Caja de envío", unitCost: 4, isDefault: true },
-                        { id: 602, packagingId: 23, displayName: "Caja de estante", unitCost: 9, isDefault: false }
+                        { id: 601, packagingId: 22, displayName: "Caja de envío", isDefault: true },
+                        { id: 602, packagingId: 23, displayName: "Caja de estante", isDefault: false }
                     ]
                 },
                 {
                     group: "Esquinero",
-                    options: [{ id: 603, packagingId: 24, displayName: "Esquinero de cartón", unitCost: 0.5, isDefault: true }]
+                    options: [{ id: 603, packagingId: 24, displayName: "Esquinero de cartón", isDefault: true }]
                 }
             ])
         })

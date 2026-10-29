@@ -1,16 +1,11 @@
 import { adminQuoteListQuerySchema } from "../schemas/adminQuoteList.schema"
 import { Router } from "express"
-import multer from "multer"
 import { quoteController } from "../controllers/quote.controller"
 import { validate } from "../../../shared/middlewares/validate"
+import { quotePdfUpload } from "../../../shared/middlewares/quotePdfUpload"
 import { authenticate } from "../../../shared/middlewares/authenticate"
 import { authorize } from "../../../shared/middlewares/authorize"
 import { adminSaveQuoteSchema, adminSendQuotePdfEmailSchema, calculateQuoteSchema } from "../schemas/quote.schema"
-
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 },
-})
 
 const adminQuoteRouter = Router()
 
@@ -27,7 +22,7 @@ adminQuoteRouter.post("/", authorize("quotes:calculate"), validate(adminSaveQuot
 adminQuoteRouter.post(
     "/send-email",
     authorize("quotes:calculate"),
-    upload.single("file"),
+    quotePdfUpload,
     validate(adminSendQuotePdfEmailSchema),
     quoteController.sendAdminPdfEmail
 )

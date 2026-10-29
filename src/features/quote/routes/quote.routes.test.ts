@@ -41,6 +41,22 @@ const app = buildTestApp("/api/quotes", quoteRouter)
 const salespersonToken = jwt.sign({ sub: 42, type: "customer" }, "test-secret")
 const staffToken = jwt.sign({ sub: 1, type: "staff", roleId: 1, roleName: "Admin", permissions: ["*"] }, "test-secret")
 
+// Cálculo completo, con montos, tal como lo devuelve el motor: las rutas del representante deben
+// responder la vista sin montos (pricing/services/representativeQuoteView.ts).
+function calculationWith(totalCost: number, extra: Record<string, unknown> = {}) {
+    return {
+        productVariantId: 10, destinationId: null, productDisplayName: "Piña", variantLabel: "PIN-1 · 1 lb", requestedPallets: 1, totalUnits: 100, boxesPerPallet: 10,
+        rawMaterialCost: totalCost, ingredientCost: 0, unitPackagingCost: 0, intermediatePackagingCost: 0, processingCostTotal: 0, palletMaterialCost: 0,
+        percentageCostTotal: 0, transportCost: 0, adjustmentCost: 0, totalCost,
+        breakdown: {
+            rawMaterials: [{ rawMaterialId: 1, displayName: "Piña", percentage: 100, gramsPerUnit: 453.59237, quantityUnit: "LIBRA", unitCost: totalCost / 100, quantityPerUnit: 1, totalUnits: 100, lineTotal: totalCost }],
+            ingredients: [], unitMaterials: [], intermediateMaterials: [], processingCosts: [], palletMaterials: [], percentageCosts: [],
+            transport: { destinationId: null, displayName: "Sin destino", baseCost: 0 }, adjustment: null, language: "es",
+        },
+        ...extra,
+    }
+}
+
 const validQuoteBody = {
     productVariantId: 10,
     destinationId: 900,
@@ -85,7 +101,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("201 sin ningún dato de prospecto -- guardar ya no exige leadContact (2026-09-21, desacople Quote <-> Lead)", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 6, totalCost: 100 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(100, { id: 6 }))
 
             const res = await request(app)
                 .post("/api/quotes")
@@ -97,7 +113,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("un leadContact/leadId que llegue en el body se descarta -- nunca se reenvía al service", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 7, totalCost: 100 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(100, { id: 7 }))
 
             await request(app)
                 .post("/api/quotes")
@@ -108,7 +124,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("201 al guardar, usando el id del cliente autenticado (no uno que mande el body)", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 5, totalCost: 284 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(284, { id: 5 }))
 
             const res = await request(app)
                 .post("/api/quotes")
@@ -116,7 +132,8 @@ describe("quoteRouter (HTTP)", () => {
                 .send({ ...validQuoteBody, salespersonId: 999 }) // intento de suplantar a otro representante
 
             expect(res.status).toBe(201)
-            expect(res.body.data).toEqual({ id: 5, totalCost: 284 })
+            expect(res.body.data).toMatchObject({ id: 5, productDisplayName: "Piña", totalUnits: 100 })
+            expect(res.body.data).not.toHaveProperty("totalCost")
             // 42 viene del JWT (salespersonToken), no del 999 que mandó el body -- salespersonId ni
             // siquiera es un campo del schema, así que zod ya lo habría descartado igual. El
             // tercer argumento es el idioma resuelto de Accept-Language (ver
@@ -125,7 +142,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("201 y reenvía al service las selecciones de materiales por nivel (arrays, un id por grupo -- 2026-09-24)", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 6, totalCost: 300 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(300, { id: 6 }))
             const body = {
                 productVariantId: 10,
                 requestedPallets: 2,
@@ -151,7 +168,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("los campos viejos de id único (selectedXMaterialId) ya no existen en el contrato -- se descartan, nunca llegan al service", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 7, totalCost: 1 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(1, { id: 7 }))
 
             await request(app)
                 .post("/api/quotes")
@@ -190,7 +207,7 @@ describe("quoteRouter (HTTP)", () => {
 
     describe("POST /preview -- recalculo en vivo: calcula pero NUNCA guarda", () => {
         it("200 con el cálculo del service, y jamás llama a saveQuote -- mismo contrato que /admin/quotes/preview", async () => {
-            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 })
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculationWith(284))
 
             const res = await request(app)
                 .post("/api/quotes/preview")
@@ -198,12 +215,13 @@ describe("quoteRouter (HTTP)", () => {
                 .send({ productVariantId: 10, requestedPallets: 1 })
 
             expect(res.status).toBe(200)
-            expect(res.body).toEqual({ data: { totalCost: 284 } })
+            expect(res.body.data).toMatchObject({ productVariantId: 10, requestedPallets: 1, totalUnits: 100 })
+            expect(JSON.stringify(res.body)).not.toMatch(/Cost|lineTotal|baseAmount/)
             expect(quoteService.saveQuote).not.toHaveBeenCalled()
         })
 
         it("es solo un cálculo -- nada se persiste, y tampoco acepta ni necesita datos de prospecto", async () => {
-            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 100 })
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculationWith(100))
 
             const res = await request(app)
                 .post("/api/quotes/preview")
@@ -214,7 +232,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("acepta las selecciones de materiales por nivel (arrays) y se las pasa tal cual a calculateQuote", async () => {
-            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 150 })
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculationWith(150))
             const body = { productVariantId: 10, requestedPallets: 1, selectedUnitMaterialIds: [501, 504], selectedPalletMaterialIds: [604] }
 
             const res = await request(app).post("/api/quotes/preview").set("Authorization", `Bearer ${salespersonToken}`).send(body)
@@ -244,7 +262,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("preview con draftKey: calcula sin la clave y DESPUÉS registra el borrador del representante del JWT", async () => {
-            const calculation = { productVariantId: 10, totalCost: 284 };
+            const calculation = calculationWith(284);
             (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculation);
             (quoteDraftService.upsertFromCalculation as jest.Mock).mockResolvedValue(undefined)
 
@@ -254,8 +272,9 @@ describe("quoteRouter (HTTP)", () => {
                 .send({ ...calcBody, draftKey: DRAFT_KEY })
 
             expect(res.status).toBe(200)
-            expect(res.body).toEqual({ data: calculation }) // misma respuesta que sin borrador
+            expect(res.body.data).not.toHaveProperty("totalCost") // misma respuesta que sin borrador: sin montos
             expect(quoteService.calculateQuote).toHaveBeenCalledWith(calcBody, "es")
+            // El borrador (solo admin) sí guarda el cálculo completo, con montos.
             expect(quoteDraftService.upsertFromCalculation).toHaveBeenCalledWith(42, DRAFT_KEY, calcBody, calculation)
             const calcOrder = (quoteService.calculateQuote as jest.Mock).mock.invocationCallOrder[0]
             const draftOrder = (quoteDraftService.upsertFromCalculation as jest.Mock).mock.invocationCallOrder[0]
@@ -276,7 +295,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("preview sin draftKey (frontend viejo) no escribe nada", async () => {
-            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 1 })
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculationWith(1))
 
             const res = await request(app)
                 .post("/api/quotes/preview")
@@ -288,7 +307,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("si la escritura del borrador falla, igual devuelve 200 con el cálculo (el total en vivo nunca se rompe)", async () => {
-            (quoteService.calculateQuote as jest.Mock).mockResolvedValue({ totalCost: 284 });
+            (quoteService.calculateQuote as jest.Mock).mockResolvedValue(calculationWith(284));
             (quoteDraftService.upsertFromCalculation as jest.Mock).mockRejectedValue(new Error("db down"))
             const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
 
@@ -298,7 +317,7 @@ describe("quoteRouter (HTTP)", () => {
                 .send({ ...calcBody, draftKey: DRAFT_KEY })
 
             expect(res.status).toBe(200)
-            expect(res.body).toEqual({ data: { totalCost: 284 } })
+            expect(res.body.data).toMatchObject({ productVariantId: 10, totalUnits: 100 })
             consoleErrorSpy.mockRestore()
         })
 
@@ -314,7 +333,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("guardar reenvía el draftKey al service (que marca el borrador convertido)", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 9, totalCost: 284 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(284, { id: 9 }))
 
             const res = await request(app)
                 .post("/api/quotes")
@@ -326,7 +345,7 @@ describe("quoteRouter (HTTP)", () => {
         })
 
         it("guardar sin draftKey se comporta igual que antes (el body llega sin la clave)", async () => {
-            (quoteService.saveQuote as jest.Mock).mockResolvedValue({ id: 10, totalCost: 284 })
+            (quoteService.saveQuote as jest.Mock).mockResolvedValue(calculationWith(284, { id: 10 }))
 
             const res = await request(app)
                 .post("/api/quotes")

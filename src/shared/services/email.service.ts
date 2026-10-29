@@ -20,32 +20,47 @@ interface EmailAttachment {
     contentType: string
 }
 
-interface SendMailWithAttachmentInput {
-    to: string
+interface SendMailInput {
+    to: string | string[]
     subject: string
     textBody: string
+}
+
+interface SendMailWithAttachmentInput extends SendMailInput {
+    to: string
+    cc?: string[]
     attachment: EmailAttachment
 }
 
-
-async function sendMailWithAttachment(input: SendMailWithAttachmentInput): Promise<void> {
-    await graphClient.api(`/users/${env.noreplyUser}/sendMail`).post({
+function postMessage(input: SendMailInput & { cc?: string[] }, attachments?: object[]): Promise<void> {
+    return graphClient.api(`/users/${env.noreplyUser}/sendMail`).post({
         message: {
             subject: input.subject,
             body: { contentType: "Text", content: input.textBody },
-            toRecipients: [{ emailAddress: { address: input.to } }],
-            attachments: [
-                {
-                    "@odata.type": "#microsoft.graph.fileAttachment",
-                    name: input.attachment.fileName,
-                    contentType: input.attachment.contentType,
-                    contentBytes: input.attachment.buffer.toString("base64"),
-                },
-            ],
+            toRecipients: [input.to].flat().map(address => ({ emailAddress: { address } })),
+            ...(input.cc?.length ? { ccRecipients: input.cc.map(address => ({ emailAddress: { address } })) } : {}),
+            ...(attachments ? { attachments } : {}),
         },
     })
 }
 
+async function sendMailWithAttachment(input: SendMailWithAttachmentInput): Promise<void> {
+    await postMessage(input, [
+        {
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            name: input.attachment.fileName,
+            contentType: input.attachment.contentType,
+            contentBytes: input.attachment.buffer.toString("base64"),
+        },
+    ])
+}
+
+// Sin adjunto, a uno o varios destinatarios (p. ej. el aviso de revisión gerencial).
+async function sendMail(input: SendMailInput): Promise<void> {
+    await postMessage(input)
+}
+
 export const emailService = {
+    sendMail,
     sendMailWithAttachment,
 }

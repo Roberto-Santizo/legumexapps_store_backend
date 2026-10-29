@@ -1,5 +1,6 @@
 jest.mock("../../genericPackaging/services/genericPackaging.service", () => ({ loadGenericProfiles: jest.fn() }))
 import { loadGenericProfiles } from "../../genericPackaging/services/genericPackaging.service"
+import { assertQuoteOrderOpen } from "../../quoteReview/services/quoteOrderLock"
 jest.mock("../../juice/models/Juice.model", () => ({ __esModule: true, default: { findAll: jest.fn().mockResolvedValue([]) } }))
 jest.mock("../../product/models/Product.model", () => ({ __esModule: true, default: { findAll: jest.fn(), create: jest.fn() } }))
 jest.mock("../../ingredient/models/Ingredient.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn() } }))
@@ -9,6 +10,8 @@ jest.mock("../../rawMaterial/models/RawMaterial.model", () => ({ __esModule: tru
 jest.mock("../../palletKit/services/palletKit.service", () => ({ ...jest.requireActual("../../palletKit/services/palletKit.service"), loadPalletKit: jest.fn() }))
 jest.mock("../../processingCost/models/ProcessingCost.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 jest.mock("../models/CustomQuote.model", () => ({ __esModule: true, default: { findOne: jest.fn(), create: jest.fn(), sequelize: { transaction: jest.fn(), query: jest.fn() } } }))
+// Bloqueo y estado del pedido (pedido aprobado = 409): probados contra PostgreSQL real.
+jest.mock("../../quoteReview/services/quoteOrderLock", () => ({ assertQuoteOrderOpen: jest.fn() }))
 jest.mock("../../lead/models/Lead.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
 jest.mock("../../quote/models/Quote.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
 jest.mock("../../quoteDraft/models/QuoteDraft.model", () => ({ __esModule: true, default: { create: jest.fn(), upsert: jest.fn() } }))
@@ -30,7 +33,7 @@ import Salesperson from "../../salesperson/models/Salesperson.model"
 import { catalogQuoteInputSchema } from "../schemas/catalogQuote.schema"
 import { discoverCatalog } from "./catalogQuoteDiscovery.service"
 import { calculateCatalogQuote, previewCatalogQuote, confirmCatalogQuote, previewAdminCatalogQuote } from "./catalogQuote.service"
-import type { Transaction } from "sequelize"
+import { Transaction } from "sequelize"
 
 const mock = (fn: unknown) => fn as jest.Mock
 const input = catalogQuoteInputSchema.parse({ categoryId: 1, subCategoryId: 3, configurationId: 5, ingredientType: "fruit", requestedPallets: 2, packagingSelections: [{ groupId: 3, optionIds: [31] }], rawMaterialMix: [{ rawMaterialId: 1, percentage: 50 }, { rawMaterialId: 2, percentage: 50 }] })
@@ -179,6 +182,23 @@ it("confirms snapshot, removes internal source data from client and retries idem
     const retry = await confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key }, "en")
     expect(retry.id).toBe(confirmed.id); expect(CustomQuote.create).toHaveBeenCalledTimes(1)
 })
+it("the representative never receives an amount: preview, confirmation and retry; the saved snapshot and the admin calculator keep every cost", async () => {
+    const amountKeys = (value: unknown, path = ""): string[] => !value || typeof value !== "object" ? [] : Object.entries(value).flatMap(([key, child]) =>
+        [...(/cost|total$|lineTotal|baseAmount|value$/i.test(key) && !/^(totalUnits|totalBoxes|totalWeightGrams|totalQuantity|quantityValue)$/.test(key) ? [`${path}${key}`] : []), ...amountKeys(child, `${path}${key}.`)])
+    const preview = await previewCatalogQuote(42, input, "en")
+    const confirmed = await confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key }, "en")
+    const saved = mock(CustomQuote.create).mock.calls[0][0]
+    mock(CustomQuote.findOne).mockResolvedValue({ toJSON: () => ({ ...saved, id: 88, createdAt: new Date() }) })
+    const retry = await confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key }, "en")
+    for (const result of [preview, confirmed, retry]) {
+        expect(amountKeys(result)).toEqual([])
+        expect(result).toMatchObject({ totalUnits: 480, configuration: { rawMaterialMix: input.rawMaterialMix, snapshot: { quantity: { totalUnits: 480 } } } })
+        expect(result.breakdown.palletMaterials.length).toBeGreaterThan(0)
+    }
+    expect(saved.totalCost).toBeGreaterThan(0)
+    expect(saved.configuration.snapshot.costs.totalCost).toBe(saved.totalCost)
+    expect((await previewAdminCatalogQuote(input, "en")).totalCost).toBe(saved.totalCost)
+})
 it("persists mixed order identity and rejects retries that change its customer", async () => {
     const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientName: "Customer A" }
     const preview = await previewCatalogQuote(42, input, "en")
@@ -186,6 +206,12 @@ it("persists mixed order identity and rejects retries that change its customer",
     const saved = mock(CustomQuote.create).mock.calls[0][0]
     expect(saved.breakdown.order).toEqual(order)
     expect(saved.breakdown.production).toMatchObject({ kind: "customizable" })
+    // The line is stored only after checking that its order is still open.
+    expect(assertQuoteOrderOpen).toHaveBeenCalledWith(order.id, expect.anything())
+    expect(mock(assertQuoteOrderOpen).mock.invocationCallOrder[0]).toBeLessThan(mock(CustomQuote.create).mock.invocationCallOrder[0])
+    // READ COMMITTED: the order check must see an approval committed while it waited for the order lock.
+    expect(mock(CustomQuote.sequelize!.transaction).mock.calls.at(-1)?.[0]).toEqual({ isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED })
+    expect(mock(CustomQuote.sequelize!.transaction).mock.calls[0][0]).toEqual({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ })
     mock(CustomQuote.findOne).mockResolvedValue({ toJSON: () => ({ ...saved, id: 88, createdAt: new Date() }) })
     await expect(confirmCatalogQuote(42, { input, previewToken: preview.previewToken, confirmationKey: key, order: { ...order, clientName: "Customer B" } }, "en")).rejects.toMatchObject({ statusCode: 409 })
     expect(CustomQuote.create).toHaveBeenCalledTimes(1)

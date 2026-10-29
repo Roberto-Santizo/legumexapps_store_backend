@@ -48,7 +48,7 @@ suite("additive model synchronization on owned PostgreSQL", () => {
             await synchronizeDevelopment(db,"development")
             await runSeeders(db)
             expect(await rows(db,'SELECT * FROM users')).toEqual(before)
-            expect((await rows(db,'SELECT count(*)::int AS count FROM permissions'))[0].count).toBe(86)
+            expect((await rows(db,'SELECT count(*)::int AS count FROM permissions'))[0].count).toBe(87)
             expect((await rows(db,'SELECT count(*)::int AS count FROM units'))[0].count).toBe(10)
             expect((await rows(db,"SELECT count(*)::int AS count FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal"))[0].count).toBe(schemaTriggers.length)
             await expect(synchronizeDevelopment(db,"production")).rejects.toThrow('development-only')

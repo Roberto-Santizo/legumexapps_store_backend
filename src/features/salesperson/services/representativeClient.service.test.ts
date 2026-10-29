@@ -14,11 +14,11 @@ beforeEach(() => {
     ;(Salesperson.findOne as jest.Mock).mockResolvedValue({ id: 1, isActive: true })
     ;(Client.findAll as jest.Mock).mockResolvedValue([{ id: 2, isActive: true }, { id: 3, isActive: true }])
     ;(Client.findByPk as jest.Mock).mockResolvedValue({ id: 2 })
-    ;(RepresentativeClient.findAll as jest.Mock).mockResolvedValue([{ client: { id: 2, name: "Client", isActive: true } }])
+    ;(RepresentativeClient.findAll as jest.Mock).mockResolvedValue([{ client: { id: 2, name: "Client", email: null, isActive: true } }])
 })
 
 test("lists assigned clients without leaking account fields", async () => {
-    expect(await service.list(1)).toEqual([{ id: 2, name: "Client", isActive: true }])
+    expect(await service.list(1)).toEqual([{ id: 2, name: "Client", email: null, isActive: true }])
     expect(RepresentativeClient.findAll).toHaveBeenCalledWith(expect.objectContaining({ where: { representativeId: 1 } }))
 })
 test("missing representative fails before reading assignments", async () => {
@@ -45,7 +45,7 @@ test("all-clients assignment resolves active clients on the server without the m
 
 test("assigning all with no active clients preserves existing assignments",async()=>{
     ;(Client.findAll as jest.Mock).mockResolvedValue([])
-    expect(await service.assignAll(1)).toEqual([{id:2,name:'Client',isActive:true}])
+    expect(await service.assignAll(1)).toEqual([{id:2,name:'Client',email:null,isActive:true}])
     expect(RepresentativeClient.bulkCreate).not.toHaveBeenCalled()
 })
 test.each([

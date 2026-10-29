@@ -200,6 +200,10 @@
     "bulk_import_product_ingredients_already_exist": "El producto \"{{productSku}}\" ya tiene ingredientes. Este importador solo crea ingredientes nuevos -- edítalos desde la pantalla del producto.",
     "quote_client_required": "Selecciona un cliente autorizado para esta cotización.",
     "quote_pdf_missing_file": "Debes adjuntar el PDF de la cotización.",
+    "quote_review_order_not_found": "No se encontró el pedido para revisión.",
+    "quote_review_changed": "El pedido cambió desde que lo abriste. Recarga la revisión antes de aprobarla.",
+    "quote_review_already_approved": "Este pedido ya fue aprobado; para cambiarlo hay que crear un pedido nuevo.",
+    "quote_review_foreign_order": "Este pedido pertenece a un representante y debe pasar por la revisión gerencial.",
     "quote_pdf_invalid_file_type": "El archivo adjunto debe ser un PDF.",
     "invalid_unit_material_selection": "El material de empaque individual seleccionado no es una alternativa válida para este SKU.",
     "invalid_intermediate_material_selection": "El material de empaque intermedio seleccionado no es una alternativa válida para este SKU.",
@@ -281,6 +285,8 @@
     "packaging_consumption_defaults": "Configure ambos campos de consumo o deje ambos vacíos; solamente aplican a paletización.",
     "packaging_consumption_missing": "El material {{code}} no tiene configurada su regla de consumo en el catálogo de materiales de empaque.",
     "pallet_consumption_invalid": "Indique forma de consumo y cantidad positiva con máximo dos decimales.",
+    "profit_per_pound_invalid": "Ingresa un monto por libra válido: de 0 a {{max}} USD, con máximo cuatro decimales.",
+    "profit_net_weight_missing": "La cotización no tiene peso neto por unidad, así que no se puede calcular la ganancia por libra.",
     "pallet_boxes_required": "La variante debe tener un número válido de cajas por pallet.",
     "catalog_quote_context_invalid": "Categoría/subcategoría inválida.",
     "catalog_quote_configuration_invalid": "La configuración ya no est? disponible.",
@@ -318,7 +324,20 @@
     "pallet_kit_choice": "Elige qué material del kit de paletizado usar (por ejemplo, el tipo de esquinero).",
     "pallet_kit_selection": "La elección del kit de paletizado no es válida para ese tipo.",
     "product_variant_pallet_kit_conflict": "Este SKU todavía tiene tarima, esquineros o stretch propios: quítalos antes de activar el kit de paletizado.",
-    "pallet_material_in_kit": "Este SKU usa el kit de paletizado: la tarima, los esquineros y el stretch ya se suman por pallet. Desactiva el kit en el SKU si necesita uno distinto."
+    "pallet_material_in_kit": "Este SKU usa el kit de paletizado: la tarima, los esquineros y el stretch ya se suman por pallet. Desactiva el kit en el SKU si necesita uno distinto.",
+    "quote_review_not_approved": "Este pedido todavía no está aprobado.",
+    "quote_review_no_client_email": "Este pedido no tiene correo del cliente.",
+    "quote_review_client_email_already_sent": "La cotización ya se envió al cliente o se está enviando."
+  },
+  "quoteReview": {
+    "email": {
+      "subject": "Cotización pendiente de revisión: {{- clientName}}",
+      "body": "Hola,\n\n{{- salespersonName}} envió a revisión gerencial un pedido para {{- clientName}} ({{count}} producto(s)).\n\nPara revisar los costos y definir la ganancia por libra, inicia sesión en el panel de administración:\n{{- link}}\n\nEste correo no incluye costos ni precios.\n\nLegumex"
+    },
+    "clientEmail": {
+      "subject": "Cotización Legumex: {{- clientName}}",
+      "body": "Dear {{- clientName}},\n\nPlease find attached the quote requested for {{- clientName}}.\n\nIf you have any questions, your representative {{- salespersonName}} (copied) will be glad to help.\n\nBest regards,\nLegumex"
+    }
   },
   "success": {
     "representative_clients_updated": "Asignaciones de clientes actualizadas.",
@@ -329,6 +348,8 @@
     "deactivated": "{{resource}} desactivado correctamente",
     "bulk_imported": "Se importaron {{count}} registros correctamente.",
     "quote_pdf_email_sent": "El correo se envió correctamente.",
+    "quote_review_submitted": "El pedido se envió a revisión gerencial.",
+    "quote_review_approved": "La revisión se aprobó y el precio final quedó calculado.",
     "raw_material_transformation_processed": "Materia prima procesada {{code}}: USD {{cost}} por libra.",
     "pallet_kit_updated": "Kit de paletizado actualizado."
   },
@@ -374,7 +395,8 @@
     "create": "Crear",
     "edit": "Editar",
     "delete": "Eliminar",
-    "calculate": "Calcular"
+    "calculate": "Calcular",
+    "review": "Revisar"
   },
   "resourcePlurals": {
     "genericPackaging": "Empaques genéricos",

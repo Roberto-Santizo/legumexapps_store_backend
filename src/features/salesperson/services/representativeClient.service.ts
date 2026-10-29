@@ -19,10 +19,10 @@ async function assignedClients(representativeId: number, transaction?: Transacti
     const rows = await RepresentativeClient.findAll({
         where: { representativeId }, transaction,
         include: [{ model: Client, as: "client", required: true,
-            attributes: ["id", "name", "isActive"], ...(activeOnly ? { where: { isActive: true } } : {}) }],
+            attributes: ["id", "name", "email", "isActive"], ...(activeOnly ? { where: { isActive: true } } : {}) }],
         order: [[{ model: Client, as: "client" }, "name", "ASC"], ["clientId", "ASC"]],
     })
-    return rows.map(row => ({ id: row.client.id, name: row.client.name, isActive: row.client.isActive }))
+    return rows.map(row => ({ id: row.client.id, name: row.client.name, email: row.client.email, isActive: row.client.isActive }))
 }
 
 async function list(representativeId: number) {

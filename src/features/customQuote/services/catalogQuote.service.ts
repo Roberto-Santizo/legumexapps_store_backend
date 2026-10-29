@@ -9,12 +9,14 @@ import { ContentLanguage, pickTranslatedName } from "../../../shared/utils/trans
 import { sumMoney, toDecimal } from "../../../shared/utils/money.util"
 import { buildCustomizableRawMaterials, buildUnitMaterialLine, buildIntermediateMaterialLine, buildPalletMaterialLine, buildPerWeightProcessingCostLines, assembleQuoteTotals } from "../../pricing/services/quoteCostLines"
 import { type GroupedMaterialRow } from "../../pricing/services/quoteMaterialSelection"
+import { representativeBreakdown } from "../../pricing/services/representativeQuoteView"
 import type Packaging from "../../packaging/models/Packaging.model"
 import CustomQuote from "../models/CustomQuote.model"
 import type { CatalogQuoteInput } from "../schemas/catalogQuote.schema"
 import { eligibleRawMaterials, loadCatalogContext, subCategoryComposition } from "./catalogQuoteDiscovery.service"
 import { digest } from "../../../shared/utils/digest.util"
 import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
+import { assertQuoteOrderOpen } from "../../quoteReview/services/quoteOrderLock"
 
 const decimalString = (value: number | string | null | undefined) => toDecimal(value).toString()
 
@@ -131,13 +133,40 @@ function publicResult(calculation: Calculation & { confirmationKey?: string; con
     const { source: _audit, ...snapshot } = result.configuration.snapshot
     return { ...result, configuration: { ...result.configuration, snapshot } }
 }
+// Lo que recibe el representante: publicResult sin ningún monto (ver
+// pricing/services/representativeQuoteView.ts). configuration y su snapshot conservan lo que se
+// cotiza; snapshot.costs y los costos por línea no viajan.
+function representativeResult(calculation: Calculation) {
+    const result = publicResult(calculation)
+    const { snapshot } = result.configuration
+    return {
+        configurationOrigin: result.configurationOrigin, snapshotVersion: result.snapshotVersion, subCategoryId: result.subCategoryId, presentationId: result.presentationId,
+        bagsPerBox: result.bagsPerBox, unitsPerIntermediatePackage: result.unitsPerIntermediatePackage, destinationId: result.destinationId,
+        productDisplayName: result.productDisplayName, variantLabel: result.variantLabel, requestedPallets: result.requestedPallets, totalUnits: result.totalUnits, boxesPerPallet: result.boxesPerPallet,
+        configuration: {
+            subCategoryId: result.configuration.subCategoryId, presentationId: result.configuration.presentationId, requestedPallets: result.configuration.requestedPallets,
+            destinationId: result.configuration.destinationId, rawMaterialMix: result.configuration.rawMaterialMix, ingredients: result.configuration.ingredients,
+            pallet: result.configuration.pallet, packaging: result.configuration.packaging,
+            snapshot: {
+                schemaVersion: snapshot.schemaVersion, kind: snapshot.kind, language: snapshot.language, productDisplayName: snapshot.productDisplayName,
+                ...((snapshot as { capturedAt?: string }).capturedAt ? { capturedAt: (snapshot as { capturedAt?: string }).capturedAt } : {}),
+                category: snapshot.category, subCategory: snapshot.subCategory, ingredientType: snapshot.ingredientType, compositionMode: snapshot.compositionMode,
+                presentation: snapshot.presentation, logistics: snapshot.logistics, quantity: snapshot.quantity, calculationVersion: snapshot.calculationVersion,
+                rawMaterials: snapshot.rawMaterials.map(line => ({ rawMaterialId: line.rawMaterialId, displayName: line.displayName, percentage: line.percentage, gramsPerUnit: line.gramsPerUnit, totalQuantity: line.totalQuantity })),
+                packaging: snapshot.packaging.map(row => ({ packagingId: row.packagingId, displayName: row.displayName, displayNameEn: row.displayNameEn, level: row.level, optionGroupId: row.optionGroupId,
+                    optionGroup: row.optionGroup, selectionOrigin: row.selectionOrigin, quantityBasis: row.quantityBasis, quantityValue: row.quantityValue, effectiveQuantity: row.effectiveQuantity })),
+            },
+        },
+        breakdown: representativeBreakdown(result.breakdown),
+    }
+}
 function inputDigest(input: CatalogQuoteInput) {
     return digest(canonicalInput(input))
 }
-async function consistent<T>(work: (transaction: Transaction) => Promise<T>) {
+async function consistent<T>(work: (transaction: Transaction) => Promise<T>, isolationLevel = Transaction.ISOLATION_LEVELS.REPEATABLE_READ) {
     if (!CustomQuote.sequelize) return failure("unavailable", 503)
     for (let attempt = 0; ; attempt++) {
-        try { return await CustomQuote.sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ }, work) }
+        try { return await CustomQuote.sequelize.transaction({ isolationLevel }, work) }
         catch (error) {
             const code = (error as { original?: { code?: string; constraint?: string } }).original
             if (attempt >= 2 || !(code?.code === "40001" || (code?.code === "23505" && code.constraint === "customQuotes_confirmation_unique"))) throw error
@@ -153,7 +182,7 @@ export async function previewCatalogQuote(salespersonId: number, input: CatalogQ
     return consistent(async transaction => {
         const calculation = await calculateCatalogQuote(input, language, transaction)
         const previewToken = jwt.sign({ purpose: "catalog-quote-preview", salespersonId, inputHash: inputDigest(input), version: calculation.configuration.snapshot.calculationVersion, language }, secret(), { algorithm: "HS256", expiresIn: "30m", audience: "catalog-quote-confirm" })
-        return { ...publicResult(calculation), previewToken }
+        return { ...representativeResult(calculation), previewToken }
     })
 }
 
@@ -165,6 +194,10 @@ export async function confirmCatalogQuote(salespersonId: number, request: { inpu
         claims = value
     } catch { return failure("preview_invalid", 409) }
     if (claims.purpose !== "catalog-quote-preview" || claims.salespersonId !== salespersonId || claims.inputHash !== inputDigest(request.input) || claims.language !== language) return failure("preview_invalid", 409)
+    // READ COMMITTED, no REPEATABLE READ: el estado del pedido se lee después de tomar su bloqueo y debe
+    // ver una revisión creada o aprobada mientras se esperaba (ver assertQuoteOrderOpen). El cálculo
+    // sigue protegido: solo se guarda si su versión (que resume el snapshot y todas sus dependencias)
+    // coincide con la del preview, calculado en REPEATABLE READ; una lectura mezclada no coincide → 409.
     return consistent(async transaction => {
         // Serialize concurrent retries for the same representative/key; no persistent preview rows.
         await CustomQuote.sequelize!.query("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))", { replacements: { key: `${salespersonId}:${request.confirmationKey}` }, transaction })
@@ -173,8 +206,9 @@ export async function confirmCatalogQuote(salespersonId: number, request: { inpu
             const saved = existing.toJSON() as Calculation & { id: number; status: string; createdAt: Date; confirmationRequestHash?: string }
             if (saved.confirmationRequestHash !== claims.inputHash) return failure("preview_invalid", 409)
             if (JSON.stringify(saved.breakdown.order) !== JSON.stringify(request.order)) return failure("preview_invalid", 409)
-            return { ...publicResult(saved), id: saved.id, status: saved.status, createdAt: saved.createdAt }
+            return { ...representativeResult(saved), id: saved.id, status: saved.status, createdAt: saved.createdAt }
         }
+        if (request.order) await assertQuoteOrderOpen(request.order.id, transaction)
         let calculation: Calculation
         try { calculation = await calculateCatalogQuote(request.input, language, transaction) }
         catch (error) { if (error instanceof AppError && (error.statusCode === 422 || error.statusCode === 404)) return failure("changed", 409); throw error }
@@ -182,6 +216,6 @@ export async function confirmCatalogQuote(salespersonId: number, request: { inpu
         calculation.breakdown.order = request.order
         const row = await CustomQuote.create({ ...calculation, configuration: { ...calculation.configuration, snapshot: { ...calculation.configuration.snapshot, capturedAt: new Date().toISOString() } },
             salespersonId, status: "new", confirmationKey: request.confirmationKey, confirmationRequestHash: claims.inputHash }, { transaction })
-        return { ...publicResult({ ...calculation, configuration: row.configuration as Calculation["configuration"] }), id: row.id, status: row.status, createdAt: row.get("createdAt") }
-    })
+        return { ...representativeResult({ ...calculation, configuration: row.configuration as Calculation["configuration"] }), id: row.id, status: row.status, createdAt: row.get("createdAt") }
+    }, Transaction.ISOLATION_LEVELS.READ_COMMITTED)
 }

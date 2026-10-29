@@ -23,6 +23,14 @@ class Client extends BaseCatalogModel {
     })
     declare name: string
 
+    // Correo al que se envía la cotización aprobada. El representante lo agrega desde el pedido si falta;
+    // un pedido puede ir a otro correo sin cambiar este (ver quoteOrderReviews.clientEmail).
+    @Column({
+        type: DataType.STRING(254),
+        allowNull: true
+    })
+    declare email: string | null
+
     @HasMany(() => Product, "clientId")
     declare products: Product[]
 }

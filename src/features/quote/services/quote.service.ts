@@ -3,6 +3,7 @@ import { packagingNames, packagingName } from "../../../shared/utils/packagingNa
 import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
 import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
 import { Op } from "sequelize"
+import type { Transaction } from "sequelize"
 import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
 import Client from "../../client/models/Client.model"
@@ -31,6 +32,7 @@ import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { CalculateQuoteInput, SalespersonQuoteInput } from "../schemas/quote.schema"
 import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
+import { assertQuoteOrderOpen } from "../../quoteReview/services/quoteOrderLock"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, sumMoney } from "../../../shared/utils/money.util"
 import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
@@ -402,7 +404,6 @@ interface QuotableMaterialOption {
     packagingId: number
     displayName: string
     displayNameEn?: string | null
-    unitCost: number
     isDefault: boolean
 }
 
@@ -426,7 +427,6 @@ function buildMaterialOptionGroups<T extends GroupedMaterialRow & { packagingId:
             id: row.id as number,
             packagingId: row.packagingId,
             ...packagingNames(packagingOf(row)),
-            unitCost: Number(packagingOf(row)?.unitCost ?? 0),
             isDefault: row.isDefault
         }))
     }))
@@ -601,6 +601,11 @@ async function listQuoteDestinations(): Promise<Destination[]> {
     return Destination.findAll({ where: { isActive: true }, order: [["displayName", "ASC"]] })
 }
 
+// Lo que ve el representante: solo id, nombre y país; nunca el costo base del transporte.
+async function listRepresentativeDestinations() {
+    return Destination.findAll({ where: { isActive: true }, attributes: ["id", "displayName", "country"], order: [["displayName", "ASC"]] })
+}
+
 
 // Una cotización guardada no captura ni vincula un prospecto (Lead).
 // draftKey (opcional, solo del wizard del representante) no participa del cálculo ni del Quote.create:
@@ -611,7 +616,7 @@ async function saveQuote(salespersonId: number, input: SalespersonQuoteInput, la
     const calculation = await calculateQuote(calculationInput, language)
     if (order) calculation.breakdown.order = order
 
-    const quote = await createQuoteRecord({ salespersonId }, calculation)
+    const quote = await createQuoteRecord({ salespersonId }, calculation, order?.id)
 
     if (draftKey) {
         try {
@@ -635,7 +640,7 @@ async function saveAdminQuote(createdByUserId: number, input: AdminQuoteInput, l
     const calculation = await calculateQuote(calculationInput, language)
     calculation.breakdown.order = order
 
-    const quote = await createQuoteRecord({ createdByUserId }, calculation)
+    const quote = await createQuoteRecord({ createdByUserId }, calculation, order.id)
     return {
         ...calculation,
         id: quote.id,
@@ -643,7 +648,16 @@ async function saveAdminQuote(createdByUserId: number, input: AdminQuoteInput, l
     }
 }
 
-function createQuoteRecord(author: QuoteAuthor, calculation: QuoteCalculation): Promise<Quote> {
+// Con pedido, la línea se guarda bajo su bloqueo y solo si sigue abierto (quoteReview/quoteOrderLock).
+function createQuoteRecord(author: QuoteAuthor, calculation: QuoteCalculation, orderId?: string): Promise<Quote> {
+    if (!orderId) return insertQuote(author, calculation)
+    return Quote.sequelize!.transaction(async transaction => {
+        await assertQuoteOrderOpen(orderId, transaction)
+        return insertQuote(author, calculation, transaction)
+    })
+}
+
+function insertQuote(author: QuoteAuthor, calculation: QuoteCalculation, transaction?: Transaction): Promise<Quote> {
     return Quote.create({
         ...author,
         productVariantId: calculation.productVariantId,
@@ -663,7 +677,7 @@ function createQuoteRecord(author: QuoteAuthor, calculation: QuoteCalculation): 
         adjustmentCost: calculation.adjustmentCost,
         totalCost: calculation.totalCost,
         breakdown: calculation.breakdown
-    })
+    }, { transaction })
 }
 
 
@@ -701,6 +715,7 @@ export const quoteService = {
     calculateQuote,
     listQuotableProducts,
     listQuoteDestinations,
+    listRepresentativeDestinations,
     saveQuote,
     saveAdminQuote,
     assertQuotesExist,

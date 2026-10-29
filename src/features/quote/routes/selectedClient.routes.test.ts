@@ -24,16 +24,19 @@ const app = buildTestApp("/api/quotes", router)
 const customApp = buildTestApp("/api/custom-quotes", customRouter)
 const token = `Bearer ${jwt.sign({ sub: 42, type: "customer" }, "test-secret")}`
 const order = { id: "72db466a-e594-48b7-9864-128b4b305b08", clientId: 11, clientName: "Forged label" }
+// Complete engine result: representative routes answer it without amounts (representativeQuoteView).
+const calculation = { productVariantId: 10, destinationId: null, productDisplayName: "Piña", variantLabel: null, requestedPallets: 1, totalUnits: 10, boxesPerPallet: 1, totalCost: 50,
+    breakdown: { rawMaterials: [], ingredients: [], unitMaterials: [], intermediateMaterials: [], processingCosts: [], palletMaterials: [], percentageCosts: [], transport: { destinationId: null, displayName: "", baseCost: 0 }, adjustment: null, language: "es" } }
 beforeEach(() => {
     jest.resetAllMocks()
     jest.mocked(assignments.authorizedClientIds).mockResolvedValue([11, 12])
-    jest.mocked(assignments.authorizedClients).mockResolvedValue([{ id: 11, name: "Walmart", isActive: true }, { id: 12, name: "HEB", isActive: true }])
+    jest.mocked(assignments.authorizedClients).mockResolvedValue([{ id: 11, name: "Walmart", email: null, isActive: true }, { id: 12, name: "HEB", email: null, isActive: true }])
     jest.mocked(Client.findOne).mockResolvedValue({ id: 11, name: "Walmart" } as never)
     jest.mocked(Variant.findOne).mockResolvedValue({ productId: 5 } as never)
     jest.mocked(Product.findOne).mockResolvedValue({ id: 5 } as never)
     jest.mocked(engine.listQuotableProducts).mockResolvedValue([])
-    jest.mocked(engine.saveQuote).mockResolvedValue({ totalCost: 50 } as never)
-    jest.mocked(engine.calculateQuote).mockResolvedValue({ totalCost: 50 } as never)
+    jest.mocked(engine.saveQuote).mockResolvedValue(calculation as never)
+    jest.mocked(engine.calculateQuote).mockResolvedValue(calculation as never)
 })
 test("client selector is scoped to the authenticated representative", async () => {
     const response = await request(app).get("/api/quotes/clients").set("Authorization", token)

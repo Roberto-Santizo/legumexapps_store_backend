@@ -25,6 +25,8 @@ const ACTION_SUFFIXES = ["view", "create", "edit", "delete"] as const
 const EXTRA_PERMISSIONS = [
     { name: "quotes:view" },
     { name: "quotes:calculate" },
+    // Revisión gerencial: ver costos internos de un pedido pendiente, definir la ganancia por libra y aprobarlo.
+    { name: "quotes:review" },
     { name: "quoteDrafts:view" },
     // Seguimiento de cotizaciones a la medida guardadas: ver (lista + detalle) y editar (estado).
     { name: "customQuotes:view" },

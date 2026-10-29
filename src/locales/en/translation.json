@@ -200,6 +200,10 @@
     "bulk_import_product_ingredients_already_exist": "Product \"{{productSku}}\" already has ingredients. This importer only creates new ones -- edit them from the product's screen.",
     "quote_client_required": "Select an authorized customer for this quote.",
     "quote_pdf_missing_file": "You must attach the quote PDF.",
+    "quote_review_order_not_found": "The order for review was not found.",
+    "quote_review_changed": "The order changed since you opened it. Reload the review before approving it.",
+    "quote_review_already_approved": "This order was already approved; to change it, create a new order.",
+    "quote_review_foreign_order": "This order belongs to a representative and must go through management review.",
     "quote_pdf_invalid_file_type": "The attached file must be a PDF.",
     "invalid_unit_material_selection": "The selected unit packaging material is not a valid option for this SKU.",
     "invalid_intermediate_material_selection": "The selected intermediate packaging material is not a valid option for this SKU.",
@@ -281,6 +285,8 @@
     "packaging_consumption_defaults": "Configure both consumption fields or leave both blank; they apply only to pallet materials.",
     "packaging_consumption_missing": "Material {{code}} has no consumption rule configured in the packaging catalog.",
     "pallet_consumption_invalid": "Specify a consumption basis and a positive quantity with at most two decimal places.",
+    "profit_per_pound_invalid": "Enter a valid amount per pound: from 0 to {{max}} USD, with at most four decimal places.",
+    "profit_net_weight_missing": "The quote has no net weight per unit, so the profit per pound cannot be calculated.",
     "pallet_boxes_required": "The variant must have a valid number of boxes per pallet.",
     "catalog_quote_context_invalid": "Invalid category/subcategory.",
     "catalog_quote_configuration_invalid": "Configuration is no longer available.",
@@ -318,7 +324,20 @@
     "pallet_kit_choice": "Choose which pallet kit material to use (for example, the corner board type).",
     "pallet_kit_selection": "The pallet kit choice is not valid for that type.",
     "product_variant_pallet_kit_conflict": "This SKU still has its own pallet, corner boards or stretch film: remove them before turning the pallet kit on.",
-    "pallet_material_in_kit": "This SKU uses the pallet kit: pallet, corner boards and stretch film are already added per pallet. Turn the kit off on the SKU if it needs a different one."
+    "pallet_material_in_kit": "This SKU uses the pallet kit: pallet, corner boards and stretch film are already added per pallet. Turn the kit off on the SKU if it needs a different one.",
+    "quote_review_not_approved": "This order is not approved yet.",
+    "quote_review_no_client_email": "This order has no client email.",
+    "quote_review_client_email_already_sent": "The quote was already sent to the client or is being sent."
+  },
+  "quoteReview": {
+    "email": {
+      "subject": "Quote pending review: {{- clientName}}",
+      "body": "Hello,\n\n{{- salespersonName}} sent an order for {{- clientName}} ({{count}} product(s)) to management review.\n\nTo review the costs and set the profit per pound, sign in to the administration panel:\n{{- link}}\n\nThis email does not include costs or prices.\n\nLegumex"
+    },
+    "clientEmail": {
+      "subject": "Legumex quote: {{- clientName}}",
+      "body": "Dear {{- clientName}},\n\nPlease find attached the quote requested for {{- clientName}}.\n\nIf you have any questions, your representative {{- salespersonName}} (copied) will be glad to help.\n\nBest regards,\nLegumex"
+    }
   },
   "success": {
     "representative_clients_updated": "Client assignments updated.",
@@ -329,6 +348,8 @@
     "deactivated": "{{resource}} deactivated successfully",
     "bulk_imported": "{{count}} records imported successfully.",
     "quote_pdf_email_sent": "The email was sent successfully.",
+    "quote_review_submitted": "The order was sent to management review.",
+    "quote_review_approved": "The review was approved and the final price was calculated.",
     "raw_material_transformation_processed": "Processed raw material {{code}}: USD {{cost}} per pound.",
     "pallet_kit_updated": "Pallet kit updated."
   },
@@ -374,7 +395,8 @@
     "create": "Create",
     "edit": "Edit",
     "delete": "Delete",
-    "calculate": "Calculate"
+    "calculate": "Calculate",
+    "review": "Review"
   },
   "resourcePlurals": {
     "genericPackaging": "Generic packaging",

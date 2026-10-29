@@ -34,6 +34,8 @@ import adminCatalogQuoteRouter from "../features/customQuote/routes/adminCatalog
 import adminQuoteDraftRouter from "../features/quoteDraft/routes/adminQuoteDraft.routes"
 import customQuoteRouter from "../features/customQuote/routes/customQuote.routes"
 import adminCustomQuoteRouter from "../features/customQuote/routes/adminCustomQuote.routes"
+import quoteReviewRouter from "../features/quoteReview/routes/quoteReview.routes"
+import adminQuoteReviewRouter from "../features/quoteReview/routes/adminQuoteReview.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
 import processingCostRouter from "../features/processingCost/routes/processingCost.routes"
 import leadRouter from "../features/lead/routes/lead.routes"
@@ -61,6 +63,8 @@ appRouter.use("/admin/quotes", adminQuoteRouter)
 appRouter.use("/admin/quote-drafts", adminQuoteDraftRouter)
 appRouter.use("/custom-quotes", customQuoteRouter)
 appRouter.use("/admin/custom-quotes", adminCustomQuoteRouter)
+appRouter.use("/quote-reviews", quoteReviewRouter)
+appRouter.use("/admin/quote-reviews", adminQuoteReviewRouter)
 appRouter.use("/admin/dashboard", dashboardRouter)
 appRouter.use("/leads", leadRouter)
 appRouter.use("/admin/leads", adminLeadRouter)

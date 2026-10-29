@@ -107,3 +107,30 @@ describe("emailService.sendMailWithAttachment", () => {
         })
     })
 })
+
+describe("emailService.sendMail", () => {
+    beforeEach(() => {
+        mockPost.mockReset()
+        mockApi.mockClear()
+    })
+
+    it("envía sin adjunto, desde el buzón noreply, a uno o varios destinatarios", async () => {
+        mockPost.mockResolvedValue(undefined)
+
+        await emailService.sendMail({ to: ["gerencia@example.invalid", "otro@example.invalid"], subject: "Pedido pendiente", textBody: "Revisar" })
+
+        expect(mockApi).toHaveBeenCalledWith("/users/noreply@legumex.net/sendMail")
+        expect(mockPost).toHaveBeenCalledWith({
+            message: {
+                subject: "Pedido pendiente",
+                body: { contentType: "Text", content: "Revisar" },
+                toRecipients: [{ emailAddress: { address: "gerencia@example.invalid" } }, { emailAddress: { address: "otro@example.invalid" } }],
+            },
+        })
+    })
+
+    it("propaga el error de Graph: quien llama decide cómo registrar el fallo", async () => {
+        mockPost.mockRejectedValue(new Error("Graph 403"))
+        await expect(emailService.sendMail({ to: "gerencia@example.invalid", subject: "s", textBody: "b" })).rejects.toThrow("Graph 403")
+    })
+})

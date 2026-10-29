@@ -37,6 +37,7 @@ import RepresentativeClient from "../features/salesperson/models/RepresentativeC
 import Quote from "../features/quote/models/Quote.model"
 import QuoteDraft from "../features/quoteDraft/models/QuoteDraft.model"
 import CustomQuote from "../features/customQuote/models/CustomQuote.model"
+import QuoteOrderReview from "../features/quoteReview/models/QuoteOrderReview.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
 import Lead from "../features/lead/models/Lead.model"
@@ -88,6 +89,7 @@ export const databaseModels = [
         Quote,
         QuoteDraft,
         CustomQuote,
+        QuoteOrderReview,
         ProcessingCost,
         ProcessingCostTranslation,
         Lead,

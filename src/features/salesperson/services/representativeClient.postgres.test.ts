@@ -29,7 +29,7 @@ integration("representative clients â€” PostgreSQL", () => {
         created = true
         await database.query(`SET search_path TO "${schema}"`)
         await database.query('CREATE TABLE customers (id INTEGER PRIMARY KEY, "isActive" BOOLEAN NOT NULL)')
-        await database.query('CREATE TABLE clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "isActive" BOOLEAN NOT NULL)')
+        await database.query('CREATE TABLE clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, "isActive" BOOLEAN NOT NULL, email TEXT)')
         await createPackagingDatabase(database)
         await createFixtureModels(database, ["representative_clients"])
         sequelize.addModels(databaseModels)
@@ -108,7 +108,7 @@ integration("representative clients â€” PostgreSQL", () => {
     test("inactive clients are retained for management but never authorized", async () => {
         await service.assign(1, [1])
         await database.query('UPDATE clients SET "isActive" = false WHERE id = 1')
-        expect(await service.list(1)).toEqual([{ id: 1, name: "Alpha", isActive: false }])
+        expect(await service.list(1)).toEqual([{ id: 1, name: "Alpha", email: null, isActive: false }])
         expect(await service.authorizedClientIds(1)).toEqual([])
         await service.remove(1, 1)
         expect(await service.list(1)).toEqual([])

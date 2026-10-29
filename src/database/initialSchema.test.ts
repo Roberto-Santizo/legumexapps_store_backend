@@ -3,9 +3,9 @@ import { databaseModels } from "./models"
 import { schemaChecks, schemaFunctions, schemaTriggers } from "./schemaExtras"
 const metadata=new Sequelize({dialect:'postgres',logging:false,models:databaseModels})
 afterAll(()=>metadata.close())
-test("the sole current schema contract has 48 models, 15 checks, 5 functions and 7 triggers",()=>{
-    expect(databaseModels).toHaveLength(48)
-    expect(new Set(metadata.modelManager.models.map(model=>model.tableName)).size).toBe(48)
+test("the sole current schema contract has 49 models, 15 checks, 5 functions and 7 triggers",()=>{
+    expect(databaseModels).toHaveLength(49)
+    expect(new Set(metadata.modelManager.models.map(model=>model.tableName)).size).toBe(49)
     expect(schemaChecks).toHaveLength(15)
     expect(schemaFunctions).toHaveLength(5)
     expect(schemaTriggers).toHaveLength(7)

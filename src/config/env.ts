@@ -5,6 +5,7 @@ import { parseFrontendOrigin } from "./frontendOrigin"
 import { parseNodeEnv } from "./nodeEnv"
 import { parseServerPort } from "./serverPort"
 import { parseDatabaseRolePolicy } from "./databaseRolePolicy"
+import { parseQuoteReviewRecipients } from "./quoteReviewRecipients"
 
 if (process.env.NODE_ENV === undefined || process.env.NODE_ENV === "development") dotenv.config({ path: path.resolve(__dirname, ".env"), quiet: true })
 const dbSyncAlter = parseDbSyncAlter(process.env.DB_SYNC_ALTER)
@@ -37,4 +38,5 @@ export const env = {
     microsoftClientId: getRequiredEnv("MICROSOFT_CLIENT_ID"),
     microsoftClientSecret: getRequiredEnv("MICROSOFT_CLIENT_SECRET"),
     noreplyUser: getRequiredEnv("NOREPLY_USER"),
+    quoteReviewRecipients: parseQuoteReviewRecipients(process.env.QUOTE_REVIEW_EMAIL),
 } as const

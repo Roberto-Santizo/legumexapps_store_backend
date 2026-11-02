@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express"
 import { AppError } from "../../../shared/errors/AppError"
 import { quoteReviewService } from "../services/quoteReview.service"
-import type { ListQuoteReviewsQuery, QuoteReviewApproveInput, QuoteReviewPreviewInput, QuoteReviewSubmitInput } from "../schemas/quoteReview.schema"
-import type { QuoteReviewPdf } from "../services/quoteReviewClientEmail"
+import type { ListQuoteReviewsQuery, QuoteReviewApproveInput, QuoteReviewDeliveryInput, QuoteReviewPreviewInput, QuoteReviewRejectInput, QuoteReviewSubmitInput } from "../schemas/quoteReview.schema"
+import type { QuoteReviewPdf } from "../services/quoteReviewDelivery"
 
 // PDF adjunto (multipart, campo "file"): solo application/pdf.
 function attachedPdf(req: Request): QuoteReviewPdf | undefined {
@@ -58,11 +58,23 @@ async function preview(req: Request, res: Response, next: NextFunction): Promise
     }
 }
 
+// Aprobar con la decisión de envío de gerencia: con envío llega el PDF final (multipart).
 async function approve(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         if (!req.user) throw new AppError(401, "errors.unauthenticated")
         const data = await quoteReviewService.approveReview(String(req.params.orderId), req.body as QuoteReviewApproveInput, req.user.id, attachedPdf(req), req.t)
         res.json({ message: req.t("success.quote_review_approved"), data })
+    } catch (error) {
+        next(error)
+    }
+}
+
+async function reject(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        if (!req.user) throw new AppError(401, "errors.unauthenticated")
+        const { reason } = req.body as QuoteReviewRejectInput
+        const data = await quoteReviewService.rejectReview(String(req.params.orderId), reason, req.user.id, req.t)
+        res.json({ message: req.t("success.quote_review_rejected"), data })
     } catch (error) {
         next(error)
     }
@@ -76,12 +88,13 @@ async function notify(req: Request, res: Response, next: NextFunction): Promise<
     }
 }
 
-// Reenvío al cliente de una cotización aprobada cuyo correo falló: llega el PDF regenerado.
-async function clientEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+// Envío comercial de una cotización aprobada (después de aprobar sin enviar, o reintento de uno fallido):
+// llega el PDF generado con el precio final guardado.
+async function deliver(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const pdf = attachedPdf(req)
         if (!pdf) throw new AppError(422, "errors.quote_pdf_missing_file")
-        res.json({ data: await quoteReviewService.resendClientEmail(String(req.params.orderId), pdf, req.t) })
+        res.json({ data: await quoteReviewService.deliverReview(String(req.params.orderId), req.body as QuoteReviewDeliveryInput, pdf, req.t) })
     } catch (error) {
         next(error)
     }
@@ -105,7 +118,8 @@ export const quoteReviewController = {
     show,
     preview,
     approve,
+    reject,
     notify,
-    clientEmail,
+    deliver,
     adminPricing,
 }

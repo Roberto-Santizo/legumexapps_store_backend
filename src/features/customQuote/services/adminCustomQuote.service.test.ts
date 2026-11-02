@@ -2,12 +2,20 @@ import "reflect-metadata"
 import { Op } from "sequelize"
 
 jest.mock("../models/CustomQuote.model", () => ({ __esModule: true, default: { findAll: jest.fn(), findOne: jest.fn() } }))
+jest.mock("../../quoteReview/services/approvedQuoteProfits", () => ({ approvedQuoteProfits: jest.fn() }))
 
 import CustomQuote from "../models/CustomQuote.model"
 import { adminCustomQuoteService } from "./adminCustomQuote.service"
+import { approvedQuoteProfits } from "../../quoteReview/services/approvedQuoteProfits"
 
 const mockFindAll = CustomQuote.findAll as unknown as jest.Mock
 const mockFindOne = CustomQuote.findOne as unknown as jest.Mock
+const mockProfits = approvedQuoteProfits as jest.Mock
+const approvedProfit = { netPounds: 1058.208, profitPerPound: 0.25, profitTotal: 264.55, finalPrice: 587.37 }
+
+beforeEach(() => {
+    mockProfits.mockResolvedValue(new Map([[5, approvedProfit]]))
+})
 
 // Fila tal como la devuelve Sequelize: DECIMALs como string, timestamps vía get().
 function storedRow(overrides: Record<string, unknown> = {}) {
@@ -57,11 +65,12 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
         return mockFindAll.mock.calls[0][0].where
     }
 
-    it("sin filtros: sin where, más reciente primero, con representante/subcategoría/presentación", async () => {
+    it("sin filtros: solo las líneas aprobadas, más reciente primero, con representante/subcategoría/presentación", async () => {
         await adminCustomQuoteService.listCustomQuotes()
 
+        expect(mockProfits).toHaveBeenCalledWith("customizable")
         const args = mockFindAll.mock.calls[0][0]
-        expect(args.where).toEqual({})
+        expect(args.where).toEqual({ id: { [Op.in]: [5] } })
         expect(args.order).toEqual([["createdAt", "DESC"]])
         expect(args.include.map((include: { as: string }) => include.as)).toEqual(["requestingSalesperson"])
     })
@@ -85,7 +94,13 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
 
     it("filtra por estado", async () => {
         await adminCustomQuoteService.listCustomQuotes({ status: "in_development" })
-        expect(sentWhere()).toEqual({ status: "in_development" })
+        expect(sentWhere()).toEqual({ id: { [Op.in]: [5] }, status: "in_development" })
+    })
+
+    it("sin pedidos aprobados no consulta ni devuelve cotizaciones", async () => {
+        mockProfits.mockResolvedValue(new Map())
+        expect(await adminCustomQuoteService.listCustomQuotes()).toEqual([])
+        expect(mockFindAll).not.toHaveBeenCalled()
     })
 
     it("el DTO castea el total y no inventa contexto histórico desde el catálogo actual", async () => {
@@ -108,6 +123,7 @@ describe("adminCustomQuoteService.listCustomQuotes", () => {
             requestedPallets: 2,
             totalUnits: 960,
             totalCost: 322.8234,
+            profit: approvedProfit,
         })
     })
 })
@@ -129,6 +145,18 @@ describe("adminCustomQuoteService.getCustomQuoteById", () => {
         const detail = await adminCustomQuoteService.getCustomQuoteById(5)
         expect(detail.subCategoryName).toBe("Frozen subcategory")
         expect(detail.presentationLabel).toBe("Frozen presentation")
+    })
+    it("trae la ganancia aprobada de su pedido, o null si aún no se aprueba o no tiene pedido", async () => {
+        const orderId = "5e226064-21be-4a9a-a5e5-f312391e363a"
+        mockFindOne.mockResolvedValue(storedRow({ breakdown: { order: { id: orderId, clientName: "Cliente" } } }))
+        expect((await adminCustomQuoteService.getCustomQuoteById(5)).profit).toEqual(approvedProfit)
+        expect(mockProfits).toHaveBeenCalledWith("customizable", orderId)
+        mockProfits.mockResolvedValue(new Map())
+        expect((await adminCustomQuoteService.getCustomQuoteById(5)).profit).toBeNull()
+        mockProfits.mockClear()
+        mockFindOne.mockResolvedValue(storedRow())
+        expect((await adminCustomQuoteService.getCustomQuoteById(5)).profit).toBeNull()
+        expect(mockProfits).not.toHaveBeenCalled()
     })
     it("inexistente -> 404", async () => {
         mockFindOne.mockResolvedValue(null)

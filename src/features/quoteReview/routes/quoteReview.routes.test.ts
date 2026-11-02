@@ -4,7 +4,7 @@ jest.mock("../../../config/env", () => ({ env: { jwtSecret: "test-secret", jwtEx
 jest.mock("../services/quoteReview.service", () => ({
     quoteReviewService: {
         submitForReview: jest.fn(), getRepresentativeReview: jest.fn(), listReviews: jest.fn(), getReviewDetail: jest.fn(),
-        previewReview: jest.fn(), approveReview: jest.fn(), resendNotification: jest.fn(), resendClientEmail: jest.fn(), setAdminOrderPricing: jest.fn(),
+        previewReview: jest.fn(), approveReview: jest.fn(), rejectReview: jest.fn(), deliverReview: jest.fn(), resendNotification: jest.fn(), setAdminOrderPricing: jest.fn(),
     },
 }))
 
@@ -28,14 +28,23 @@ beforeEach(() => {
 })
 
 describe("representante (/quote-reviews)", () => {
-    it("envía SU pedido con el correo del cliente: el id del representante sale del JWT, nunca del body", async () => {
+    it("envía SU pedido con o sin correo del cliente: el id del representante sale del JWT, nunca del body", async () => {
         const submit = (body: object) => request(representativeApp).post(`/api/quote-reviews/${orderId}`).set("Authorization", representative).send(body)
-        for (const body of [{}, { clientEmail: "no-es-correo" }, { clientEmail: "compras@cliente.com", salespersonId: 99 }]) {
+        for (const body of [{ clientEmail: "no-es-correo" }, { clientEmail: "" }, { clientEmail: "compras@cliente.com", salespersonId: 99 }]) {
             expect((await submit(body)).status).toBe(400)
         }
         expect(service.submitForReview).not.toHaveBeenCalled()
         expect((await submit({ clientEmail: "  Compras@Cliente.com " })).status).toBe(201)
         expect(service.submitForReview).toHaveBeenCalledWith(42, orderId, "compras@cliente.com", expect.any(Function))
+        // Sin correo también llega a gerencia (nunca un correo inventado).
+        expect((await submit({})).status).toBe(201)
+        expect(service.submitForReview).toHaveBeenLastCalledWith(42, orderId, undefined, expect.any(Function))
+    })
+
+    it("el representante no tiene rutas para aprobar, rechazar, fijar ganancia ni enviar", async () => {
+        for (const path of ["approve", "reject", "delivery", "preview", "notify"]) {
+            expect((await request(representativeApp).post(`/api/quote-reviews/${orderId}/${path}`).set("Authorization", representative).send({})).status).toBe(404)
+        }
     })
 
     it("consulta el estado de su pedido", async () => {
@@ -57,7 +66,8 @@ describe("gerencia (/admin/quote-reviews)", () => {
         ["get", "/", {}],
         ["get", `/${orderId}`, {}],
         ["post", `/${orderId}/preview`, { profitPerPound: "0.25" }],
-        ["post", `/${orderId}/approve`, { profitPerPound: "0.25", linesDigest: digest }],
+        ["post", `/${orderId}/approve`, { profitPerPound: "0.25", linesDigest: digest, delivery: "none" }],
+        ["post", `/${orderId}/reject`, { reason: "No contamos con el producto" }],
         ["post", `/${orderId}/notify`, {}],
     ]
 
@@ -68,33 +78,57 @@ describe("gerencia (/admin/quote-reviews)", () => {
         expect((await call(staff(["quotes:review"]))).status).toBe(200)
     })
 
-    it("aprobar exige el monto y la huella de las líneas revistas; no acepta campos extra como un precio", async () => {
+    it("aprobar exige el monto, la huella de las líneas revistas y la decisión de envío explícita; no acepta un precio", async () => {
         const approve = (body: object) => request(adminApp).post(`/api/admin/quote-reviews/${orderId}/approve`).set("Authorization", staff(["quotes:review"])).send(body)
-        for (const body of [{ profitPerPound: "0.25" }, { linesDigest: digest }, { profitPerPound: "0.25", linesDigest: "corta" }, { profitPerPound: "0.25", linesDigest: digest, finalPrice: 1 }, { profitPerPound: true, linesDigest: digest }]) {
+        const valid = { profitPerPound: 0.25, linesDigest: digest, delivery: "none" }
+        for (const body of [
+            { profitPerPound: "0.25", linesDigest: digest }, // Sin decisión de envío: nunca se asume una.
+            { ...valid, delivery: "client" },
+            { ...valid, linesDigest: "corta" },
+            { ...valid, finalPrice: 1 },
+            { ...valid, profitPerPound: true },
+            { ...valid, delivery: "representative_and_client", clientEmail: "no-es-correo" },
+        ]) {
             expect((await approve(body)).status).toBe(400)
         }
         expect(service.approveReview).not.toHaveBeenCalled()
-        expect((await approve({ profitPerPound: 0.25, linesDigest: digest })).status).toBe(200)
-        expect(service.approveReview).toHaveBeenCalledWith(orderId, { profitPerPound: 0.25, linesDigest: digest }, 7, undefined, expect.any(Function))
+        expect((await approve(valid)).status).toBe(200)
+        expect(service.approveReview).toHaveBeenCalledWith(orderId, valid, 7, undefined, expect.any(Function))
     })
 
-    it("aprobar acepta el PDF final para el cliente (multipart) y rechaza otro tipo de archivo", async () => {
+    it("aprobar y enviar lleva el PDF final (multipart) y el correo del cliente opcional; rechaza otro tipo de archivo", async () => {
         const approve = () => request(adminApp).post(`/api/admin/quote-reviews/${orderId}/approve`).set("Authorization", staff(["quotes:review"]))
-            .field("profitPerPound", "0.25").field("linesDigest", digest)
+            .field("profitPerPound", "0.25").field("linesDigest", digest).field("delivery", "representative_and_client").field("clientEmail", " Compras@Cliente.com")
         expect((await approve().attach("file", Buffer.from("texto"), { filename: "nota.txt", contentType: "text/plain" })).status).toBe(422)
         expect(service.approveReview).not.toHaveBeenCalled()
         expect((await approve().attach("file", Buffer.from("%PDF-1.4"), { filename: "cotizacion.pdf", contentType: "application/pdf" })).status).toBe(200)
-        expect(service.approveReview).toHaveBeenCalledWith(orderId, { profitPerPound: "0.25", linesDigest: digest }, 7, { buffer: expect.any(Buffer), fileName: "cotizacion.pdf" }, expect.any(Function))
+        expect(service.approveReview).toHaveBeenCalledWith(orderId, { profitPerPound: "0.25", linesDigest: digest, delivery: "representative_and_client", clientEmail: "compras@cliente.com" }, 7, { buffer: expect.any(Buffer), fileName: "cotizacion.pdf" }, expect.any(Function))
     })
 
-    it("reenviar al cliente exige quotes:review y solo el PDF", async () => {
-        const resend = (authorization: string) => request(adminApp).post(`/api/admin/quote-reviews/${orderId}/client-email`).set("Authorization", authorization)
-        expect((await resend(staff(["quotes:view", "quotes:calculate"])).attach("file", Buffer.from("%PDF-1.4"), { filename: "c.pdf", contentType: "application/pdf" })).status).toBe(403)
-        // Sin cuerpo multipart o con campos extra: no llega al servicio.
-        expect((await resend(staff(["quotes:review"]))).status).toBe(400)
-        expect((await resend(staff(["quotes:review"])).field("clientEmail", "otro@cliente.com").attach("file", Buffer.from("%PDF-1.4"), { filename: "c.pdf", contentType: "application/pdf" })).status).toBe(400)
-        expect((await resend(staff(["quotes:review"])).attach("file", Buffer.from("%PDF-1.4"), { filename: "c.pdf", contentType: "application/pdf" })).status).toBe(200)
-        expect(service.resendClientEmail).toHaveBeenCalledWith(orderId, { buffer: expect.any(Buffer), fileName: "c.pdf" }, expect.any(Function))
+    it("rechazar exige un motivo de al menos 5 caracteres", async () => {
+        const reject = (body: object) => request(adminApp).post(`/api/admin/quote-reviews/${orderId}/reject`).set("Authorization", staff(["quotes:review"])).send(body)
+        for (const body of [{}, { reason: "   " }, { reason: "no" }, { reason: "x".repeat(501) }, { reason: "No contamos con el producto", profitPerPound: 1 }]) {
+            expect((await reject(body)).status).toBe(400)
+        }
+        expect(service.rejectReview).not.toHaveBeenCalled()
+        expect((await reject({ reason: "  No contamos con el producto " })).status).toBe(200)
+        expect(service.rejectReview).toHaveBeenCalledWith(orderId, "No contamos con el producto", 7, expect.any(Function))
+    })
+
+    it("el envío comercial exige quotes:review, los destinatarios y el PDF", async () => {
+        const pdf = [Buffer.from("%PDF-1.4"), { filename: "c.pdf", contentType: "application/pdf" }] as const
+        const deliver = (authorization: string) => request(adminApp).post(`/api/admin/quote-reviews/${orderId}/delivery`).set("Authorization", authorization)
+        expect((await deliver(representative).field("recipients", "representative").attach("file", ...pdf)).status).toBe(401)
+        expect((await deliver(staff(["quotes:view", "quotes:calculate"])).field("recipients", "representative").attach("file", ...pdf)).status).toBe(403)
+        // Sin destinatarios, con otros desconocidos o con campos extra: no llega al servicio.
+        expect((await deliver(staff(["quotes:review"])).attach("file", ...pdf)).status).toBe(400)
+        expect((await deliver(staff(["quotes:review"])).field("recipients", "client").attach("file", ...pdf)).status).toBe(400)
+        expect((await deliver(staff(["quotes:review"])).field("recipients", "representative").field("to", "otro@cliente.com").attach("file", ...pdf)).status).toBe(400)
+        // Sin PDF.
+        expect((await deliver(staff(["quotes:review"])).field("recipients", "representative")).status).toBe(422)
+        expect(service.deliverReview).not.toHaveBeenCalled()
+        expect((await deliver(staff(["quotes:review"])).field("recipients", "representative").field("clientEmail", "").attach("file", ...pdf)).status).toBe(200)
+        expect(service.deliverReview).toHaveBeenCalledWith(orderId, { recipients: "representative" }, { buffer: expect.any(Buffer), fileName: "c.pdf" }, expect.any(Function))
     })
 
     it("la calculadora del admin fija su ganancia con quotes:calculate (sin revisión)", async () => {

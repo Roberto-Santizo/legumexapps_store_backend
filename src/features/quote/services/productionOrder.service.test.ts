@@ -2,10 +2,15 @@ jest.mock("../models/Quote.model", () => ({ __esModule: true, default: { findAll
 jest.mock("../../customQuote/models/CustomQuote.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 jest.mock("../../salesperson/models/Salesperson.model", () => ({ __esModule: true, default: {} }))
 jest.mock("../../accessControl/user/models/User.model", () => ({ __esModule: true, default: {} }))
+jest.mock("../../quoteReview/services/approvedQuoteProfits", () => ({ approvedQuoteIds: jest.fn() }))
 
 import Quote from "../models/Quote.model"
 import CustomQuote from "../../customQuote/models/CustomQuote.model"
 import { groupProductionOrders, listProductionOrders } from "./productionOrder.service"
+import { approvedQuoteIds } from "../../quoteReview/services/approvedQuoteProfits"
+import { Op } from "sequelize"
+
+beforeEach(() => (approvedQuoteIds as jest.Mock).mockResolvedValue({ fixed: [1], customizable: [2] }))
 
 const order = { id: "5e226064-21be-4a9a-a5e5-f312391e363a", clientName: "Customer A" }
 const line = (id: number, salespersonId = 1, identity = order, createdAt = "2026-10-08T12:00:00Z") => ({ id, salespersonId, createdAt, breakdown: { order: identity }, productDisplayName: `Product ${id}` })
@@ -49,4 +54,19 @@ test("date filter selects a complete mixed order and uses Guatemala dates", asyn
     expect(result).toHaveLength(1)
     expect(result[0].lines).toHaveLength(2)
     expect(await listProductionOrders({ startDate: "2026-10-10", endDate: "2026-10-10" })).toHaveLength(0)
+})
+
+test("only approved lines reach production; without approvals nothing is queried", async () => {
+    ;(Quote.findAll as jest.Mock).mockClear().mockResolvedValue([{ toJSON: () => line(1) }])
+    ;(CustomQuote.findAll as jest.Mock).mockClear().mockResolvedValue([{ toJSON: () => line(2) }])
+    expect(await listProductionOrders()).toHaveLength(1)
+    expect((Quote.findAll as jest.Mock).mock.calls[0][0].where).toEqual({ id: { [Op.in]: [1] } })
+    expect((CustomQuote.findAll as jest.Mock).mock.calls[0][0].where).toEqual({ id: { [Op.in]: [2] } })
+
+    ;(approvedQuoteIds as jest.Mock).mockResolvedValue({ fixed: [], customizable: [] })
+    ;(Quote.findAll as jest.Mock).mockClear()
+    ;(CustomQuote.findAll as jest.Mock).mockClear()
+    expect(await listProductionOrders()).toEqual([])
+    expect(Quote.findAll).not.toHaveBeenCalled()
+    expect(CustomQuote.findAll).not.toHaveBeenCalled()
 })

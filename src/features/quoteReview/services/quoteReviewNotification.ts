@@ -1,5 +1,6 @@
 import QuoteOrderReview from "../models/QuoteOrderReview.model"
 import type { QuoteReviewNotificationStatus } from "../models/QuoteOrderReview.model"
+import Salesperson from "../../salesperson/models/Salesperson.model"
 import { emailService } from "../../../shared/services/email.service"
 import { env } from "../../../config/env"
 
@@ -35,4 +36,23 @@ export async function notifyQuoteReview(review: QuoteOrderReview, context: { sal
         { where: { id: review.id }, validate: false }
     )
     return status
+}
+
+// Aviso interno al representante cuando gerencia decide SIN envío comercial: aprobó sin enviar, o rechazó
+// (con el motivo). Nunca lleva PDF, precios, costos ni ganancia, y nunca va al cliente; el correo del
+// representante sale de su registro. Se envía después de confirmar la decisión: si falla, la decisión se
+// conserva y se devuelve false para que gerencia lo sepa. No se reintenta solo: repetir la decisión no
+// vuelve a avisar, así nunca hay avisos ni decisiones duplicadas.
+export async function notifyRepresentativeOfDecision(review: QuoteOrderReview, t: Translate): Promise<boolean> {
+    const salesperson = review.salespersonId != null ? await Salesperson.findByPk(review.salespersonId, { attributes: ["id", "name", "email"] }) : null
+    if (!salesperson?.email) return false
+    const template = review.status === "rejected" ? "quoteReview.decision.rejected" : "quoteReview.decision.approved"
+    const texts = { clientName: review.clientName, salespersonName: salesperson.name, reason: review.rejectionReason ?? "" }
+    try {
+        await emailService.sendMail({ to: salesperson.email, subject: t(`${template}.subject`, texts), textBody: t(`${template}.body`, texts) })
+        return true
+    } catch {
+        console.error("[quoteReview] no se pudo avisar al representante de la decisión; detalles sensibles omitidos")
+        return false
+    }
 }

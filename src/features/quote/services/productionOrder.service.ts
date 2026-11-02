@@ -4,7 +4,8 @@ import Salesperson from "../../salesperson/models/Salesperson.model"
 import User from "../../accessControl/user/models/User.model"
 import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
 import type { AdminQuoteListQuery } from "../schemas/adminQuoteList.schema"
-import { businessDayRangeFilter } from "../../../shared/utils/businessTime.util"
+import { approvedQuoteIds } from "../../quoteReview/services/approvedQuoteProfits"
+import { Op } from "sequelize"
 
 // Fixed quotes saved from the admin calculator have a staff user as author instead of a representative.
 function quoteAuthor(quote: Record<string, any>): { key: string; salesperson: { id: number; name: string; isAdmin?: true } } {
@@ -31,22 +32,24 @@ export function groupProductionOrders(rows: { kind: "fixed" | "customizable"; qu
     return [...groups.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
+// Solo pedidos aprobados por gerencia (o por el admin al cotizar), con todas sus líneas aprobadas: las
+// cotizaciones pendientes o anteriores a la revisión gerencial no llegan a producción.
 export async function listProductionOrders(filters: AdminQuoteListQuery = {}) {
+    const approved = await approvedQuoteIds()
     const include = [
         { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name"] },
         { model: User, as: "quotingUser", attributes: ["id", "name"] },
     ]
     const [fixed, custom] = await Promise.all([
-        Quote.findAll({ include, order: [["createdAt", "ASC"]] }),
-        CustomQuote.findAll({ include: [{ model: Salesperson, as: "requestingSalesperson", attributes: ["id", "name"] }], order: [["createdAt", "ASC"]] }),
+        approved.fixed.length ? Quote.findAll({ where: { id: { [Op.in]: approved.fixed } }, include, order: [["createdAt", "ASC"]] }) : [],
+        approved.customizable.length ? CustomQuote.findAll({ where: { id: { [Op.in]: approved.customizable } }, include: [{ model: Salesperson, as: "requestingSalesperson", attributes: ["id", "name"] }], order: [["createdAt", "ASC"]] }) : [],
     ])
     const groups = groupProductionOrders([
         ...fixed.map(row => ({ kind: "fixed" as const, quote: row.toJSON() })),
         ...custom.map(row => ({ kind: "customizable" as const, quote: row.toJSON() })),
     ])
     // Filter orders, not individual lines, so a date range never produces an incomplete report.
-    const range = businessDayRangeFilter(filters.startDate, filters.endDate)
-    if (!range) return groups
+    if (!filters.startDate && !filters.endDate) return groups
     return groups.filter(group => group.lines.some(line => {
         const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(line.createdAt))
         return (!filters.startDate || day >= filters.startDate) && (!filters.endDate || day <= filters.endDate)

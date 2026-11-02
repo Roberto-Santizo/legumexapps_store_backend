@@ -35,6 +35,8 @@ export const adminSaveQuoteSchema = calculateQuoteSchema.extend({
 export type CalculateQuoteInput = z.infer<typeof calculateQuoteSchema>
 export type SalespersonQuoteInput = z.infer<typeof salespersonQuoteSchema>
 export type AdminSaveQuoteInput = z.infer<typeof adminSaveQuoteSchema>
+// Campos del correo con PDF de staff (base de adminSendQuotePdfEmailSchema). El representante ya no
+// tiene una ruta de envío: su cotización comercial solo la envía gerencia.
 export const sendQuotePdfEmailSchema = z.object({
     to: z.email(),
     subject: z.string().min(1).max(200),

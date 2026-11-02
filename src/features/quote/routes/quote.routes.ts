@@ -1,9 +1,8 @@
 import { Router } from "express"
 import { quoteController } from "../controllers/quote.controller"
 import { validate } from "../../../shared/middlewares/validate"
-import { quotePdfUpload } from "../../../shared/middlewares/quotePdfUpload"
 import { authenticateSalesperson } from "../../../shared/middlewares/authenticateSalesperson"
-import { salespersonQuoteSchema, sendQuotePdfEmailSchema } from "../schemas/quote.schema"
+import { salespersonQuoteSchema } from "../schemas/quote.schema"
 
 const quoteRouter = Router()
 
@@ -18,6 +17,7 @@ quoteRouter.get("/destinations", quoteController.representativeDestinations)
 // draftKey registra el borrador del intento (ver quoteController.previewAndTrackDraft).
 quoteRouter.post("/preview", validate(salespersonQuoteSchema), quoteController.previewAndTrackDraft)
 quoteRouter.post("/", validate(salespersonQuoteSchema), quoteController.save)
-quoteRouter.post("/send-email", quotePdfUpload, validate(sendQuotePdfEmailSchema), quoteController.sendPdfEmail)
+// Sin envío por correo: el representante no puede mandar una cotización por su cuenta. Solo gerencia
+// (quotes:review, /admin/quote-reviews) autoriza el envío comercial de sus pedidos.
 
 export default quoteRouter

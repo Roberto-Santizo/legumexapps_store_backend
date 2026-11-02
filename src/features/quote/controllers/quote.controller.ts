@@ -133,15 +133,6 @@ async function previewAndTrackDraft(req: Request, res: Response, next: NextFunct
 
 
 
-async function sendPdfEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-        await sendAttachedPdf(req)
-        res.json({ message: req.t("success.quote_pdf_email_sent") })
-    } catch (error) {
-        next(error)
-    }
-}
-
 // Cotizador del admin: con quoteIds, el envío queda registrado en esas cotizaciones (destinatario, correo,
 // quién y cuándo). Se comprueba que existan ANTES de enviar; el registro se escribe solo si el correo salió.
 async function sendAdminPdfEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -198,6 +189,5 @@ export const quoteController = {
     indexAll,
     preview,
     previewAndTrackDraft,
-    sendPdfEmail,
     sendAdminPdfEmail,
 }

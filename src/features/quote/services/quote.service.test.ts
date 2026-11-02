@@ -28,6 +28,7 @@ jest.mock("../models/Quote.model", () => ({
     default: { create: jest.fn(), findAll: jest.fn(), sequelize: { transaction: (work: (transaction: unknown) => unknown) => work("tx") } }
 }))
 jest.mock("../../quoteReview/services/quoteOrderLock", () => ({ assertQuoteOrderOpen: jest.fn() }))
+jest.mock("../../quoteReview/models/QuoteOrderReview.model", () => ({ __esModule: true, default: { findAll: jest.fn() } }))
 // Catálogo de costos adicionales: por defecto SIN filas activas (ver beforeEach); los tests de
 // "costos adicionales" más abajo pisan este mock.
 jest.mock("../../processingCost/models/ProcessingCost.model", () => ({
@@ -43,6 +44,7 @@ import ProductVariant from "../../product/models/ProductVariant.model"
 import Product from "../../product/models/Product.model"
 import Destination from "../../destination/models/Destination.model"
 import Quote from "../models/Quote.model"
+import QuoteOrderReview from "../../quoteReview/models/QuoteOrderReview.model"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import { loadPalletKit } from "../../palletKit/services/palletKit.service"
 import { quoteService } from "./quote.service"
@@ -2225,7 +2227,26 @@ describe("quoteService.listQuotableProducts", () => {
 
 describe("quoteService.listAllQuotes date range", () => {
     const findAll = Quote.findAll as unknown as jest.Mock
-    beforeEach(() => findAll.mockReset().mockResolvedValue([]))
+    const reviews = QuoteOrderReview.findAll as unknown as jest.Mock
+    const approvedProfit = { netPounds: 100, profitPerPound: 0.25, profitTotal: 25, finalPrice: 125 }
+    beforeEach(() => {
+        findAll.mockReset().mockResolvedValue([])
+        reviews.mockReset().mockResolvedValue([
+            { pricing: { lines: [{ kind: "fixed", quoteId: 7, productDisplayName: "x", totalCost: 100, ...approvedProfit }, { kind: "customizable", quoteId: 8, ...approvedProfit }] } },
+            { pricing: null },
+        ])
+    })
+    it("lists only fixed lines of approved orders, each with its approved profit", async () => {
+        findAll.mockResolvedValue([{ id: 7, toJSON: () => ({ id: 7, totalCost: "100.0000" }) }])
+        expect(await quoteService.listAllQuotes()).toEqual([{ id: 7, totalCost: "100.0000", profit: approvedProfit }])
+        expect(reviews.mock.calls[0][0].where).toEqual({ status: "approved" })
+        expect(findAll.mock.calls[0][0].where).toEqual({ id: { [Op.in]: [7] } })
+    })
+    it("without approved orders it lists nothing", async () => {
+        reviews.mockResolvedValue([])
+        expect(await quoteService.listAllQuotes()).toEqual([])
+        expect(findAll).not.toHaveBeenCalled()
+    })
     it("filters inclusive Guatemala days without changing the ordering", async () => {
         await quoteService.listAllQuotes({ startDate: "2026-10-01", endDate: "2026-10-07" })
         const query = findAll.mock.calls[0][0]
@@ -2235,7 +2256,7 @@ describe("quoteService.listAllQuotes date range", () => {
     })
     it("All time has no date restriction, and open ranges retain their boundary", async () => {
         await quoteService.listAllQuotes()
-        expect(findAll.mock.calls[0][0].where).toBeUndefined()
+        expect(findAll.mock.calls[0][0].where.createdAt).toBeUndefined()
         await quoteService.listAllQuotes({ endDate: "2026-10-07" })
         expect(findAll.mock.calls[1][0].where.createdAt[Op.gte]).toBeUndefined()
         expect(findAll.mock.calls[1][0].where.createdAt[Op.lte].toISOString()).toBe("2026-10-08T05:59:59.999Z")

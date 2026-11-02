@@ -8,9 +8,12 @@ jest.mock("../models/QuoteOrderReview.model", () => ({
     default: { update: jest.fn(), sequelize: { literal: (sql: string) => ({ sql }) } },
 }))
 
+jest.mock("../../salesperson/models/Salesperson.model", () => ({ __esModule: true, default: { findByPk: jest.fn() } }))
+
 import QuoteOrderReview from "../models/QuoteOrderReview.model"
+import Salesperson from "../../salesperson/models/Salesperson.model"
 import { emailService } from "../../../shared/services/email.service"
-import { notifyQuoteReview } from "./quoteReviewNotification"
+import { notifyQuoteReview, notifyRepresentativeOfDecision } from "./quoteReviewNotification"
 
 const sendMail = emailService.sendMail as jest.Mock
 const update = QuoteOrderReview.update as unknown as jest.Mock
@@ -49,5 +52,45 @@ describe("notifyQuoteReview", () => {
         await expect(notifyQuoteReview(review, { salespersonName: "Ana", lineCount: 1 }, t)).resolves.toBe("not_configured")
         expect(sendMail).not.toHaveBeenCalled()
         expect(update.mock.calls[0][0]).toMatchObject({ notificationStatus: "not_configured" })
+    })
+})
+
+describe("notifyRepresentativeOfDecision", () => {
+    const findSalesperson = Salesperson.findByPk as jest.Mock
+    const decided = (overrides: object) => ({ id: 3, orderId: review.orderId, clientName: "Walmart", salespersonId: 4, clientEmail: "compras@walmart.example", pricing: { finalPrice: 140 }, ...overrides }) as unknown as QuoteOrderReview
+
+    beforeEach(() => findSalesperson.mockReset().mockResolvedValue({ id: 4, name: "Ana", email: "ana@legumex.example" }))
+
+    it("rechazo: solo al representante (correo de su registro), con el motivo y sin montos ni el correo del cliente", async () => {
+        sendMail.mockResolvedValue(undefined)
+        await expect(notifyRepresentativeOfDecision(decided({ status: "rejected", rejectionReason: "No contamos con el producto" }), t)).resolves.toBe(true)
+        const [mail] = sendMail.mock.calls[0]
+        expect(mail.to).toBe("ana@legumex.example")
+        expect(mail).not.toHaveProperty("cc")
+        expect(mail.subject).toContain("quoteReview.decision.rejected.subject")
+        expect(mail.textBody).toContain("No contamos con el producto")
+        expect(JSON.stringify(mail)).not.toMatch(/140|cost|price|profit|walmart\.example/i)
+        // Es un aviso: no registra nada en la revisión (la decisión ya quedó guardada).
+        expect(update).not.toHaveBeenCalled()
+    })
+
+    it("aprobada sin enviar: aviso sin PDF ni precios", async () => {
+        sendMail.mockResolvedValue(undefined)
+        await expect(notifyRepresentativeOfDecision(decided({ status: "approved", rejectionReason: null }), t)).resolves.toBe(true)
+        const [mail] = sendMail.mock.calls[0]
+        expect(mail.subject).toContain("quoteReview.decision.approved.subject")
+        expect(mail).not.toHaveProperty("attachment")
+        expect(JSON.stringify(mail)).not.toMatch(/140|cost|price|profit/i)
+    })
+
+    it("si el correo falla devuelve false sin lanzar ni exponer el error; sin representante no envía", async () => {
+        sendMail.mockRejectedValue(new Error("Graph 503"))
+        const consoleError = jest.spyOn(console, "error").mockImplementation(() => {})
+        await expect(notifyRepresentativeOfDecision(decided({ status: "rejected", rejectionReason: "Rentabilidad insuficiente" }), t)).resolves.toBe(false)
+        expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Graph 503")
+        consoleError.mockRestore()
+        sendMail.mockReset()
+        await expect(notifyRepresentativeOfDecision(decided({ status: "approved", salespersonId: null }), t)).resolves.toBe(false)
+        expect(sendMail).not.toHaveBeenCalled()
     })
 })

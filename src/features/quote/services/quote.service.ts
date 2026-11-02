@@ -33,6 +33,7 @@ import { CalculateQuoteInput, SalespersonQuoteInput } from "../schemas/quote.sch
 import type { QuoteOrderIdentity } from "../../quoteOrder/schemas/quoteOrder.schema"
 import { quoteDraftService } from "../../quoteDraft/services/quoteDraft.service"
 import { assertQuoteOrderOpen } from "../../quoteReview/services/quoteOrderLock"
+import { approvedQuoteProfits } from "../../quoteReview/services/approvedQuoteProfits"
 import { ContentLanguage, DEFAULT_CONTENT_LANGUAGE, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, sumMoney } from "../../../shared/utils/money.util"
 import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
@@ -699,16 +700,22 @@ async function recordEmailDelivery(quoteIds: number[], delivery: QuoteEmailDeliv
     )
 }
 
-async function listAllQuotes(filters: AdminQuoteListQuery = {}): Promise<Quote[]> {
+// Solo las cotizaciones con precio final aprobado (revisión gerencial o ganancia del admin), cada una
+// con su ganancia por libra: el listado muestra el desglose completo como la revisión aprobada. Las
+// anteriores a la revisión gerencial no tienen precio final y no aparecen.
+async function listAllQuotes(filters: AdminQuoteListQuery = {}) {
     const createdAt = businessDayRangeFilter(filters.startDate, filters.endDate)
-    return Quote.findAll({
-        ...(createdAt ? { where: { createdAt } } : {}),
+    const profits = await approvedQuoteProfits("fixed")
+    if (profits.size === 0) return []
+    const quotes = await Quote.findAll({
+        where: { id: { [Op.in]: [...profits.keys()] }, ...(createdAt ? { createdAt } : {}) },
         include: [
             { model: Salesperson, as: "quotingSalesperson", attributes: ["id", "name", "companyName", "email"] },
             { model: User, as: "quotingUser", attributes: ["id", "name", "username"] }
         ],
         order: [["createdAt", "DESC"]]
     })
+    return quotes.map(quote => ({ ...quote.toJSON(), profit: profits.get(quote.id)! }))
 }
 
 export const quoteService = {

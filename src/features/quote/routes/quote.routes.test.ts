@@ -358,79 +358,17 @@ describe("quoteRouter (HTTP)", () => {
         })
     })
 
-    describe("POST /send-email (adjuntar y enviar el PDF ya generado por el front)", () => {
-        it("422 si no viene ningún archivo adjunto", async () => {
+    describe("POST /send-email (retirado: el representante no envía cotizaciones por su cuenta)", () => {
+        it("404 con un PDF válido: solo gerencia autoriza el envío comercial (/admin/quote-reviews)", async () => {
             const res = await request(app)
                 .post("/api/quotes/send-email")
                 .set("Authorization", `Bearer ${salespersonToken}`)
                 .field("to", "cliente@empresa.com")
                 .field("subject", "Cotización")
                 .field("body", "Hola, adjunto la cotización.")
-
-            expect(res.status).toBe(422)
-            expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
-        })
-
-        it("422 si el archivo adjunto no es un PDF", async () => {
-            const res = await request(app)
-                .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${salespersonToken}`)
-                .field("to", "cliente@empresa.com")
-                .field("subject", "Cotización")
-                .field("body", "Hola")
-                .attach("file", Buffer.from("no soy un pdf"), { filename: "cotizacion.txt", contentType: "text/plain" })
-
-            expect(res.status).toBe(422)
-            expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
-        })
-
-        it("400 si el email del destinatario no es válido -- nunca llega a intentar el envío", async () => {
-            const res = await request(app)
-                .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${salespersonToken}`)
-                .field("to", "no-es-un-email")
-                .field("subject", "Cotización")
-                .field("body", "Hola")
                 .attach("file", Buffer.from("%PDF-1.4"), { filename: "cotizacion.pdf", contentType: "application/pdf" })
 
-            expect(res.status).toBe(400)
-            expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
-        })
-
-        it("200 y reenvía el PDF adjunto con los datos exactos del multipart -- caso feliz", async () => {
-            (emailService.sendMailWithAttachment as jest.Mock).mockResolvedValue(undefined)
-            const pdfContent = Buffer.from("%PDF-1.4 contenido de prueba")
-
-            const res = await request(app)
-                .post("/api/quotes/send-email")
-                .set("Authorization", `Bearer ${salespersonToken}`)
-                .field("to", "cliente@empresa.com")
-                .field("subject", "Cotización para Cliente Uno")
-                .field("body", "Hola, adjunto la cotización.")
-                .attach("file", pdfContent, { filename: "cotizacion.pdf", contentType: "application/pdf" })
-
-            expect(res.status).toBe(200)
-            expect(emailService.sendMailWithAttachment).toHaveBeenCalledWith({
-                to: "cliente@empresa.com",
-                subject: "Cotización para Cliente Uno",
-                textBody: "Hola, adjunto la cotización.",
-                attachment: {
-                    buffer: pdfContent,
-                    fileName: "cotizacion.pdf",
-                    contentType: "application/pdf"
-                }
-            })
-        })
-
-        it("rechaza sin token de cliente, igual que el resto de rutas de quoteRouter", async () => {
-            const res = await request(app)
-                .post("/api/quotes/send-email")
-                .field("to", "cliente@empresa.com")
-                .field("subject", "Cotización")
-                .field("body", "Hola")
-                .attach("file", Buffer.from("%PDF-1.4"), { filename: "cotizacion.pdf", contentType: "application/pdf" })
-
-            expect(res.status).toBe(401)
+            expect(res.status).toBe(404)
             expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
         })
     })

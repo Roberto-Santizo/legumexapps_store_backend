@@ -188,7 +188,7 @@ describe("adminQuoteRouter (HTTP) -- cotizador interno del admin", () => {
         })
     })
 
-    describe("POST /send-email (mismo endpoint que el del cliente, protegido con \"quotes:calculate\")", () => {
+    describe("POST /send-email (envío de staff, protegido con \"quotes:calculate\")", () => {
         it("403 para un staff sin \"quotes:calculate\", aunque tenga \"quotes:view\"", async () => {
             const token = staffToken(["quotes:view"])
 

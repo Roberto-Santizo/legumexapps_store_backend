@@ -326,17 +326,36 @@
     "product_variant_pallet_kit_conflict": "Este SKU todavía tiene tarima, esquineros o stretch propios: quítalos antes de activar el kit de paletizado.",
     "pallet_material_in_kit": "Este SKU usa el kit de paletizado: la tarima, los esquineros y el stretch ya se suman por pallet. Desactiva el kit en el SKU si necesita uno distinto.",
     "quote_review_not_approved": "Este pedido todavía no está aprobado.",
-    "quote_review_no_client_email": "Este pedido no tiene correo del cliente.",
-    "quote_review_client_email_already_sent": "La cotización ya se envió al cliente o se está enviando."
+    "quote_review_rejected": "Este pedido fue rechazado por gerencia; para cotizar de nuevo hay que crear un pedido nuevo.",
+    "quote_review_unexpected_pdf": "Aprobar sin enviar no lleva PDF.",
+    "quote_review_client_email_required": "Para copiar al cliente escribe su correo.",
+    "quote_review_delivery_already_sent": "La cotización ya se envió o se está enviando.",
+    "quote_review_delivery_not_required": "Este pedido es del cotizador del administrador; su PDF se envía desde la calculadora."
   },
   "quoteReview": {
     "email": {
       "subject": "Cotización pendiente de revisión: {{- clientName}}",
       "body": "Hola,\n\n{{- salespersonName}} envió a revisión gerencial un pedido para {{- clientName}} ({{count}} producto(s)).\n\nPara revisar los costos y definir la ganancia por libra, inicia sesión en el panel de administración:\n{{- link}}\n\nEste correo no incluye costos ni precios.\n\nLegumex"
     },
-    "clientEmail": {
-      "subject": "Cotización Legumex: {{- clientName}}",
-      "body": "Dear {{- clientName}},\n\nPlease find attached the quote requested for {{- clientName}}.\n\nIf you have any questions, your representative {{- salespersonName}} (copied) will be glad to help.\n\nBest regards,\nLegumex"
+    "delivery": {
+      "representative": {
+        "subject": "Cotización aprobada: {{- clientName}}",
+        "body": "Hola {{- salespersonName}}:\n\nGerencia aprobó la cotización para {{- clientName}}. Adjuntamos el PDF con el precio final.\n\nEste correo se envió solo a ti; el cliente no lo recibió.\n\nLegumex"
+      },
+      "withClient": {
+        "subject": "Cotización Legumex: {{- clientName}}",
+        "body": "Dear {{- clientName}},\n\nPlease find attached the quote requested for {{- clientName}}.\n\nIf you have any questions, your Legumex representative, {{- salespersonName}}, who is included in this email, will be glad to help.\n\nBest regards,\nLegumex"
+      }
+    },
+    "decision": {
+      "approved": {
+        "subject": "Tu cotización fue aprobada: {{- clientName}}",
+        "body": "Hola {{- salespersonName}}:\n\nGerencia aprobó tu cotización para {{- clientName}}.\n\nPor ahora gerencia no envió la cotización comercial; cuando autorice el envío la recibirás por correo. Este aviso no incluye precios.\n\nLegumex"
+      },
+      "rejected": {
+        "subject": "Cotización rechazada: {{- clientName}}",
+        "body": "Hola {{- salespersonName}}:\n\nGerencia rechazó tu cotización para {{- clientName}}.\n\nMotivo: {{- reason}}\n\nNo se envió nada al cliente. Si necesitas cotizar de nuevo, empieza un pedido nuevo.\n\nLegumex"
+      }
     }
   },
   "success": {
@@ -349,7 +368,8 @@
     "bulk_imported": "Se importaron {{count}} registros correctamente.",
     "quote_pdf_email_sent": "El correo se envió correctamente.",
     "quote_review_submitted": "El pedido se envió a revisión gerencial.",
-    "quote_review_approved": "La revisión se aprobó y el precio final quedó calculado.",
+    "quote_review_approved": "La cotización quedó aprobada con su precio final.",
+    "quote_review_rejected": "La cotización quedó rechazada.",
     "raw_material_transformation_processed": "Materia prima procesada {{code}}: USD {{cost}} por libra.",
     "pallet_kit_updated": "Kit de paletizado actualizado."
   },

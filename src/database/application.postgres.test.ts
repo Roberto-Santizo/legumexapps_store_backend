@@ -227,11 +227,15 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         // What the representative saw is the same snapshot without its amounts.
         expect(persisted.breakdown).toMatchObject(saved.body.data.breakdown)
         expect((await model("QuoteDraft").findOne()).status).toBe("converted")
-        expect((await request(server).get("/api/admin/quotes").set("Authorization", `Bearer ${adminToken}`)).status).toBe(200)
+        // Sin aprobación gerencial no aparece en el listado de cotizaciones.
+        const unapproved = await request(server).get("/api/admin/quotes").set("Authorization", `Bearer ${adminToken}`)
+        expect(unapproved.status).toBe(200)
+        expect(unapproved.body.data.some((row: { id: number }) => row.id === persisted.id)).toBe(false)
 
         // Guardado desde el cotizador del admin: mismo cálculo, autor staff, cliente resuelto por el servidor.
+        const adminOrderId = randomUUID()
         const adminSaved = await request(server).post("/api/admin/quotes").set("Authorization", `Bearer ${adminToken}`)
-            .send({ productVariantId: variant.id, requestedPallets: 2, orderId: randomUUID() })
+            .send({ productVariantId: variant.id, requestedPallets: 2, orderId: adminOrderId })
         expect(adminSaved.status).toBe(201)
         const adminQuote = await model("Quote").findByPk(adminSaved.body.data.id)
         expect(adminQuote).toMatchObject({ salespersonId: null, createdByUserId: (jwt.decode(adminToken) as unknown as { sub: number }).sub })
@@ -255,8 +259,11 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
             expect.objectContaining({ recipientName: "Second buyer", recipientEmail: "second@example.invalid" }),
         ])
         expect((await model("Quote").findByPk(persisted.id)).emailDeliveries).toEqual([])
+        expect((await request(server).put(`/api/admin/quote-reviews/${adminOrderId}/admin-pricing`).set("Authorization", `Bearer ${adminToken}`).send({ profitPerPound: 0.5 })).status).toBe(200)
         const listed = await request(server).get("/api/admin/quotes").set("Authorization", `Bearer ${adminToken}`)
-        expect(listed.body.data.find((row: { id: number }) => row.id === adminQuote.id)).toMatchObject({ quotingSalesperson: null, quotingUser: { id: adminQuote.createdByUserId }, emailDeliveries: deliveries })
+        expect(listed.body.data.map((row: { id: number }) => row.id)).toEqual([adminQuote.id])
+        expect(listed.body.data[0]).toMatchObject({ quotingSalesperson: null, quotingUser: { id: adminQuote.createdByUserId }, emailDeliveries: deliveries, profit: { profitPerPound: 0.5, finalPrice: expect.any(Number) } })
+        expect(listed.body.data[0].profit.finalPrice).toBeCloseTo(1495.4 + listed.body.data[0].profit.profitTotal, 2)
         const dashboard = await request(server).get("/api/admin/dashboard/summary").set("Authorization", `Bearer ${adminToken}`)
         expect(dashboard.body.data.overview).toMatchObject({ totalQuotes: 2, uniqueSalespeople: 1 })
         expect(dashboard.body.data.topSalespeople).toEqual(expect.arrayContaining([expect.objectContaining({ isAdmin: true, quoteCount: 1 })]))
@@ -299,7 +306,7 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         }
     }, 30000)
 
-    test("management review: the representative submits once, management approves the profit per pound once, the client gets the final quote and the representative only sees final prices", async () => {
+    test("management review: the client email is optional; approving never sends by itself; sending only to the representative leaves the client out; prices reach the representative only once delivery is authorized", async () => {
         const model = (name: string) => sequelize.models[name] as any
         const { emailService } = require("../shared/services/email.service") as { emailService: { sendMail: jest.Mock; sendMailWithAttachment: jest.Mock } }
         const { buildProfitLine } = require("../features/pricing/services/quoteProfit") as typeof import("../features/pricing/services/quoteProfit")
@@ -311,75 +318,92 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         const saved = await request(server).post("/api/quotes").set(rep).send(input)
         expect(saved.status).toBe(201)
         const quote = await model("Quote").findByPk(saved.body.data.id)
+        const representative = await model("Salesperson").findByPk(quote.salespersonId)
         const reviews = () => model("QuoteOrderReview").findAll({ where: { orderId } })
-        const submit = (clientEmail = "Compras@Cliente.example ") => request(server).post(`/api/quote-reviews/${orderId}`).set(rep).send({ clientEmail })
+        const submit = (body: object = {}) => request(server).post(`/api/quote-reviews/${orderId}`).set(rep).send(body)
         await client.update({ email: null })
 
-        // The representative never reaches management routes; management needs quotes:review.
+        // The representative never reaches management routes, nor a direct send route.
         expect((await request(server).get(`/api/admin/quote-reviews/${orderId}`).set(rep)).status).toBe(401)
+        expect((await request(server).post(`/api/quote-reviews/${orderId}/approve`).set(rep).send({})).status).toBe(404)
+        expect((await request(server).post("/api/quotes/send-email").set(rep).field("to", "x@cliente.example").field("subject", "s").field("body", "b")
+            .attach("file", Buffer.from("%PDF-1.4"), { filename: "c.pdf", contentType: "application/pdf" })).status).toBe(404)
         emailService.sendMail.mockReset().mockResolvedValue(undefined)
-        expect((await request(server).post(`/api/quote-reviews/${orderId}`).set(rep).send({})).status).toBe(400)
+        emailService.sendMailWithAttachment.mockReset().mockResolvedValue(undefined)
+        expect((await submit({ clientEmail: "no-es-correo" })).status).toBe(400)
+        // Without the client's email the order still reaches management; nothing invented.
         const submitted = await submit()
         expect(submitted.status).toBe(201)
-        expect(submitted.body.data).toMatchObject({ orderId, status: "pending", clientEmail: "compras@cliente.example", clientEmailStatus: "pending" })
-        // The client had no email: the one from the order is saved to their record.
-        expect((await client.reload()).email).toBe("compras@cliente.example")
+        expect(submitted.body.data).toMatchObject({ orderId, status: "pending", clientEmail: null, deliveryStatus: "pending", deliveryRecipients: null })
         expect(submitted.body.data).not.toHaveProperty("finalPrice")
+        expect((await client.reload()).email).toBeNull()
         expect(emailService.sendMail).toHaveBeenCalledTimes(1)
         const [mail] = emailService.sendMail.mock.calls[0]
         expect(mail.to).toEqual(["review@example.invalid"])
         expect(mail.textBody).toContain(`http://localhost:5173/admin/quote-reviews/${orderId}`)
-        expect(mail.textBody).toContain(client.name)
         expect(`${mail.subject} ${mail.textBody}`).not.toMatch(/\$|USD|\d+\.\d{2}/)
-        // Submitting the same order again (network retry) creates nothing and sends nothing.
-        expect((await submit()).status).toBe(201)
+        // Adding the email later keeps the current behaviour (saved to the client with none); leaving the
+        // field empty afterwards never erases it. Neither change notifies management again.
+        expect((await submit({ clientEmail: "Compras@Cliente.example " })).body.data.clientEmail).toBe("compras@cliente.example")
+        expect((await client.reload()).email).toBe("compras@cliente.example")
+        expect((await submit()).body.data.clientEmail).toBe("compras@cliente.example")
         expect(emailService.sendMail).toHaveBeenCalledTimes(1)
         expect(await reviews()).toHaveLength(1)
         expect((await reviews())[0]).toMatchObject({ status: "pending", notificationStatus: "sent", notificationAttempts: 1, salespersonId: quote.salespersonId, clientName: client.name })
 
         const detail = await request(server).get(`/api/admin/quote-reviews/${orderId}`).set(admin)
         expect(detail.status).toBe(200)
-        expect(detail.body.data.lines).toHaveLength(1)
+        expect(detail.body.data).toMatchObject({ deliveryAvailable: false, suggestedClientEmail: "compras@cliente.example" })
         expect(detail.body.data.lines[0]).toMatchObject({ kind: "fixed", id: quote.id, totalCost: quote.totalCost })
         const expected = buildProfitLine({ totalCost: quote.totalCost, netWeightGrams: quote.breakdown.production.netWeightGrams, totalUnits: quote.totalUnits }, "0.25")
         const preview = await request(server).post(`/api/admin/quote-reviews/${orderId}/preview`).set(admin).send({ profitPerPound: "0.25" })
         expect(preview.status).toBe(200)
         expect(preview.body.data).toMatchObject({ profitPerPound: 0.25, finalPrice: expected.finalPrice, lines: [{ quoteId: quote.id, ...expected }] })
+        // The preview carries the digest of the lines it calculated: the approval sends that one.
+        expect(preview.body.data.linesDigest).toBe(detail.body.data.linesDigest)
         expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/preview`).set(admin).send({ profitPerPound: 25 })).status).toBe(422)
-        expect((await reviews())[0].status).toBe("pending")
 
-        // Approval needs the digest of the lines management saw; a stale one is rejected.
-        // With a client email, the approval carries the final PDF (built by management's browser).
-        const approve = (body: { profitPerPound: string; linesDigest: string }, withPdf = true) => {
-            const call = request(server).post(`/api/admin/quote-reviews/${orderId}/approve`).set(admin).field("profitPerPound", body.profitPerPound).field("linesDigest", body.linesDigest)
-            return withPdf ? call.attach("file", Buffer.from("%PDF-1.4 synthetic"), { filename: "Cotizacion.pdf", contentType: "application/pdf" }) : call
+        // Approval needs the digest of the lines management saw and an explicit delivery decision.
+        const pdf = [Buffer.from("%PDF-1.4 synthetic"), { filename: "Cotizacion.pdf", contentType: "application/pdf" }] as const
+        const approve = (body: Record<string, string>, withPdf: boolean) => {
+            const call = request(server).post(`/api/admin/quote-reviews/${orderId}/approve`).set(admin)
+            for (const [key, value] of Object.entries(body)) call.field(key, value)
+            return withPdf ? call.attach("file", ...pdf) : call
         }
-        expect((await approve({ profitPerPound: "0.25", linesDigest: "0".repeat(64) })).status).toBe(409)
-        const approval = { profitPerPound: "0.25", linesDigest: detail.body.data.linesDigest }
-        expect((await approve(approval, false)).status).toBe(422)
+        const approval = { profitPerPound: "0.25", linesDigest: detail.body.data.linesDigest, delivery: "representative" }
+        expect((await approve({ ...approval, linesDigest: "0".repeat(64) }, true)).status).toBe(409)
+        expect((await approve(approval, false)).status).toBe(422) // Sending needs the final PDF.
+        expect((await approve({ ...approval, delivery: "none" }, true)).status).toBe(422) // Not sending takes no PDF.
         expect((await reviews())[0].status).toBe("pending")
-        emailService.sendMailWithAttachment.mockReset().mockResolvedValue(undefined)
-        expect((await approve(approval)).status).toBe(200)
+        expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
+        const approved = await approve(approval, true)
+        expect(approved.status).toBe(200)
+        expect(approved.body.data.review).toMatchObject({ status: "approved", deliveryStatus: "sent", deliveryRecipients: "representative" })
+        expect(approved.body.data).not.toHaveProperty("representativeNotified")
+        // Only the representative (email from their record), never the client, not even in copy.
         expect(emailService.sendMailWithAttachment).toHaveBeenCalledTimes(1)
-        const [clientMail] = emailService.sendMailWithAttachment.mock.calls[0]
-        const representative = await model("Salesperson").findByPk(quote.salespersonId)
-        expect(clientMail).toMatchObject({ to: "compras@cliente.example", cc: [representative.email], attachment: { fileName: "Cotizacion.pdf", contentType: "application/pdf" } })
-        expect(clientMail.textBody).toContain(client.name)
-        // A retried approval neither changes anything nor emails the client twice.
-        expect((await approve(approval)).status).toBe(200)
+        const [deliveryMail] = emailService.sendMailWithAttachment.mock.calls[0]
+        expect(deliveryMail).toMatchObject({ to: representative.email, cc: [], attachment: { fileName: "Cotizacion.pdf", contentType: "application/pdf" } })
+        expect(JSON.stringify(deliveryMail)).not.toContain("compras@cliente.example")
+        expect(emailService.sendMail).toHaveBeenCalledTimes(1) // The delivery is the notice: no extra one.
+        // A retried approval neither changes anything nor sends twice; another approval is rejected.
+        expect((await approve(approval, true)).status).toBe(200)
         expect(emailService.sendMailWithAttachment).toHaveBeenCalledTimes(1)
-        expect((await approve({ ...approval, profitPerPound: "0.5" })).status).toBe(409)
+        expect((await approve({ ...approval, profitPerPound: "0.5" }, true)).status).toBe(409)
+        // One successful delivery per order; an approved order cannot be rejected.
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/delivery`).set(admin).field("recipients", "representative_and_client").attach("file", ...pdf)).status).toBe(409)
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/reject`).set(admin).send({ reason: "Rentabilidad insuficiente" })).status).toBe(409)
         const [review] = await reviews()
-        expect(review).toMatchObject({ status: "approved", profitPerPound: "0.2500", clientEmailStatus: "sent", reviewedByUserId: (jwt.decode(adminToken) as unknown as { sub: number }).sub })
-        expect(review.clientEmailedAt).toBeInstanceOf(Date)
+        expect(review).toMatchObject({ status: "approved", profitPerPound: "0.2500", deliveryStatus: "sent", rejectionReason: null, reviewedByUserId: (jwt.decode(adminToken) as unknown as { sub: number }).sub })
+        expect(review.deliveredAt).toBeInstanceOf(Date)
         expect(review.pricing).toMatchObject({ finalPrice: expected.finalPrice, profitTotal: expected.profitTotal })
         // The reviewed cost stays frozen: the profit lives only in the review.
         expect((await quote.reload()).totalCost).toBe(String(quote.totalCost))
 
-        // The representative sees the final price only, never the cost or the profit.
+        // Delivery authorized: the representative sees the final price only, never the cost or the profit.
         const status = await request(server).get(`/api/quote-reviews/${orderId}`).set(rep)
         expect(status.status).toBe(200)
-        expect(status.body.data).toMatchObject({ status: "approved", clientEmailStatus: "sent", finalPrice: expected.finalPrice, lines: [{ quoteId: quote.id, finalPrice: expected.finalPrice }] })
+        expect(status.body.data).toMatchObject({ status: "approved", deliveryStatus: "sent", deliveryRecipients: "representative", finalPrice: expected.finalPrice, lines: [{ quoteId: quote.id, finalPrice: expected.finalPrice }] })
         expect(JSON.stringify(status.body)).not.toMatch(/Cost|profit/i)
         // An approved order cannot change: a new line is rejected before it is stored (another order is needed).
         const linesBefore = await model("Quote").count({ where: { salespersonId: quote.salespersonId } })
@@ -393,16 +417,19 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         expect(JSON.stringify(destinations.body)).not.toMatch(/baseCost/)
     }, 60000)
 
-    test("management review: a failed notice or client email can be resent; another email for one order keeps the client's; admin orders set their own profit without review", async () => {
+    test("management review: approving without sending only tells the representative (no PDF, no prices); management sends later with a copy to a client email it enters; failures keep the approval; admin orders set their own profit", async () => {
         const model = (name: string) => sequelize.models[name] as any
         const { emailService } = require("../shared/services/email.service") as { emailService: { sendMail: jest.Mock; sendMailWithAttachment: jest.Mock } }
         const rep = { Authorization: `Bearer ${representativeToken}` }, admin = { Authorization: `Bearer ${adminToken}` }
         const sku = await model("ProductVariant").findByPk(variantId)
         const client = await model("Client").findByPk((await model("Product").findByPk(sku.productId)).clientId)
         const orderId = randomUUID()
-        expect((await request(server).post("/api/quotes").set(rep).send({ productVariantId: variantId, requestedPallets: 1, order: { id: orderId, clientId: client.id, clientName: client.name } })).status).toBe(201)
+        const saved = await request(server).post("/api/quotes").set(rep).send({ productVariantId: variantId, requestedPallets: 1, order: { id: orderId, clientId: client.id, clientName: client.name } })
+        expect(saved.status).toBe(201)
+        const representative = await model("Salesperson").findByPk((await model("Quote").findByPk(saved.body.data.id)).salespersonId)
         await client.update({ email: "saved@cliente.example" })
         emailService.sendMail.mockReset().mockRejectedValueOnce(new Error("Graph 503")).mockResolvedValue(undefined)
+        emailService.sendMailWithAttachment.mockReset().mockResolvedValue(undefined)
         const consoleError = jest.spyOn(console, "error").mockImplementation(() => {})
         try {
             expect((await request(server).post(`/api/quote-reviews/${orderId}`).set(rep).send({ clientEmail: "other@cliente.example" })).status).toBe(201)
@@ -412,28 +439,87 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         const resent = await request(server).post(`/api/admin/quote-reviews/${orderId}/notify`).set(admin)
         expect(resent.status).toBe(200)
         expect(resent.body.data.notificationStatus).toBe("sent")
-        expect(await model("QuoteOrderReview").findOne({ where: { orderId } })).toMatchObject({ status: "pending", notificationStatus: "sent", notificationAttempts: 2, clientEmail: "other@cliente.example" })
-        // The approval stands even if the client email fails; management resends it with a new PDF.
+        expect(emailService.sendMail).toHaveBeenCalledTimes(2)
+
+        // Approve without sending: approved with its final price, the representative gets an internal notice.
         const pdf = () => [Buffer.from("%PDF-1.4 synthetic"), { filename: "Cotizacion.pdf", contentType: "application/pdf" }] as const
         const linesDigest = (await request(server).get(`/api/admin/quote-reviews/${orderId}`).set(admin)).body.data.linesDigest
-        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/client-email`).set(admin).attach("file", ...pdf())).status).toBe(409)
+        const deliver = (recipients: string, clientEmail?: string) => {
+            const call = request(server).post(`/api/admin/quote-reviews/${orderId}/delivery`).set(admin).field("recipients", recipients)
+            if (clientEmail !== undefined) call.field("clientEmail", clientEmail)
+            return call.attach("file", ...pdf())
+        }
+        expect((await deliver("representative")).status).toBe(409) // Not approved yet.
+        const approveWithoutSending = () => request(server).post(`/api/admin/quote-reviews/${orderId}/approve`).set(admin).send({ profitPerPound: "0.1", linesDigest, delivery: "none" })
+        const approved = await approveWithoutSending()
+        expect(approved.status).toBe(200)
+        expect(approved.body.data).toMatchObject({ representativeNotified: true, deliveryAvailable: true, review: { status: "approved", deliveryStatus: "pending", deliveryRecipients: null } })
+        expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
+        expect(emailService.sendMail).toHaveBeenCalledTimes(3)
+        const notice = emailService.sendMail.mock.calls[2][0]
+        expect(notice.to).toBe(representative.email)
+        expect(notice).not.toHaveProperty("cc")
+        expect(`${notice.subject} ${notice.textBody}`).toContain(client.name)
+        expect(`${notice.subject} ${notice.textBody}`).not.toMatch(/\$|USD|\d+\.\d{2}|cliente\.example/)
+        // A retried approval does not notify again; nothing was released to the representative yet.
+        expect((await approveWithoutSending()).body.data).not.toHaveProperty("representativeNotified")
+        expect(emailService.sendMail).toHaveBeenCalledTimes(3)
+        const pendingDelivery = (await request(server).get(`/api/quote-reviews/${orderId}`).set(rep)).body.data
+        expect(pendingDelivery).toMatchObject({ status: "approved", deliveryStatus: "pending", deliveryRecipients: null })
+        expect(pendingDelivery).not.toHaveProperty("finalPrice")
+
+        // Later, management sends it with a copy to the client, entering a new email. Unknown recipients,
+        // invalid emails and a copy without email are rejected before anything is reserved.
+        expect((await deliver("client")).status).toBe(400)
+        expect((await deliver("representative_and_client", "no-es-correo")).status).toBe(400)
+        await model("QuoteOrderReview").update({ clientEmail: null }, { where: { orderId } })
+        await client.update({ email: null })
+        expect((await deliver("representative_and_client")).status).toBe(422)
+        expect(await model("QuoteOrderReview").findOne({ where: { orderId } })).toMatchObject({ deliveryStatus: "pending", deliveryRecipients: null })
+        await client.update({ email: "saved@cliente.example" })
+        // The send fails: the approval stands, the email stays on this order only (the client already had one).
         emailService.sendMailWithAttachment.mockReset().mockRejectedValueOnce(new Error("Graph 503")).mockResolvedValue(undefined)
         const clientError = jest.spyOn(console, "error").mockImplementation(() => {})
         try {
-            const approved = await request(server).post(`/api/admin/quote-reviews/${orderId}/approve`).set(admin).field("profitPerPound", "0.1").field("linesDigest", linesDigest).attach("file", ...pdf())
-            expect(approved.status).toBe(200)
-            expect(approved.body.data.review).toMatchObject({ status: "approved", clientEmailStatus: "failed" })
+            const failed = await deliver("representative_and_client", "Nueva@Cliente.example")
+            expect(failed.status).toBe(200)
+            expect(failed.body.data.deliveryStatus).toBe("failed")
         } finally { clientError.mockRestore() }
-        expect((await request(server).get(`/api/quote-reviews/${orderId}`).set(rep)).body.data).toMatchObject({ status: "approved", clientEmailStatus: "failed" })
-        // Two simultaneous resends: only one claims the email, the client gets it once.
+        expect(await model("QuoteOrderReview").findOne({ where: { orderId } })).toMatchObject({ status: "approved", deliveryStatus: "failed", deliveryRecipients: "representative_and_client", clientEmail: "nueva@cliente.example" })
+        expect((await client.reload()).email).toBe("saved@cliente.example")
+        // Delivery authorized (even if it failed): the representative now sees the final price.
+        expect((await request(server).get(`/api/quote-reviews/${orderId}`).set(rep)).body.data).toMatchObject({ status: "approved", deliveryStatus: "failed", finalPrice: expect.any(Number) })
+        // Two simultaneous retries: only one claims the delivery; to the representative, client in copy.
         const sendsBefore = emailService.sendMailWithAttachment.mock.calls.length
-        const resends = await Promise.all([0, 1].map(() => request(server).post(`/api/admin/quote-reviews/${orderId}/client-email`).set(admin).attach("file", ...pdf())))
-        expect(resends.map(response => response.status).sort()).toEqual([200, 409])
+        const retries = await Promise.all([0, 1].map(() => deliver("representative_and_client")))
+        expect(retries.map(response => response.status).sort()).toEqual([200, 409])
         expect(emailService.sendMailWithAttachment.mock.calls.length - sendsBefore).toBe(1)
-        const resentToClient = resends.find(response => response.status === 200)!
-        expect(resentToClient.body.data.clientEmailStatus).toBe("sent")
-        expect(emailService.sendMailWithAttachment).toHaveBeenLastCalledWith(expect.objectContaining({ to: "other@cliente.example" }))
-        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/client-email`).set(admin).attach("file", ...pdf())).status).toBe(409)
+        expect(retries.find(response => response.status === 200)!.body.data.deliveryStatus).toBe("sent")
+        expect(emailService.sendMailWithAttachment).toHaveBeenLastCalledWith(expect.objectContaining({ to: representative.email, cc: ["nueva@cliente.example"] }))
+        expect((await deliver("representative")).status).toBe(409)
+        // A delivery stuck in "sending" (process died) is retried after 10 minutes, even with the same data:
+        // the claim always renews its mark, so a second retry does not send again while the first is in
+        // flight, and a late process from the expired attempt cannot overwrite the new attempt's result.
+        await model("QuoteOrderReview").update({ deliveryStatus: "sending" }, { where: { orderId } })
+        await sequelize.query(`UPDATE "quoteOrderReviews" SET "updatedAt" = date_trunc('milliseconds', now() - interval '11 minutes') WHERE "orderId" = :orderId`, { replacements: { orderId } })
+        const expired = await model("QuoteOrderReview").findOne({ where: { orderId } })
+        let release!: () => void
+        emailService.sendMailWithAttachment.mockReset()
+            .mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve }))
+            .mockRejectedValueOnce(new Error("Graph timeout"))
+        const renewed = deliver("representative_and_client").then(response => response)
+        while (!emailService.sendMailWithAttachment.mock.calls.length) await new Promise(resolve => setTimeout(resolve, 10))
+        expect((await deliver("representative_and_client")).status).toBe(409)
+        const { sendQuoteDelivery } = require("../features/quoteReview/services/quoteReviewDelivery")
+        const lateError = jest.spyOn(console, "error").mockImplementation(() => {})
+        try {
+            expect(await sendQuoteDelivery(expired, { buffer: Buffer.from("%PDF-1.4"), fileName: "late.pdf" }, (key: string) => key)).toBe("failed")
+        } finally { lateError.mockRestore() }
+        expect(await model("QuoteOrderReview").findOne({ where: { orderId } })).toMatchObject({ deliveryStatus: "sending" })
+        release()
+        expect((await renewed).body.data.deliveryStatus).toBe("sent")
+        expect(emailService.sendMailWithAttachment).toHaveBeenCalledTimes(2)
+        expect(await model("QuoteOrderReview").findOne({ where: { orderId } })).toMatchObject({ deliveryStatus: "sent" })
         // An unknown order is not found for either side.
         expect((await request(server).post(`/api/quote-reviews/${randomUUID()}`).set(rep).send({ clientEmail: "x@cliente.example" })).status).toBe(404)
         // A representative's order cannot get an admin price that skips the review.
@@ -445,10 +531,70 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         const priced = await request(server).put(`/api/admin/quote-reviews/${adminOrderId}/admin-pricing`).set(admin).send({ profitPerPound: 0.5 })
         expect(priced.status).toBe(200)
         expect(priced.body.data).toMatchObject({ profitPerPound: 0.5, lines: [expect.objectContaining({ kind: "fixed" })] })
-        expect(await model("QuoteOrderReview").findOne({ where: { orderId: adminOrderId } })).toMatchObject({ status: "approved", salespersonId: null, notificationStatus: "not_required", clientEmailStatus: "not_required", clientEmail: null })
+        expect(await model("QuoteOrderReview").findOne({ where: { orderId: adminOrderId } })).toMatchObject({ status: "approved", salespersonId: null, notificationStatus: "not_required", deliveryStatus: "not_required", clientEmail: null })
+        // The admin's own order is sent from its calculator, never through the management delivery.
+        expect((await request(server).post(`/api/admin/quote-reviews/${adminOrderId}/delivery`).set(admin).field("recipients", "representative").attach("file", ...pdf())).status).toBe(409)
         // The admin can change their own profit while building the order.
         expect((await request(server).put(`/api/admin/quote-reviews/${adminOrderId}/admin-pricing`).set(admin).send({ profitPerPound: 0 })).body.data.profitTotal).toBe(0)
-        expect(emailService.sendMail).toHaveBeenCalledTimes(2)
+        expect(emailService.sendMail).toHaveBeenCalledTimes(3)
+    }, 60000)
+
+    test("management review: a rejection needs a reason, tells only the representative why, sends nothing commercial and closes the order", async () => {
+        const model = (name: string) => sequelize.models[name] as any
+        const { emailService } = require("../shared/services/email.service") as { emailService: { sendMail: jest.Mock; sendMailWithAttachment: jest.Mock } }
+        const rep = { Authorization: `Bearer ${representativeToken}` }, admin = { Authorization: `Bearer ${adminToken}` }
+        const sku = await model("ProductVariant").findByPk(variantId)
+        const client = await model("Client").findByPk((await model("Product").findByPk(sku.productId)).clientId)
+        const orderId = randomUUID()
+        const input = { productVariantId: variantId, requestedPallets: 1, order: { id: orderId, clientId: client.id, clientName: client.name } }
+        const saved = await request(server).post("/api/quotes").set(rep).send(input)
+        expect(saved.status).toBe(201)
+        const representative = await model("Salesperson").findByPk((await model("Quote").findByPk(saved.body.data.id)).salespersonId)
+        emailService.sendMail.mockReset().mockResolvedValue(undefined)
+        emailService.sendMailWithAttachment.mockReset().mockResolvedValue(undefined)
+        expect((await request(server).post(`/api/quote-reviews/${orderId}`).set(rep).send({ clientEmail: "compras@cliente.example" })).status).toBe(201)
+        const reject = (reason?: string) => request(server).post(`/api/admin/quote-reviews/${orderId}/reject`).set(admin).send(reason === undefined ? {} : { reason })
+        expect((await reject()).status).toBe(400)
+        expect((await reject("  ")).status).toBe(400)
+        // The representative cannot reject (or approve) through the API.
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/reject`).set(rep).send({ reason: "No contamos con el producto" })).status).toBe(401)
+
+        // The notice fails: the rejection is kept anyway and management is told the representative was not notified.
+        emailService.sendMail.mockReset().mockRejectedValueOnce(new Error("Graph 503")).mockResolvedValue(undefined)
+        const consoleError = jest.spyOn(console, "error").mockImplementation(() => {})
+        let rejected: request.Response
+        try { rejected = await reject("No contamos con el producto solicitado") } finally { consoleError.mockRestore() }
+        expect(rejected.status).toBe(200)
+        expect(rejected.body.data).toMatchObject({ representativeNotified: false, deliveryAvailable: false, review: { status: "rejected", rejectionReason: "No contamos con el producto solicitado", profitPerPound: null, pricing: null } })
+        const [notice] = emailService.sendMail.mock.calls[0]
+        expect(notice.to).toBe(representative.email)
+        expect(notice).not.toHaveProperty("cc")
+        expect(notice.textBody).toContain("No contamos con el producto solicitado")
+        expect(JSON.stringify(notice)).not.toContain("compras@cliente.example")
+        expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
+        // Repeating the same rejection notifies nobody again; another reason or any other decision is refused.
+        expect((await reject("No contamos con el producto solicitado")).body.data).not.toHaveProperty("representativeNotified")
+        expect(emailService.sendMail).toHaveBeenCalledTimes(1)
+        expect((await reject("Otro motivo distinto")).status).toBe(409)
+        const linesDigest = rejected.body.data.linesDigest
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/approve`).set(admin).send({ profitPerPound: "0.1", linesDigest, delivery: "none" })).status).toBe(409)
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/preview`).set(admin).send({ profitPerPound: "0.1" })).status).toBe(409)
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/notify`).set(admin)).status).toBe(409)
+        expect((await request(server).post(`/api/admin/quote-reviews/${orderId}/delivery`).set(admin).field("recipients", "representative")
+            .attach("file", Buffer.from("%PDF-1.4"), { filename: "c.pdf", contentType: "application/pdf" })).status).toBe(409)
+        expect(emailService.sendMailWithAttachment).not.toHaveBeenCalled()
+
+        // The representative sees the rejection and its reason, never prices; the order takes no more lines.
+        const status = (await request(server).get(`/api/quote-reviews/${orderId}`).set(rep)).body.data
+        expect(status).toMatchObject({ status: "rejected", rejectionReason: "No contamos con el producto solicitado", deliveryRecipients: null })
+        expect(status).not.toHaveProperty("finalPrice")
+        const linesBefore = await model("Quote").count({ where: { salespersonId: representative.id } })
+        expect((await request(server).post("/api/quotes").set(rep).send(input)).status).toBe(409)
+        expect(await model("Quote").count({ where: { salespersonId: representative.id } })).toBe(linesBefore)
+        expect((await request(server).post(`/api/quote-reviews/${orderId}`).set(rep).send({})).status).toBe(409)
+        // Rejected orders never show up among the approved quotes.
+        const listed = await request(server).get("/api/admin/quotes").set(admin)
+        expect(listed.body.data.some((row: { id: number }) => row.id === saved.body.data.id)).toBe(false)
     }, 60000)
 
     test("management review: a new-product line that started before the approval (or before the review existed) is rejected", async () => {
@@ -475,22 +621,26 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
             const created = await model("QuoteOrderReview").create({ orderId: unseenOrderId, salespersonId, clientName: "UNSEEN", clientEmail: "compras@cliente.example", linesDigest: "a".repeat(64) })
             await created.update({ status: "approved", reviewedAt: new Date() })
         })).rejects.toMatchObject({ statusCode: 409 })
+        // c) The review is rejected while waiting: a rejected order takes no more lines either.
+        const rejectedOrderId = randomUUID()
+        const pendingReview = await model("QuoteOrderReview").create({ orderId: rejectedOrderId, salespersonId, clientName: "REJECTED", linesDigest: "a".repeat(64) })
+        await expect(changedWhileWaiting(rejectedOrderId, () => pendingReview.update({ status: "rejected", rejectionReason: "Sin producto", reviewedAt: new Date() }))).rejects.toMatchObject({ statusCode: 409, message: "errors.quote_review_rejected" })
 
         // A send interrupted after claiming it ("sending" with no outcome) is offered again only once it is stale.
         const { emailService } = require("../shared/services/email.service") as { emailService: { sendMailWithAttachment: jest.Mock } }
         const admin = { Authorization: `Bearer ${adminToken}` }
-        const retryable = async () => (await request(server).get(`/api/admin/quote-reviews/${orderId}`).set(admin)).body.data.clientEmailRetryable
+        const retryable = async () => (await request(server).get(`/api/admin/quote-reviews/${orderId}`).set(admin)).body.data.deliveryAvailable
         expect(await retryable()).toBe(true) // Approved, send never started.
         await sequelize.query(`UPDATE "quoteOrderReviews" SET "clientEmailStatus"='sending', "updatedAt"=NOW() WHERE "orderId"=:orderId`, { replacements: { orderId } })
         expect(await retryable()).toBe(false)
-        const resend = () => request(server).post(`/api/admin/quote-reviews/${orderId}/client-email`).set(admin).attach("file", Buffer.from("%PDF-1.4 synthetic"), { filename: "Cotizacion.pdf", contentType: "application/pdf" })
+        const resend = () => request(server).post(`/api/admin/quote-reviews/${orderId}/delivery`).set(admin).field("recipients", "representative_and_client").attach("file", Buffer.from("%PDF-1.4 synthetic"), { filename: "Cotizacion.pdf", contentType: "application/pdf" })
         expect((await resend()).status).toBe(409)
         await sequelize.query(`UPDATE "quoteOrderReviews" SET "updatedAt"=NOW() - INTERVAL '11 minutes' WHERE "orderId"=:orderId`, { replacements: { orderId } })
         expect(await retryable()).toBe(true)
         emailService.sendMailWithAttachment.mockReset().mockResolvedValue(undefined)
         const recovered = await resend()
         expect(recovered.status).toBe(200)
-        expect(recovered.body.data.clientEmailStatus).toBe("sent")
+        expect(recovered.body.data.deliveryStatus).toBe("sent")
         expect(emailService.sendMailWithAttachment).toHaveBeenCalledTimes(1)
         expect(await retryable()).toBe(false)
     }, 60000)

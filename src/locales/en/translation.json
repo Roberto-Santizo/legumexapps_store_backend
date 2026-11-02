@@ -326,17 +326,36 @@
     "product_variant_pallet_kit_conflict": "This SKU still has its own pallet, corner boards or stretch film: remove them before turning the pallet kit on.",
     "pallet_material_in_kit": "This SKU uses the pallet kit: pallet, corner boards and stretch film are already added per pallet. Turn the kit off on the SKU if it needs a different one.",
     "quote_review_not_approved": "This order is not approved yet.",
-    "quote_review_no_client_email": "This order has no client email.",
-    "quote_review_client_email_already_sent": "The quote was already sent to the client or is being sent."
+    "quote_review_rejected": "Management rejected this order; to quote again, create a new order.",
+    "quote_review_unexpected_pdf": "Approving without sending takes no PDF.",
+    "quote_review_client_email_required": "Enter the client's email to copy them.",
+    "quote_review_delivery_already_sent": "The quote was already sent or is being sent.",
+    "quote_review_delivery_not_required": "This order comes from the administrator's calculator; its PDF is sent from the calculator."
   },
   "quoteReview": {
     "email": {
       "subject": "Quote pending review: {{- clientName}}",
       "body": "Hello,\n\n{{- salespersonName}} sent an order for {{- clientName}} ({{count}} product(s)) to management review.\n\nTo review the costs and set the profit per pound, sign in to the administration panel:\n{{- link}}\n\nThis email does not include costs or prices.\n\nLegumex"
     },
-    "clientEmail": {
-      "subject": "Legumex quote: {{- clientName}}",
-      "body": "Dear {{- clientName}},\n\nPlease find attached the quote requested for {{- clientName}}.\n\nIf you have any questions, your representative {{- salespersonName}} (copied) will be glad to help.\n\nBest regards,\nLegumex"
+    "delivery": {
+      "representative": {
+        "subject": "Approved quote: {{- clientName}}",
+        "body": "Hello {{- salespersonName}},\n\nManagement approved the quote for {{- clientName}}. The PDF with the final price is attached.\n\nThis email was sent only to you; the client did not receive it.\n\nLegumex"
+      },
+      "withClient": {
+        "subject": "Legumex quote: {{- clientName}}",
+        "body": "Dear {{- clientName}},\n\nPlease find attached the quote requested for {{- clientName}}.\n\nIf you have any questions, your Legumex representative, {{- salespersonName}}, who is included in this email, will be glad to help.\n\nBest regards,\nLegumex"
+      }
+    },
+    "decision": {
+      "approved": {
+        "subject": "Your quote was approved: {{- clientName}}",
+        "body": "Hello {{- salespersonName}},\n\nManagement approved your quote for {{- clientName}}.\n\nManagement has not sent the commercial quote yet; you will receive it by email once the delivery is authorized. This notice does not include prices.\n\nLegumex"
+      },
+      "rejected": {
+        "subject": "Quote rejected: {{- clientName}}",
+        "body": "Hello {{- salespersonName}},\n\nManagement rejected your quote for {{- clientName}}.\n\nReason: {{- reason}}\n\nNothing was sent to the client. To quote again, start a new order.\n\nLegumex"
+      }
     }
   },
   "success": {
@@ -349,7 +368,8 @@
     "bulk_imported": "{{count}} records imported successfully.",
     "quote_pdf_email_sent": "The email was sent successfully.",
     "quote_review_submitted": "The order was sent to management review.",
-    "quote_review_approved": "The review was approved and the final price was calculated.",
+    "quote_review_approved": "The quote was approved with its final price.",
+    "quote_review_rejected": "The quote was rejected.",
     "raw_material_transformation_processed": "Processed raw material {{code}}: USD {{cost}} per pound.",
     "pallet_kit_updated": "Pallet kit updated."
   },

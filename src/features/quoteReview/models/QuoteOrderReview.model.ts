@@ -8,8 +8,9 @@ import User from "../../accessControl/user/models/User.model";
 // aparte a propósito: no toca las cotizaciones guardadas (su costo congelado sigue intacto) ni las
 // métricas que las leen. Una fila por pedido.
 // pending = el representante lo envió a revisión; approved = ganancia definida y precio final calculado
-// (los pedidos del admin nacen aprobados: el admin define su ganancia al cotizar).
-export const QUOTE_ORDER_REVIEW_STATUSES = ["pending", "approved"] as const;
+// (los pedidos del admin nacen aprobados: el admin define su ganancia al cotizar); rejected = gerencia lo
+// rechazó con un motivo. approved y rejected son finales: el representante empieza otro pedido.
+export const QUOTE_ORDER_REVIEW_STATUSES = ["pending", "approved", "rejected"] as const;
 export type QuoteOrderReviewStatus = typeof QUOTE_ORDER_REVIEW_STATUSES[number];
 
 // Aviso por correo a gerencia: el estado de la revisión nunca depende de él (un aviso fallido se
@@ -17,11 +18,17 @@ export type QuoteOrderReviewStatus = typeof QUOTE_ORDER_REVIEW_STATUSES[number];
 export const QUOTE_REVIEW_NOTIFICATION_STATUSES = ["pending", "sent", "failed", "not_configured", "not_required"] as const;
 export type QuoteReviewNotificationStatus = typeof QUOTE_REVIEW_NOTIFICATION_STATUSES[number];
 
-// Envío del PDF con el precio final al cliente al aprobar (con copia al representante). pending = aún
-// sin aprobar; sending = un proceso tomó el envío (evita duplicados); not_required = pedido del admin,
-// que envía su PDF por su cuenta. Un envío fallido no deshace la aprobación: gerencia lo reenvía.
-export const QUOTE_REVIEW_CLIENT_EMAIL_STATUSES = ["pending", "sending", "sent", "failed", "not_required"] as const;
-export type QuoteReviewClientEmailStatus = typeof QUOTE_REVIEW_CLIENT_EMAIL_STATUSES[number];
+// Envío de la cotización comercial (PDF con el precio final), que gerencia autoriza de forma explícita:
+// aprobar nunca la envía sola. pending = todavía no se envió; sending = un proceso tomó el envío (evita
+// duplicados); not_required = pedido del admin, que envía su PDF por su cuenta. Un envío fallido no
+// deshace la aprobación: gerencia lo reintenta. Solo hay un envío exitoso por pedido.
+export const QUOTE_REVIEW_DELIVERY_STATUSES = ["pending", "sending", "sent", "failed", "not_required"] as const;
+export type QuoteReviewDeliveryStatus = typeof QUOTE_REVIEW_DELIVERY_STATUSES[number];
+
+// A quién autorizó gerencia enviar la cotización comercial: solo al representante, o al representante
+// con copia al cliente.
+export const QUOTE_REVIEW_DELIVERY_RECIPIENTS = ["representative", "representative_and_client"] as const;
+export type QuoteReviewDeliveryRecipients = typeof QUOTE_REVIEW_DELIVERY_RECIPIENTS[number];
 
 @Table({
     tableName: "quoteOrderReviews",
@@ -132,18 +139,39 @@ class QuoteOrderReview extends Model {
     })
     declare notifiedAt: Date | null
 
+    // Columnas físicas con su nombre original (clientEmailStatus / clientEmailedAt): el envío ya no siempre
+    // va al cliente, pero el esquema no cambia.
     @Column({
-        type: DataType.ENUM(...QUOTE_REVIEW_CLIENT_EMAIL_STATUSES),
+        type: DataType.ENUM(...QUOTE_REVIEW_DELIVERY_STATUSES),
         allowNull: false,
-        defaultValue: "pending"
+        defaultValue: "pending",
+        field: "clientEmailStatus"
     })
-    declare clientEmailStatus: QuoteReviewClientEmailStatus
+    declare deliveryStatus: QuoteReviewDeliveryStatus
 
     @Column({
         type: DataType.DATE,
+        allowNull: true,
+        field: "clientEmailedAt"
+    })
+    declare deliveredAt: Date | null
+
+    // Destinatarios del envío comercial autorizado; null mientras gerencia no lo autorice.
+    @Column({
+        type: DataType.STRING(40),
+        allowNull: true,
+        validate: {
+            isIn: [[...QUOTE_REVIEW_DELIVERY_RECIPIENTS]]
+        }
+    })
+    declare deliveryRecipients: QuoteReviewDeliveryRecipients | null
+
+    // Motivo que gerencia escribe al rechazar (obligatorio en ese caso); null en los demás estados.
+    @Column({
+        type: DataType.TEXT,
         allowNull: true
     })
-    declare clientEmailedAt: Date | null
+    declare rejectionReason: string | null
 
     @BelongsTo(() => Salesperson, "salespersonId")
     declare submittingSalesperson: Salesperson | null

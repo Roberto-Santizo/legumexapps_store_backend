@@ -366,3 +366,13 @@ it("invalidates a preview if an unselected kit alternative changes", async () =>
     await expect(confirmCatalogQuote(42, { input: selected, previewToken: preview.previewToken, confirmationKey: key }, "en")).rejects.toMatchObject({ statusCode: 409 })
     expect(CustomQuote.create).not.toHaveBeenCalled()
 })
+
+it("binds a new-product preview to its client when confirming an order", async () => {
+    const chosen = { ...input, clientId: 77 }
+    const preview = await previewCatalogQuote(42, chosen, "en")
+    expect(loadPalletKit).toHaveBeenCalledWith(expect.anything(), 77)
+    await expect(confirmCatalogQuote(42, { input: chosen, previewToken: preview.previewToken, confirmationKey: key, order: { id: key, clientName: "Other", clientId: 99 } }, "en")).rejects.toMatchObject({ statusCode: 409 })
+    expect(CustomQuote.create).not.toHaveBeenCalled()
+    await confirmCatalogQuote(42, { input: chosen, previewToken: preview.previewToken, confirmationKey: key, order: { id: key, clientName: "Selected", clientId: 77 } }, "en")
+    expect(CustomQuote.create).toHaveBeenCalledTimes(1)
+})

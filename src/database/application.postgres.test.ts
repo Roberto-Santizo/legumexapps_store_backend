@@ -818,6 +818,28 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         expect(listing.status).toBe(200)
         const profile = listing.body.data.find((row: any) => row.id === created.body.data.id)
         expect(profile.ready).toBe(true)
+        const updateProfile = async (payload: typeof body) => {
+            const response = await request(server).put(`/api/generic-packaging-configurations/${profile.id}`).set("Authorization", `Bearer ${adminToken}`).send(payload)
+            expect(response.status).toBe(200)
+            const refreshed = await request(server).get("/api/generic-packaging-configurations").set("Authorization", `Bearer ${adminToken}`)
+            expect(refreshed.status).toBe(200)
+            return refreshed.body.data.find((row: any) => row.id === profile.id)
+        }
+        // Round-trip edits must retain active associations and their IDs, not just return 200.
+        const savedState = (value: unknown) => JSON.parse(JSON.stringify(value, (key, field) => key === "updatedAt" ? undefined : field))
+        const renamed = await updateProfile({ ...body, displayName: "Edited generic configuration" })
+        expect(renamed.ready).toBe(true)
+        expect(renamed.displayName).toBe("Edited generic configuration")
+        expect(savedState(renamed.groups)).toEqual(savedState(profile.groups))
+        expect(renamed.bagsPerBox).toBe(profile.bagsPerBox)
+        expect(renamed.boxesPerPallet).toBe(profile.boxesPerPallet)
+        const changed = await updateProfile({ ...body, boxesPerPallet: 70, groups: body.groups.map(g => g.level === "pallet" ? { ...g, options: g.options.map(o => ({ ...o, quantityValue: 90 })) } : g) })
+        expect(changed.ready).toBe(true)
+        expect(changed.boxesPerPallet).toBe(70)
+        expect(savedState(changed.groups.find((g: any) => g.level === "unit"))).toEqual(savedState(profile.groups.find((g: any) => g.level === "unit")))
+        expect(Number(changed.groups.find((g: any) => g.level === "pallet").options[0].quantityValue)).toBe(90)
+        const restored = await updateProfile(body)
+        expect(savedState(restored.groups)).toEqual(savedState(profile.groups))
         const bagGroup = profile.groups.find((g: any)=>g.level === "unit")
         const input = { configurationOrigin: "generic_configuration", categoryId: category.id, subCategoryId: sub.id, configurationId: profile.id, ingredientType: "other", requestedPallets: 2, rawMaterialMix: [{ rawMaterialId: raw.id, percentage: 100 }], packagingSelections: [{ groupId: bagGroup.id, optionIds: [bagGroup.options[0].id] }] }
         const preview = await request(server).post("/api/admin/quotes/catalog-preview").set("Authorization", `Bearer ${adminToken}`).send(input)
@@ -831,6 +853,12 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         expect(injected.status).toBe(422)
         const materialBefore = await model("Packaging").findByPk(pallet)
         expect(Number(materialBefore.unitCost)).toBe(0.123456789123)
+        const withoutOption = await updateProfile({ ...body, groups: body.groups.map(g => g.level === "pallet" ? { ...g, options: [] } : g) })
+        expect(withoutOption.groups.find((g: any) => g.level === "pallet").options).toEqual([])
+        expect(savedState(withoutOption.groups.find((g: any) => g.level === "unit"))).toEqual(savedState(bagGroup))
+        const withoutGroup = await updateProfile({ ...body, groups: body.groups.filter(g => g.level === "unit") })
+        expect(savedState(withoutGroup.groups)).toEqual(savedState([bagGroup]))
+        expect(savedState((await updateProfile(body)).groups)).toEqual(savedState(profile.groups))
     }, 30000)
 
     test("juice create, presentation and recipe rows remain compatible after model initialization", async () => {
@@ -890,4 +918,37 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         } finally {if(app)await app.end();await clone.end()}
         expect(await rowFingerprint()).toEqual(source)
     },60000)
+    test("client pallet rules apply automatically to every SKU, reject overrides and protect assigned materials", async () => {
+        const model = (name: string) => sequelize.models[name] as any
+        const client = await model("Client").create({ name: "Synthetic pallet exception" })
+        const kit = model("PalletKitMaterial"), packaging = model("Packaging")
+        const before = await kit.findAll()
+        const original = before.map((row: any) => ({ id: row.id, palletClientIds: row.palletClientIds }))
+        const createPallet = (code: string, unitCost: number) => packaging.create({ code, displayName: code, classification: "generic", packagingRole: "pallet", materialType: "TARIMA", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 1, unitCost })
+        const standard = await createPallet("SYNTHETIC-PALLET-DEFAULT", 12)
+        const special = await createPallet("SYNTHETIC-PALLET-EXCEPTION", 21)
+        await kit.bulkCreate([{ packagingId: standard.id }, { packagingId: special.id }])
+        const admin = { Authorization: `Bearer ${adminToken}` }
+        const rules = { defaultPackagingId: standard.id, overrides: [{ clientId: client.id, packagingId: special.id }] }
+        try {
+            expect((await request(server).put("/api/pallet-kit/pallet-rules").set(admin).send(rules)).status).toBe(200)
+            expect((await request(server).put("/api/pallet-kit/pallet-rules").set({ Authorization: `Bearer ${representativeToken}` }).send(rules)).status).toBe(401)
+            expect((await request(server).put("/api/pallet-kit/pallet-rules").set(admin).send({ ...rules, overrides: [...rules.overrides, ...rules.overrides] })).status).toBe(400)
+            expect((await request(server).delete(`/api/pallet-kit/materials/${special.id}`).set(admin)).status).toBe(409)
+            const { loadPalletKit, palletKitLines } = require("../features/palletKit/services/palletKit.service")
+            const defaultKit = await loadPalletKit(), clientKit = await loadPalletKit(undefined, client.id)
+            expect(defaultKit[0].options.map((row: any) => row.id)).toEqual([standard.id])
+            expect(clientKit[0].options.map((row: any) => row.id)).toEqual([special.id])
+            expect(palletKitLines(clientKit, [], 2, "es")[0].line.lineTotal).toBe(42)
+            expect(() => palletKitLines(clientKit, [{ type: "TARIMA", packagingId: standard.id }], 2, "es")).toThrow()
+            const { confirmCatalogQuote } = require("../features/customQuote/services/catalogQuote.service")
+            await expect(confirmCatalogQuote(1, { input: { clientId: client.id }, order: { clientId: null }, previewToken: "invalid" }, "es")).rejects.toMatchObject({ statusCode: 409 })
+        } finally {
+            for (const row of original) await kit.update({ palletClientIds: row.palletClientIds }, { where: { id: row.id } })
+            await kit.destroy({ where: { packagingId: [standard.id, special.id] } })
+            await packaging.destroy({ where: { id: [standard.id, special.id] } })
+            await client.destroy()
+        }
+    }, 60000)
+
 })

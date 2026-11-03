@@ -7,6 +7,10 @@ import Packaging from "../../packaging/models/Packaging.model";
     tableName: "palletKitMaterials"
 })
 export default class PalletKitMaterial extends Model {
+    // TARIMA only: [] is the default, [client ids] are exceptions, null is unassigned.
+    @Column({ type: DataType.JSONB, allowNull: true })
+    declare palletClientIds: number[] | null;
+
     @ForeignKey(() => Packaging)
     @Column({
         type: DataType.INTEGER,

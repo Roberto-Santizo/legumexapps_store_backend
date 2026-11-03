@@ -335,7 +335,7 @@ async function calculateQuote(input: CalculateQuoteInput, language: ContentLangu
     )
     // SKUs that use the pallet kit add tarima, esquineros and stretch per pallet from it; the others keep their own.
     if (!variant.usesPalletKit && input.palletKitSelections?.length) throw new AppError(422, "errors.pallet_kit_selection")
-    const kitLines = variant.usesPalletKit ? palletKitLines(await loadPalletKit(), input.palletKitSelections, requestedPallets, language) : []
+    const kitLines = variant.usesPalletKit ? palletKitLines(await loadPalletKit(undefined, variant.parentProduct.clientId), input.palletKitSelections, requestedPallets, language) : []
     const palletMaterials = [...ownPalletMaterials, ...kitLines.map(row => row.line)]
     const palletMaterialCost = sumMoney(palletMaterials.map(line => line.lineTotal))
 
@@ -545,7 +545,8 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
         order: [["displayName", "ASC"]]
     })
 
-    const kitOptions = palletKitOptions(await loadPalletKit(), language)
+    const kitByClient = new Map<number, ReturnType<typeof palletKitOptions>>()
+    for (const clientId of new Set(products.map(product => product.clientId))) kitByClient.set(clientId, palletKitOptions(await loadPalletKit(undefined, clientId), language))
     return products.map(product => {
         const plain = product.toJSON()
         const category = plain.parentSubCategory?.parentCategory
@@ -592,7 +593,7 @@ async function listQuotableProducts(language: ContentLanguage = DEFAULT_CONTENT_
                     row => row.usedIntermediateMaterial
                 ),
                 palletMaterialOptionGroups: buildMaterialOptionGroups(variant.palletMaterials ?? [], row => row.usedPalletMaterial),
-                palletKit: variant.usesPalletKit ? kitOptions : [],
+                palletKit: variant.usesPalletKit ? kitByClient.get(product.clientId) ?? [] : [],
             }))
         }
     })

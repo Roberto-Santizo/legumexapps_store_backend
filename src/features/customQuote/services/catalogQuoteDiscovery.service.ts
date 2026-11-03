@@ -54,10 +54,10 @@ export function eligibleRawMaterials(rawMaterials: RawMaterial[], types: string[
         .sort((a, b) => a.id - b.id)
 }
 
-export async function discoverCatalog(language: ContentLanguage) {
+export async function discoverCatalog(language: ContentLanguage, clientId?: number | null) {
     const { subCategories, products, rawMaterials: catalogRawMaterials } = await loadCatalogContext()
     const profiles = await loadGenericProfiles()
-    const kit = await loadPalletKit()
+    const kit = await loadPalletKit(undefined, clientId)
     const kitReady = kit.every(part => part.options.length > 0)
     type DiscoveredSubCategory = { id: number; displayName: string; imageUrl: string | null; availability: SubCategoryAvailability; compositionMode: CompositionMode | null; rawMaterials: { rawMaterialId: number; displayName: string; ingredientType: string }[]; configurations: ReturnType<typeof genericConfigurationOption>[] }
     // Same category/subcategory images that fixed products show in their quote wizard.

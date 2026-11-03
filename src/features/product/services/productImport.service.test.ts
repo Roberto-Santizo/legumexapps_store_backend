@@ -526,8 +526,9 @@ describe("carga inicial conjunta", () => {
     const noWrites = () => {
         for (const model of [Product, ProductTranslation, ProductVariant, UnitMaterial, IntermediateMaterial, PalletMaterial]) expect(model.create).not.toHaveBeenCalled()
     }
-    it.each([false, true])("fills the three-sheet template and previews products/materials over HTTP (fallback=%s)", async fallback => {
+    it.each([false, true])("fills the real template and previews products/materials over HTTP (fallback=%s)", async fallback => {
         const workbook = await loadWorkbookFromBuffer(await productImportService.buildProductImportTemplate())
+        expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([INITIAL_PRODUCT_SHEET, INITIAL_PACKAGING_SHEET, "INSTRUCCIONES", "CATALOGOS"])
         const products = workbook.getWorksheet(INITIAL_PRODUCT_SHEET)!
         products.getRow(2).values = Object.keys(PRODUCT_IMPORT_COLUMNS).map(key => {
             const header = PRODUCT_IMPORT_COLUMNS[key as keyof typeof PRODUCT_IMPORT_COLUMNS].header
@@ -537,7 +538,7 @@ describe("carga inicial conjunta", () => {
         materials.getRow(2).values = Object.keys(INITIAL_PACKAGING_COLUMNS).map(key => material()[key as keyof typeof INITIAL_PACKAGING_COLUMNS] ?? null)
         const saved = await writeWorkbookToBuffer(workbook)
         const buffer = fallback ? await prefixSpreadsheetNamespaces(saved) : saved
-        expect((await loadWorkbookFromBuffer(buffer)).worksheets).toHaveLength(4)
+        // The preview endpoint parses the uploaded workbook, including the fallback path.
         const app = buildTestApp("/api/products", productRouter)
         const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
         const response = await request(app).post("/api/products/bulk-import/preview")

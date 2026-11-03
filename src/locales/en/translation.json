@@ -330,7 +330,9 @@
     "quote_review_unexpected_pdf": "Approving without sending takes no PDF.",
     "quote_review_client_email_required": "Enter the client's email to copy them.",
     "quote_review_delivery_already_sent": "The quote was already sent or is being sent.",
-    "quote_review_delivery_not_required": "This order comes from the administrator's calculator; its PDF is sent from the calculator."
+    "quote_review_delivery_not_required": "This order comes from the administrator's calculator; its PDF is sent from the calculator.",
+    "pallet_kit_client_invalid": "Select distinct active clients for pallet exceptions.",
+    "pallet_kit_pallet_assigned": "This pallet has an automatic assignment. Update the rules before removing it."
   },
   "quoteReview": {
     "email": {

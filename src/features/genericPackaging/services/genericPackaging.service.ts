@@ -1,4 +1,4 @@
-import { Transaction } from "sequelize";
+import { Op, Transaction } from "sequelize";
 import sequelize from "../../../database/connection";
 import { AppError } from "../../../shared/errors/AppError";
 import Profile from "../models/GenericPackagingConfiguration.model";
@@ -69,15 +69,24 @@ export async function saveGenericProfile(input: GenericConfigurationInput, id?: 
             profile = await Profile.create(fields, { transaction });
         // Soft deactivate removed associations; saved quote snapshots are never rewritten.
         const previousGroups = await Group.findAll({ where: { configurationId: profile.id }, transaction });
-        await Group.update({ isActive: false }, { where: { configurationId: profile.id }, transaction });
-        for (const old of previousGroups)
+        // Do not deactivate retained groups in bulk: their loaded instances still have
+        // isActive=true, so Sequelize would skip reactivating them as an unchanged field.
+        for (const old of previousGroups) {
+            if (groups.some(group => group.packagingGroupId === old.packagingGroupId && group.level === old.level))
+                continue;
+            await old.update({ isActive: false }, { transaction });
             await Option.update({ isActive: false }, { where: { configurationGroupId: old.id }, transaction });
+        }
         for (const { options, ...values } of groups) {
             let group = previousGroups.find(row => row.packagingGroupId === values.packagingGroupId && row.level === values.level);
             if (group)
                 await group.update({ ...values, isActive: true }, { transaction });
             else
                 group = await Group.create({ ...values, configurationId: profile.id, isActive: true }, { transaction });
+            await Option.update({ isActive: false }, {
+                where: { configurationGroupId: group.id, ...(options.length ? { packagingId: { [Op.notIn]: options.map(option => option.packagingId) } } : {}) },
+                transaction,
+            });
             for (const values of options) {
                 const existing = await Option.findOne({ where: { configurationGroupId: group.id, packagingId: values.packagingId }, transaction });
                 if (existing)

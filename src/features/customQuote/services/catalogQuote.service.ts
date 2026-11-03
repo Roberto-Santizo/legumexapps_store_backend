@@ -24,7 +24,7 @@ const failure = (key: string, status = 422): never => { throw new AppError(statu
 const secret = () => { const value = process.env.JWT_SECRET; if (!value) return failure("unavailable", 503); return value }
 
 function canonicalInput(input: CatalogQuoteInput): CatalogQuoteInput {
-    return { configurationOrigin: "generic_configuration", palletKitSelections: [...(input.palletKitSelections ?? [])].map(row => ({ type: row.type, packagingId: row.packagingId })).sort((a, b) => a.type.localeCompare(b.type)), packagingSelections: [...(input.packagingSelections ?? [])].map(g => ({ groupId: g.groupId, optionIds: [...g.optionIds].sort((a,b)=>a-b) })).sort((a,b)=>a.groupId-b.groupId), categoryId: input.categoryId, subCategoryId: input.subCategoryId, configurationId: input.configurationId,
+    return { ...(input.clientId !== undefined ? { clientId: input.clientId } : {}), configurationOrigin: "generic_configuration", palletKitSelections: [...(input.palletKitSelections ?? [])].map(row => ({ type: row.type, packagingId: row.packagingId })).sort((a, b) => a.type.localeCompare(b.type)), packagingSelections: [...(input.packagingSelections ?? [])].map(g => ({ groupId: g.groupId, optionIds: [...g.optionIds].sort((a,b)=>a-b) })).sort((a,b)=>a.groupId-b.groupId), categoryId: input.categoryId, subCategoryId: input.subCategoryId, configurationId: input.configurationId,
         ingredientType: input.ingredientType, requestedPallets: input.requestedPallets,
         rawMaterialMix: [...input.rawMaterialMix].sort((a, b) => a.rawMaterialId - b.rawMaterialId).map(row => ({ rawMaterialId: row.rawMaterialId, percentage: row.percentage })) }
 }
@@ -38,7 +38,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
     if (!profile) return failure("configuration_invalid")
     const resolved = resolveGenericPackaging(profile, input.packagingSelections ?? [])
     // Every pallet of a new product carries the standard kit (tarima, esquineros, stretch) from the catalog.
-    const kit = await loadPalletKit(transaction)
+    const kit = await loadPalletKit(transaction, input.clientId)
     if (resolved.some(row => kit.some(part => part.options.some(option => option.id === row.option.packagingId)))) return failure("configuration_invalid")
     const palletKit = resolvePalletKit(kit, input.palletKitSelections)
     const rows = resolved.map(({ group, option, origin }) => ({ id: option.id, packagingId: option.packagingId, optionGroupId: group.packagingGroupId, optionGroup: group.group.displayName, isDefault: false,
@@ -119,7 +119,7 @@ export async function calculateCatalogQuote(input: CatalogQuoteInput, language: 
             intermediate: snapshot.packaging.filter(row => row.level === "intermediate").map(row => ({ packagingOptionId: row.sourceAssociationId!, packagingId: row.packagingId, optionGroup: row.optionGroup, quantity: row.quantityValue, quantityBasis: row.quantityBasis })),
             pallet: snapshot.packaging.filter(row => row.level === "pallet").map(row => ({ packagingOptionId: row.sourceAssociationId!, packagingId: row.packagingId, optionGroup: row.optionGroup, quantity: row.quantityValue, quantityBasis: row.quantityBasis })),
         }, snapshot: { ...snapshot, calculationVersion: version } }
-    return { configurationOrigin: "generic_configuration" as const, snapshotVersion: 3, sourceProductVariantId: null, sourceGenericConfigurationId: profile.id, subCategoryId: subCategory.id, presentationId: variant.presentationId,
+    return { ...(input.clientId !== undefined ? { clientId: input.clientId } : {}), configurationOrigin: "generic_configuration" as const, snapshotVersion: 3, sourceProductVariantId: null, sourceGenericConfigurationId: profile.id, subCategoryId: subCategory.id, presentationId: variant.presentationId,
         bagsPerBox: variant.bagsPerBox, unitsPerIntermediatePackage: variant.unitsPerIntermediatePackage ?? null,
         destinationId: null, productDisplayName, variantLabel, requestedPallets: input.requestedPallets, totalUnits, boxesPerPallet: variant.boxesPerPallet,
         ...subtotals, percentageCostTotal, totalCost, configuration,
@@ -187,6 +187,7 @@ export async function previewCatalogQuote(salespersonId: number, input: CatalogQ
 }
 
 export async function confirmCatalogQuote(salespersonId: number, request: { input: CatalogQuoteInput; previewToken: string; confirmationKey: string; order?: QuoteOrderIdentity }, language: ContentLanguage) {
+    if ((request.input.clientId ?? null) !== (request.order?.clientId ?? null)) return failure("preview_invalid", 409)
     let claims: jwt.JwtPayload
     try {
         const value = jwt.verify(request.previewToken, secret(), { algorithms: ["HS256"], audience: "catalog-quote-confirm" })

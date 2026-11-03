@@ -3,6 +3,7 @@ import z from "zod"
 import { quoteOrderSchema } from "../../quoteOrder/schemas/quoteOrder.schema"
 
 export const catalogQuoteInputSchema = z.strictObject({
+    clientId: z.number().int().positive().nullable().optional(),
     configurationOrigin: z.literal("generic_configuration").default("generic_configuration"),
     packagingSelections: genericSelectionsSchema.default([]),
     // Pallet kit type with several materials (e.g. wooden or cardboard corner boards): which one; never the quantity.

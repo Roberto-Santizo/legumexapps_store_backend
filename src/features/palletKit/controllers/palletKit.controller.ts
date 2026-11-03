@@ -8,6 +8,8 @@ function action(operation: (req: Request) => Promise<unknown>, message?: string)
     }
 }
 export const palletKitController = {
+    clients: action(() => palletKitService.ruleClients()),
+    rules: action(req => palletKitService.setPalletRules(req.body), "success.pallet_kit_updated"),
     get: action(() => palletKitService.getKit()),
     candidates: action(() => palletKitService.listCandidates()),
     add: action(req => palletKitService.addMaterial(req.body.packagingId), "success.pallet_kit_updated"),

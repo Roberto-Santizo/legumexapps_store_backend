@@ -3,9 +3,11 @@ import { authenticate } from "../../../shared/middlewares/authenticate"
 import { authorize } from "../../../shared/middlewares/authorize"
 import { validate } from "../../../shared/middlewares/validate"
 import { palletKitController as controller } from "../controllers/palletKit.controller"
-import { palletKitMaterialSchema, palletKitPackagingIdParamSchema } from "../schemas/palletKit.schema"
+import { palletKitMaterialSchema, palletKitPackagingIdParamSchema, palletKitRulesSchema } from "../schemas/palletKit.schema"
 const router = Router()
 router.use(authenticate)
+router.get("/clients", authorize("palletKit:edit"), controller.clients)
+router.put("/pallet-rules", authorize("palletKit:edit"), validate(palletKitRulesSchema), controller.rules)
 router.get("/", authorize("palletKit:view"), controller.get)
 router.get("/candidates", authorize("palletKit:edit"), controller.candidates)
 router.post("/materials", authorize("palletKit:edit"), validate(palletKitMaterialSchema), controller.add)

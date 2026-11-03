@@ -3,6 +3,7 @@ import { AppError } from "../../../shared/errors/AppError"
 import Packaging from "../../packaging/models/Packaging.model"
 import { PALLET_KIT_TYPES, isPalletKitType, type PalletKitType } from "../../packaging/constants/packagingMaterialType.constant"
 import PalletKitMaterial from "../models/PalletKitMaterial.model"
+import Client from "../../client/models/Client.model"
 import { buildPalletMaterialLine } from "../../pricing/services/quoteCostLines"
 import { toDecimal } from "../../../shared/utils/money.util"
 import { packagingNames } from "../../../shared/utils/packagingName.util"
@@ -16,9 +17,16 @@ function usableKitMaterial(material: Packaging | undefined | null): material is 
 
 // The kit by type (TARIMA, ESQUINERO, STRETCH). A type may have several materials (e.g. wooden or cardboard
 // corner boards): with one it is included automatically, with several the representative chooses which one.
-export async function loadPalletKit(transaction?: Transaction): Promise<{ type: PalletKitType; options: Packaging[] }[]> {
+export async function loadPalletKit(transaction?: Transaction, clientId?: number | null): Promise<{ type: PalletKitType; options: Packaging[] }[]> {
     const rows = await PalletKitMaterial.findAll({ include: [{ model: Packaging, as: "packaging" }], order: [["id", "ASC"]], transaction })
-    const materials = rows.map(row => row.packaging).filter(usableKitMaterial)
+    return kitForClient(rows, clientId)
+}
+
+export function kitForClient(rows: Pick<PalletKitMaterial, "packaging" | "palletClientIds">[], clientId?: number | null) {
+    const configured = rows.some(row => row.packaging?.materialType === "TARIMA" && row.palletClientIds?.length === 0)
+    const exception = clientId == null ? undefined : rows.find(row => row.packaging?.materialType === "TARIMA" && row.palletClientIds?.includes(clientId))
+    const selected = exception ?? rows.find(row => row.packaging?.materialType === "TARIMA" && row.palletClientIds?.length === 0)
+    const materials = rows.filter(row => row.packaging?.materialType !== "TARIMA" || !configured || row === selected).map(row => row.packaging).filter(usableKitMaterial)
     return PALLET_KIT_TYPES.map(type => ({ type, options: materials.filter(material => material.materialType === type) }))
 }
 
@@ -54,8 +62,31 @@ export function palletKitOptions(kit: { type: PalletKitType; options: Packaging[
 }
 
 async function getKit() {
-    const kit = await loadPalletKit()
-    return { types: kit.map(({ type, options }) => ({ type, materials: options })), complete: kit.every(part => part.options.length > 0) }
+    const rows = await PalletKitMaterial.findAll({ include: [{ model: Packaging, as: "packaging" }], order: [["id", "ASC"]] })
+    const kit = PALLET_KIT_TYPES.map(type => ({ type, materials: rows.map(row => row.packaging).filter(usableKitMaterial).filter(material => material.materialType === type) }))
+    return { types: kit, complete: kit.every(part => part.materials.length > 0),
+        palletRules: { defaultPackagingId: rows.find(row => row.palletClientIds?.length === 0)?.packaging.id ?? null,
+            overrides: rows.flatMap(row => (row.palletClientIds ?? []).map(clientId => ({ clientId, packagingId: row.packaging.id }))) } }
+}
+
+async function ruleClients() {
+    return Client.findAll({ attributes: ["id", "name"], where: { isActive: true }, order: [["name", "ASC"]] })
+}
+
+async function setPalletRules(input: { defaultPackagingId: number; overrides: { clientId: number; packagingId: number }[] }) {
+    await PalletKitMaterial.sequelize!.transaction(async transaction => {
+        await PalletKitMaterial.sequelize!.query("SELECT pg_advisory_xact_lock(174227, 2)", { transaction })
+        const rows = await PalletKitMaterial.findAll({ include: [{ model: Packaging, as: "packaging" }], transaction })
+        const ids = [input.defaultPackagingId, ...input.overrides.map(row => row.packagingId)]
+        if (ids.some(id => !rows.some(row => row.packagingId === id && usableKitMaterial(row.packaging) && row.packaging.materialType === "TARIMA"))) throw new AppError(422, "errors.pallet_kit_material_invalid")
+        const clients = await Client.findAll({ attributes: ["id"], where: { id: input.overrides.map(row => row.clientId), isActive: true }, transaction })
+        if (clients.length !== input.overrides.length) throw new AppError(422, "errors.pallet_kit_client_invalid")
+        for (const row of rows.filter(row => row.packaging.materialType === "TARIMA")) {
+            const exceptions = input.overrides.filter(choice => choice.packagingId === row.packagingId).map(choice => choice.clientId)
+            await row.update({ palletClientIds: row.packagingId === input.defaultPackagingId ? [] : exceptions.length ? exceptions : null }, { transaction })
+        }
+    })
+    return getKit()
 }
 
 // Generic pallet materials of a kit type that are not in the kit yet.
@@ -77,9 +108,14 @@ async function addMaterial(packagingId: number) {
 }
 
 async function removeMaterial(packagingId: number) {
-    const removed = await PalletKitMaterial.destroy({ where: { packagingId } })
-    if (!removed) throw new AppError(404, "errors.pallet_kit_material_not_found")
+    await PalletKitMaterial.sequelize!.transaction(async transaction => {
+        await PalletKitMaterial.sequelize!.query("SELECT pg_advisory_xact_lock(174227, 2)", { transaction })
+        const assigned = await PalletKitMaterial.findOne({ where: { packagingId }, transaction })
+        if (assigned?.palletClientIds != null) throw new AppError(409, "errors.pallet_kit_pallet_assigned")
+        const removed = await PalletKitMaterial.destroy({ where: { packagingId }, transaction })
+        if (!removed) throw new AppError(404, "errors.pallet_kit_material_not_found")
+    })
     return getKit()
 }
 
-export const palletKitService = { getKit, listCandidates, addMaterial, removeMaterial }
+export const palletKitService = { getKit, listCandidates, addMaterial, removeMaterial, ruleClients, setPalletRules }

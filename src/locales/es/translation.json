@@ -330,7 +330,9 @@
     "quote_review_unexpected_pdf": "Aprobar sin enviar no lleva PDF.",
     "quote_review_client_email_required": "Para copiar al cliente escribe su correo.",
     "quote_review_delivery_already_sent": "La cotización ya se envió o se está enviando.",
-    "quote_review_delivery_not_required": "Este pedido es del cotizador del administrador; su PDF se envía desde la calculadora."
+    "quote_review_delivery_not_required": "Este pedido es del cotizador del administrador; su PDF se envía desde la calculadora.",
+    "pallet_kit_client_invalid": "Selecciona clientes activos y distintos para las excepciones de tarima.",
+    "pallet_kit_pallet_assigned": "Esta tarima tiene una asignacion automatica. Cambia las reglas antes de quitarla."
   },
   "quoteReview": {
     "email": {

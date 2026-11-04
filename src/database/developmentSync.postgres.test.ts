@@ -22,6 +22,9 @@ suite("development startup initial data on owned PostgreSQL",()=>{
     afterAll(async()=>{await db?.close();await owner?.end()})
     const rows=async(sql:string)=>(await db.query(sql))[0] as any[]
     const triggers=()=>rows("SELECT count(*)::int AS n FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal")
+    const uniqueConstraints = () => rows(`SELECT c.relname AS table_name, con.conname AS name, pg_get_constraintdef(con.oid) AS definition
+        FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND con.contype='u' ORDER BY c.relname,con.conname`)
 
     test("batch initialization preserves users, inactive permissions and custom units; failed alter restores triggers",async()=>{
         const previousUser=process.env.BOOTSTRAP_ADMIN_USERNAME,previousPassword=process.env.BOOTSTRAP_ADMIN_PASSWORD
@@ -34,12 +37,14 @@ suite("development startup initial data on owned PostgreSQL",()=>{
             expect(await rows('SELECT * FROM users')).toHaveLength(0)
             await runSeeders(db)
             const before=await rows('SELECT * FROM users')
+            const initialUniqueConstraints = await uniqueConstraints()
             expect(before).toHaveLength(1)
             await db.query('UPDATE permissions SET "isActive"=false WHERE id=(SELECT min(id) FROM permissions)')
             await db.query('UPDATE units SET "displayName"=\'Local custom label\' WHERE id=(SELECT min(id) FROM units)')
             await db.query('DELETE FROM role_permissions WHERE permission_id=(SELECT min(id) FROM permissions)')
             await synchronizeDevelopment(db,'development')
             await runSeeders(db)
+            expect(await uniqueConstraints()).toEqual(initialUniqueConstraints)
             expect(await rows('SELECT * FROM users')).toEqual(before)
             expect(await rows('SELECT count(*)::int AS n FROM permissions')).toEqual([{n:87}])
             expect(await rows('SELECT count(*)::int AS n FROM units')).toEqual([{n:10}])
@@ -47,11 +52,18 @@ suite("development startup initial data on owned PostgreSQL",()=>{
             expect(await rows('SELECT count(*)::int AS n FROM permissions WHERE NOT "isActive"')).toEqual([{n:1}])
             expect(await rows('SELECT count(*)::int AS n FROM units WHERE "displayName"=\'Local custom label\'')).toEqual([{n:1}])
             expect(await triggers()).toEqual([{n:schemaTriggers.length}])
+            await db.query('ALTER TABLE public.users DROP CONSTRAINT users_username_key')
+            await synchronizeDevelopment(db, 'development')
+            expect(await uniqueConstraints()).toEqual(initialUniqueConstraints)
+            expect(await rows('SELECT * FROM users')).toEqual(before)
+            expect(db.model("User").rawAttributes.username.unique).toBe(true)
             const failure=jest.spyOn(db,'sync').mockRejectedValueOnce(Error('Synthetic alter failure'))
             try{await expect(synchronizeDevelopment(db,'development')).rejects.toThrow('Synthetic alter failure')}
             finally{failure.mockRestore()}
             expect(await triggers()).toEqual([{n:schemaTriggers.length}])
             expect(await rows('SELECT * FROM users')).toEqual(before)
+            expect(await uniqueConstraints()).toEqual(initialUniqueConstraints)
+            expect(db.model("User").rawAttributes.username.unique).toBe(true)
         } finally {
             if(previousUser===undefined)delete process.env.BOOTSTRAP_ADMIN_USERNAME;else process.env.BOOTSTRAP_ADMIN_USERNAME=previousUser
             if(previousPassword===undefined)delete process.env.BOOTSTRAP_ADMIN_PASSWORD;else process.env.BOOTSTRAP_ADMIN_PASSWORD=previousPassword

@@ -81,7 +81,7 @@ test("npm start cannot synchronize even when NODE_ENV defaults to development",a
     await connectDB()
     expect(synchronizeDevelopment).not.toHaveBeenCalled()
     expect(runSeeders).not.toHaveBeenCalled()
-    expect(assertDatabaseReady).toHaveBeenCalledTimes(1)
+    expect(assertDatabaseReady).not.toHaveBeenCalled()
 })
 
 test("production cannot synchronize even under npm run dev",async()=>{
@@ -89,14 +89,16 @@ test("production cannot synchronize even under npm run dev",async()=>{
     process.env.npm_lifecycle_event="dev"
     await connectDB()
     expect(synchronizeDevelopment).not.toHaveBeenCalled()
-    expect(assertDatabaseReady).toHaveBeenCalledTimes(1)
+    expect(assertDatabaseReady).not.toHaveBeenCalled()
 })
-test.each(["development", "test", "production"])("startup in %s verifies in a read-only transaction without sync or seeds", async mode => {
+test.each(["development", "test", "production"])("startup in %s verifies connection and role without auditing the schema, syncing or seeding", async mode => {
     configuration.nodeEnv = mode
     await connectDB()
     expect(sequelize.authenticate).toHaveBeenCalledTimes(1)
     expect(sequelize.transaction).toHaveBeenCalledWith({ readOnly: true, isolationLevel: "REPEATABLE READ" }, expect.any(Function))
-    expect(assertDatabaseReady).toHaveBeenCalledTimes(1)
+    expect(assertPostgresCapabilities).toHaveBeenCalledTimes(1)
+    expect(assertApplicationRole).toHaveBeenCalledTimes(1)
+    expect(assertDatabaseReady).not.toHaveBeenCalled()
     expect(sequelize.query).toHaveBeenCalledWith("SET TRANSACTION READ ONLY", expect.objectContaining({ transaction: expect.any(Object) }))
     expect(sequelize.sync).not.toHaveBeenCalled()
     expect(process.exit).not.toHaveBeenCalled()
@@ -116,16 +118,24 @@ test("unsupported PostgreSQL version is rejected before inspecting privileges on
     expect(sequelize.sync).not.toHaveBeenCalled()
 })
 
-test("explicit owner policy reaches role inspection without bypassing schema checks, sync or seeds", async () => {
+test("explicit owner policy reaches role inspection without a schema audit, sync or seeds", async () => {
     configuration.databaseRolePolicy = "owner"
     await connectDB()
     expect(assertApplicationRole).toHaveBeenCalledWith(expect.any(Object), "owner")
-    expect(assertDatabaseReady).toHaveBeenCalledTimes(1)
+    expect(assertDatabaseReady).not.toHaveBeenCalled()
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("DB_ROLE_POLICY=owner"))
     expect(sequelize.sync).not.toHaveBeenCalled()
 })
-test.each(["missing current schema", "unsupported PostgreSQL version", "changed constraint", "missing column", "missing initial references", "password=synthetic-secret"])("fails closed for %s without exposing driver details", async reason => {
+test.each(["unexpected or missing application tables", "constraint inventory mismatch", "missing initial references"])("startup does not run the optional schema audit for %s", async reason => {
     jest.mocked(assertDatabaseReady).mockRejectedValueOnce(new Error(reason))
+    await connectDB()
+    expect(assertDatabaseReady).not.toHaveBeenCalled()
+    expect(process.exit).not.toHaveBeenCalled()
+    expect(sequelize.sync).not.toHaveBeenCalled()
+})
+
+test.each(["unsafe database role", "password=synthetic-secret"])("fails closed for %s without exposing driver details", async reason => {
+    jest.mocked(assertApplicationRole).mockRejectedValueOnce(new Error(reason))
     await expect(connectDB()).rejects.toBe(exitSignal)
     expect(process.exit).toHaveBeenCalledWith(1)
     expect(sequelize.sync).not.toHaveBeenCalled()

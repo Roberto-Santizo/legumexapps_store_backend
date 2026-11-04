@@ -3,7 +3,7 @@ import { QueryTypes, Transaction } from "sequelize"
 import { env } from "../config/env"
 import { parseDatabaseConnection } from "../config/databaseConnection"
 import { databaseModels } from "./models"
-import { assertApplicationRole, assertDatabaseReady, assertPostgresCapabilities, SchemaCompatibilityError } from "./schemaReadiness"
+import { assertApplicationRole, assertPostgresCapabilities, SchemaCompatibilityError } from "./schemaReadiness"
 import { synchronizeDevelopment } from "./developmentSync"
 import { runSeeders } from "./seeders"
 
@@ -38,10 +38,9 @@ export async function connectDB(): Promise<void> {
             const inspector = { query: async (sql: string) => ({ rows: await sequelize.query(sql, { type: QueryTypes.SELECT, transaction }) }) }
             await assertPostgresCapabilities(inspector)
             await assertApplicationRole(inspector, env.databaseRolePolicy)
-            await assertDatabaseReady(inspector, sequelize)
         })
         if (env.databaseRolePolicy === "owner") console.warn("DB_ROLE_POLICY=owner: elevated schema and role-management privileges accepted; use restricted credentials when available.")
-        console.log("Database verified; application startup performed no schema or seed writes")
+        console.log("Database connection and role verified; application startup performed no schema or seed writes")
     } catch (error) {
         if(env.nodeEnv==='development' && process.env.npm_lifecycle_event==='dev') {
             const code=(error as any)?.original?.code

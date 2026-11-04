@@ -746,6 +746,32 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         }
     }, 60000)
 
+    test("startup serves registered routes without auditing legacy metadata or redundant UNIQUE constraints", async () => {
+        await owner.query("CREATE TABLE public.schema_migrations (version text PRIMARY KEY)")
+        await owner.query("INSERT INTO public.schema_migrations VALUES ('synthetic-legacy-record')")
+        await owner.query('ALTER TABLE public.categories ADD CONSTRAINT "categories_urlSlug_key1" UNIQUE ("urlSlug")')
+        const before = await rowFingerprint()
+        const exit = jest.spyOn(process, "exit").mockImplementation(() => { throw new Error("Unexpected schema audit during startup") })
+        const sync = jest.spyOn(sequelize, "sync")
+        try {
+            await connectDB()
+            expect(exit).not.toHaveBeenCalled()
+            expect(sync).not.toHaveBeenCalled()
+            const response = await request(server).get("/api/admin/quote-reviews?status=pending")
+                .set("Authorization", `Bearer ${adminToken}`)
+            expect(response.status).toBe(200)
+            expect(Array.isArray(response.body.data)).toBe(true)
+            expect(await rowFingerprint()).toEqual(before)
+            expect((await owner.query("SELECT version FROM public.schema_migrations")).rows)
+                .toEqual([{ version: "synthetic-legacy-record" }])
+        } finally {
+            sync.mockRestore()
+            exit.mockRestore()
+            await owner.query('ALTER TABLE public.categories DROP CONSTRAINT "categories_urlSlug_key1"')
+            await owner.query("DROP TABLE public.schema_migrations")
+        }
+    }, 30000)
+
     test("explicit owner policy accepts a real schema owner and still starts without changing rows", async () => {
         const { env } = await import("../config/env")
         const configuration = env as unknown as { databaseRolePolicy?: "restricted" | "owner" }
@@ -777,7 +803,7 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         }
     }, 60000)
 
-    test("startup readiness rejects incomplete application DML privileges",async()=>{
+    test("explicit readiness audit rejects incomplete application DML privileges",async()=>{
         const {assertDatabaseReady}=await import('./schemaReadiness')
         const role='"'+new URL(process.env.TEST_APP_DATABASE_URL!).username+'"'
         await assertDatabaseReady(reader,sequelize)

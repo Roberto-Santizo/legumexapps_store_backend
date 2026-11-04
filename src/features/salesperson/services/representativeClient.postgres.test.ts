@@ -128,10 +128,20 @@ integration("representative clients â€” PostgreSQL", () => {
     })
     test("real PostgreSQL primary key and foreign keys reject invalid direct writes", async () => {
         await service.assign(1, [1])
+        const version = Number((await database.query("SHOW server_version_num")).rows[0].server_version_num)
+        const restrictCode = version >= 180000 ? "23001" : "23503"
         await expect(database.query('INSERT INTO representative_clients VALUES (1, 1)')).rejects.toMatchObject({ code: "23505" })
         await expect(database.query('INSERT INTO representative_clients VALUES (99, 1)')).rejects.toMatchObject({ code: "23503" })
         await expect(database.query('INSERT INTO representative_clients VALUES (1, 99)')).rejects.toMatchObject({ code: "23503" })
-        await expect(database.query('DELETE FROM clients WHERE id = 1')).rejects.toMatchObject({ code: "23503" })
-        await expect(database.query('DELETE FROM customers WHERE id = 1')).rejects.toMatchObject({ code: "23503" })
+        await expect(database.query('DELETE FROM clients WHERE id = 1')).rejects.toMatchObject({
+            code: restrictCode, constraint: "representative_clients_clientId_fkey",
+        })
+        await expect(database.query('DELETE FROM customers WHERE id = 1')).rejects.toMatchObject({
+            code: restrictCode, constraint: "representative_clients_representativeId_fkey",
+        })
+        expect((await database.query("SELECT id FROM clients WHERE id = 1")).rows).toEqual([{ id: 1 }])
+        expect((await database.query("SELECT id FROM customers WHERE id = 1")).rows).toEqual([{ id: 1 }])
+        expect((await database.query("SELECT * FROM representative_clients")).rows)
+            .toEqual([{ representativeId: 1, clientId: 1 }])
     })
 })

@@ -190,10 +190,19 @@ integration("raw material transformations — PostgreSQL", () => {
 
     test("database constraints enforce integrity independently of the application", async () => {
         const created = await service.createTransformation(banana)
+        const version = Number((await database.query("SHOW server_version_num")).rows[0].server_version_num)
+        const restrictCode = version >= 180000 ? "23001" : "23503"
         await expect(database.query('UPDATE "rawMaterialTransformations" SET "yieldPercentage" = 0')).rejects.toMatchObject({ code: "23514" })
         await expect(database.query(`UPDATE "rawMaterialTransformationCosts" SET "poundsPerUnit" = NULL, "costBasis" = 'per_unit'`)).rejects.toMatchObject({ code: "23514" })
-        await expect(database.query(`DELETE FROM "rawMaterials" WHERE id = ${created.processedRawMaterialId}`)).rejects.toMatchObject({ code: "23503" })
-        await expect(database.query('DELETE FROM "unprocessedRawMaterials"')).rejects.toMatchObject({ code: "23503" })
+        await expect(database.query(`DELETE FROM "rawMaterials" WHERE id = ${created.processedRawMaterialId}`)).rejects.toMatchObject({
+            code: restrictCode, constraint: "rawMaterialTransformations_processedRawMaterialId_fkey",
+        })
+        await expect(database.query('DELETE FROM "unprocessedRawMaterials"')).rejects.toMatchObject({
+            code: restrictCode, constraint: "rawMaterialTransformations_unprocessedRawMaterialId_fkey",
+        })
+        expect(await count("rawMaterials")).toBe(1)
+        expect(await count("unprocessedRawMaterials")).toBe(1)
+        expect(await count("rawMaterialTransformations")).toBe(1)
         await expect(database.query(`INSERT INTO "unprocessedRawMaterials" (code, "displayName", "costPerPound", "createdAt", "updatedAt") VALUES ('ban-001', 'X', 1, now(), now())`)).rejects.toMatchObject({ code: "23505" })
         await database.query(`DELETE FROM "rawMaterialTransformations" WHERE id = ${created.id}`)
         expect(await count("rawMaterialTransformationCosts")).toBe(0)

@@ -59,6 +59,20 @@ suite("current Sequelize schema contract", () => {
         expect((result.indexes as any[]).map(row=>row.name).sort()).toEqual(contract.flatMap(model=>model.indexes.map(index=>index.name)).sort())
         for(const model of contract) for(const unique of model.unique) expect((result.keys as any[])).toEqual(expect.arrayContaining([expect.objectContaining({table_name:model.table,name:unique.name,kind:'u'})]))
         expect(databaseModels).toHaveLength(49)
+        const [versions] = await current.query("SELECT current_setting('server_version_num')::int AS version")
+        const version = Number((versions as { version: number }[])[0].version)
+        const [nativeNotNull] = await current.query(`SELECT c.relname AS table_name, a.attname AS column_name
+            FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid
+            JOIN pg_namespace n ON n.oid=c.relnamespace
+            JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=ANY(con.conkey)
+            WHERE n.nspname='public' AND con.contype='n' ORDER BY 1,2`)
+        const requiredColumns = (result.columns as { table_name: string; column_name: string; not_null: boolean }[])
+            .filter(column => column.not_null)
+            .map(({ table_name, column_name }) => ({ table_name, column_name }))
+            .sort((left, right) => left.table_name.localeCompare(right.table_name) || left.column_name.localeCompare(right.column_name))
+        const actualNotNull = (nativeNotNull as { table_name: string; column_name: string }[])
+            .sort((left, right) => left.table_name.localeCompare(right.table_name) || left.column_name.localeCompare(right.column_name))
+        expect(actualNotNull).toEqual(version >= 180000 ? requiredColumns : [])
         await assertSchemaReady({ query: async sql => ({ rows: (await current.query(sql))[0] }) }, current)
     })
     test.each([

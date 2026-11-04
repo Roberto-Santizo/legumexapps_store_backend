@@ -14,6 +14,40 @@ const reject = (issue = "constraint, index, access or PostgreSQL complement mism
 const indexKey = (value: string) => value.replace(/::(?:text|character varying)/g, "").replace(/[\s"()]/g, "")
 const normalized = (value: string) => value.toLowerCase().replace(/::(?:text|character varying)/g, "").replace(/[\s"()]/g, "")
 
+interface ConstraintInventoryEntry {
+    name: string
+    kind: string
+    validated: boolean
+    enforced: boolean
+    deferrable: boolean
+    deferred: boolean
+    no_inherit: boolean
+    keys: readonly string[]
+}
+
+export function assertTableConstraintInventory(
+    table: string,
+    constraints: readonly ConstraintInventoryEntry[],
+    expectedNames: readonly string[],
+    notNullFields: readonly string[]
+): void {
+    // PostgreSQL 18 also records column NOT NULL constraints in pg_constraint.
+    // Older versions expose nullability only through pg_attribute.attnotnull.
+    const notNullConstraints = constraints.filter(row => row.kind === "n")
+    const notNullColumns = notNullConstraints.map(row => row.keys[0])
+    if (notNullConstraints.some(row => row.keys.length !== 1 || !notNullFields.includes(row.keys[0])
+        || !row.validated || !row.enforced || row.deferrable || row.deferred || row.no_inherit)
+        || (notNullConstraints.length > 0 && (notNullConstraints.length !== notNullFields.length
+            || new Set(notNullColumns).size !== notNullConstraints.length))) {
+        return reject(`NOT NULL constraint mismatch ${table}`)
+    }
+    const namedConstraints = constraints.filter(row => row.kind !== "n")
+    if (namedConstraints.length !== expectedNames.length || namedConstraints.some(row => !expectedNames.includes(row.name)
+        || !row.validated || !row.enforced || row.deferrable || row.deferred || row.no_inherit !== (row.kind !== "c"))) {
+        return reject(`constraint inventory mismatch ${table}`)
+    }
+}
+
 /** Catalog SELECTs are deliberately not filtered by ownership or information_schema visibility. */
 export async function assertPostgresCapabilities(client: InspectionClient): Promise<void> {
     const { rows } = await client.query("SELECT current_setting('server_version_num') AS version")
@@ -81,7 +115,8 @@ export async function assertSchemaReady(client: InspectionClient, sequelize: Seq
         LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
         WHERE n.nspname='public' AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped`)
     const { rows: constraints } = await client.query(`SELECT c.relname AS table_name, con.conname AS name, con.contype AS kind,
-        con.convalidated AS validated,con.condeferrable AS deferrable,con.condeferred AS deferred,con.connoinherit AS no_inherit, pg_get_constraintdef(con.oid) AS definition,
+        con.convalidated AS validated,COALESCE((to_jsonb(con)->>'conenforced')::boolean,true) AS enforced,
+        con.condeferrable AS deferrable,con.condeferred AS deferred,con.connoinherit AS no_inherit, pg_get_constraintdef(con.oid) AS definition,
         ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY k(id,ord) JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.id ORDER BY k.ord) AS keys,
         r.relname AS target_table, rn.nspname AS target_schema,
         ARRAY(SELECT a.attname::text FROM unnest(con.confkey) WITH ORDINALITY k(id,ord) JOIN pg_attribute a ON a.attrelid=r.oid AND a.attnum=k.id ORDER BY k.ord) AS target_keys,
@@ -150,7 +185,8 @@ export async function assertSchemaReady(client: InspectionClient, sequelize: Seq
     for (const expected of contract) {
         const keys = constraints.filter(row => row.table_name === expected.table)
         const expectedNames = [constraintName(expected.table, [], 'pkey'), ...expected.unique.map(key=>key.name), ...expected.foreign.map(key=>key.name), ...schemaChecks.filter(check=>check.table===expected.table).map(check=>check.name)]
-        if (keys.length !== expectedNames.length || keys.some(row=>!expectedNames.includes(row.name) || !row.validated || row.deferrable || row.deferred || row.no_inherit!==(row.kind!=='c'))) return reject(`constraint inventory mismatch ${expected.table}`)
+        const notNullFields = columns.filter(row => row.table_name === expected.table && row.not_null).map(row => row.column_name)
+        assertTableConstraintInventory(expected.table, keys, expectedNames, notNullFields)
         for (const unique of expected.unique) if (!keys.some(row=>row.name===unique.name && row.kind==='u' && JSON.stringify(row.keys)===JSON.stringify(unique.fields))) return reject(`UNIQUE mismatch ${expected.table}.${unique.name}`)
         for (const foreign of expected.foreign) if (!keys.some(row=>row.name===foreign.name && row.kind==='f' && row.match_type==='s' && JSON.stringify(row.keys)===JSON.stringify([foreign.field]) && row.target_table===foreign.target && row.target_schema==='public' && JSON.stringify(row.target_keys)===JSON.stringify([foreign.key]) && row.delete_action===action(foreign.onDelete) && row.update_action===action(foreign.onUpdate))) return reject(`foreign key mismatch ${expected.table}.${foreign.name}`)
         const actualIndexes=indexes.filter(row=>row.table_name===expected.table)

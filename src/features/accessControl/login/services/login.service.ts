@@ -20,35 +20,43 @@ interface LoginResult {
 }
 
 async function login(input: LoginInput): Promise<LoginResult> {
-    const user = await User.findOne({
-        where: { username: input.username, isActive: true },
-        include: [{
-            model: Role,
-            required: true,
-            where: { isActive: true },
+    const user = await User.sequelize!.transaction(async transaction => {
+        const account = await User.findOne({
+            transaction,
+            lock: { level: transaction.LOCK.UPDATE, of: User },
+            where: { username: input.username, isActive: true },
             include: [{
-                model: Permission,
-                required: false,
+                model: Role,
+                required: true,
                 where: { isActive: true },
-                attributes: ["name"]
+                include: [{
+                    model: Permission,
+                    required: false,
+                    where: { isActive: true },
+                    attributes: ["name"]
+                }]
             }]
-        }]
+        })
+
+        if (!account) return null
+
+        if (isAccountLocked(account)) {
+            throw new AppError(423, "errors.account_locked")
+        }
+
+        const passwordMatches = await bcrypt.compare(input.password, account.password)
+
+        if (!passwordMatches) {
+            // Commit the failed attempt before returning the authentication error outside the transaction.
+            await registerFailedAttempt(account, transaction)
+            return null
+        }
+
+        await clearFailedAttempts(account, transaction)
+
+        return account
     })
-
     if (!user) throw new AppError(401, "errors.invalid_credentials")
-
-    if (isAccountLocked(user)) {
-        throw new AppError(423, "errors.account_locked")
-    }
-
-    const passwordMatches = await bcrypt.compare(input.password, user.password)
-
-    if (!passwordMatches) {
-        await registerFailedAttempt(user)
-        throw new AppError(401, "errors.invalid_credentials")
-    }
-
-    await clearFailedAttempts(user)
 
     const permissions = user.role.permissions.map(permission => permission.name)
 

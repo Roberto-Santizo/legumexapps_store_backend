@@ -1,4 +1,4 @@
-import { Op } from "sequelize"
+import { Op, type Transaction } from "sequelize"
 import PackagingGroup from "../models/PackagingGroup.model"
 import ProductVariantPalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
 import ProductVariantUnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
@@ -48,11 +48,12 @@ export async function resolveUnitMaterialGroup(
     optionGroupId: number | null | undefined,
     legacyName: string | null | undefined,
     currentGroupId?: number | null,
+    transaction?: Transaction,
 ): Promise<{ optionGroupId: number | null; optionGroup: string | null }> {
     if (optionGroupId == null && !legacyName) return { optionGroupId: null, optionGroup: null }
     const group = optionGroupId != null
-        ? await PackagingGroup.findByPk(optionGroupId)
-        : await PackagingGroup.findOne({ where: { nameKey: optionGroupKey(legacyName) } })
+        ? await PackagingGroup.findByPk(optionGroupId, transaction ? { transaction } : undefined)
+        : await PackagingGroup.findOne({ where: { nameKey: optionGroupKey(legacyName) }, ...(transaction ? { transaction } : {}) })
     if (!group || (!group.isActive && group.id !== currentGroupId)) throw new AppError(422, "errors.packaging_group_unavailable")
     return { optionGroupId: group.id, optionGroup: group.displayName }
 }

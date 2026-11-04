@@ -7,8 +7,10 @@ import { errorHandler } from "../middlewares/errorHandler"
 // no arrastrar el resto de las features (y sus modelos/servicios) a cada test de rutas.
 export function buildTestApp(mountPath: string, router: Router): Express {
     const app = express()
-    app.use(express.json())
+    // Route contract tests stub account persistence; application.postgres.test.ts uses the real reader.
+    app.locals.accountStatus = { isStaffActive: async () => true, isSalespersonActive: async () => true }
     app.use(i18nextMiddleware.handle(i18next))
+    app.use(express.json())
     app.use(mountPath, router)
     app.use(errorHandler)
     return app

@@ -12,7 +12,7 @@ interface AccessTokenPayload {
     permissions: string[]
 }
 
-export function authenticate(req: Request, _res: Response, next: NextFunction): void {
+export async function authenticate(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const header = req.headers.authorization
     if (!header?.startsWith("Bearer ")) {
         next(new AppError(401, "errors.unauthenticated"))
@@ -23,7 +23,12 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
 
     try {
         const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }) as unknown as AccessTokenPayload
-        if (payload.type !== "staff") {
+        if (payload.type !== "staff" || !Number.isSafeInteger(payload.sub) || payload.sub <= 0) {
+            next(new AppError(401, "errors.unauthenticated"))
+            return
+        }
+
+        if (!req.app.locals.accountStatus || !await req.app.locals.accountStatus.isStaffActive(payload.sub)) {
             next(new AppError(401, "errors.unauthenticated"))
             return
         }

@@ -5,7 +5,7 @@
 // llame a las funciones correctas en el orden correcto.
 jest.mock("../../user/models/User.model", () => ({
     __esModule: true,
-    default: { findOne: jest.fn() }
+    default: { findOne: jest.fn(), sequelize: { transaction: async (work: (transaction: object) => unknown) => work({ LOCK: { UPDATE: "UPDATE" } }) } }
 }))
 jest.mock("bcryptjs", () => ({
     __esModule: true,

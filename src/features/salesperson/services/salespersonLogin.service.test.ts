@@ -1,7 +1,7 @@
 // No se mockea accountLockout.service: corre integrado con la lógica real de bloqueo.
 jest.mock("../models/Salesperson.model", () => ({
     __esModule: true,
-    default: { findOne: jest.fn() }
+    default: { findOne: jest.fn(), sequelize: { transaction: async (work: (transaction: object) => unknown) => work({ LOCK: { UPDATE: "UPDATE" } }) } }
 }))
 jest.mock("bcryptjs", () => ({
     __esModule: true,

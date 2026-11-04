@@ -6,6 +6,17 @@ import { AppError, BulkImportError, ExcelImportParseError } from "../errors/AppE
 
 export function errorHandler(error: unknown, req: Request, res: Response, _next: NextFunction): void {
 
+    if (error instanceof Error && "type" in error && "status" in error) {
+        if (error.type === "entity.parse.failed" && error.status === 400) {
+            res.status(400).json({ message: req.t("errors.request_invalid_json") })
+            return
+        }
+        if (error.type === "entity.too.large" && error.status === 413) {
+            res.status(413).json({ message: req.t("errors.request_body_too_large") })
+            return
+        }
+    }
+
     if (error instanceof MulterError) {
         const key = error.code === "LIMIT_FILE_SIZE" ? "errors.bulk_import_file_too_large" : "errors.bulk_import_upload_error"
         res.status(422).json({ message: req.t(key) })

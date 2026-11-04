@@ -1,4 +1,5 @@
-import { Op } from "sequelize"
+import { Op, type Transaction } from "sequelize"
+import { withMaterialWriteTransaction } from "./materialWriteTransaction"
 import ProductVariantUnitMaterial from "../models/ProductVariantUnitMaterial.model"
 import { AppError, NotFoundError } from "../../../shared/errors/AppError"
 import { packagingService } from "../../packaging/services/packaging.service"
@@ -14,8 +15,8 @@ async function listProductVariantUnitMaterials(): Promise<ProductVariantUnitMate
     return ProductVariantUnitMaterial.findAll({ where: { isActive: true } })
 }
 
-async function getProductVariantUnitMaterialById(id: number): Promise<ProductVariantUnitMaterial> {
-    const productVariantUnitMaterial = await ProductVariantUnitMaterial.findOne({ where: { id, isActive: true } })
+async function getProductVariantUnitMaterialById(id: number, transaction?: Transaction): Promise<ProductVariantUnitMaterial> {
+    const productVariantUnitMaterial = await ProductVariantUnitMaterial.findOne({ where: { id, isActive: true }, transaction })
     if (!productVariantUnitMaterial) throw new NotFoundError("ProductVariantUnitMaterial", id)
     return productVariantUnitMaterial
 }
@@ -28,9 +29,10 @@ async function getProductVariantUnitMaterialById(id: number): Promise<ProductVar
 // Al guardar, el nombre se normaliza y adopta la grafía de un grupo ya existente en el SKU ("caja"
 // se une a "Caja"). Se leen las filas agrupadas del SKU y se filtra en memoria (pocas filas por
 // variante) para que la comparación insensible a mayúsculas sea la misma que usa el motor.
-async function findActiveGroupedRows(productVariantId: number, excludeId: number | null): Promise<ProductVariantUnitMaterial[]> {
+async function findActiveGroupedRows(productVariantId: number, excludeId: number | null, transaction: Transaction): Promise<ProductVariantUnitMaterial[]> {
     const rows = await ProductVariantUnitMaterial.findAll({
-        where: { productVariantId, optionGroup: { [Op.ne]: null }, isActive: true }
+        where: { productVariantId, optionGroup: { [Op.ne]: null }, isActive: true },
+        transaction
     })
     return rows.filter(row => row.id !== excludeId)
 }
@@ -38,10 +40,11 @@ async function findActiveGroupedRows(productVariantId: number, excludeId: number
 async function resolveOptionGroupOnWrite(
     productVariantId: number,
     requestedGroup: string | null,
-    excludeId: number | null
+    excludeId: number | null,
+    transaction: Transaction
 ): Promise<string | null> {
     if (requestedGroup === null) return null
-    const groupedRows = await findActiveGroupedRows(productVariantId, excludeId)
+    const groupedRows = await findActiveGroupedRows(productVariantId, excludeId, transaction)
     return resolveOptionGroupSpelling(requestedGroup, groupedRows.map(row => row.optionGroup))
 }
 
@@ -50,11 +53,12 @@ async function resolveIsDefaultOnWrite(
     optionGroup: string | null,
     requestedIsDefault: boolean,
     excludeId: number | null,
-    optionGroupId?: number | null
+    optionGroupId: number | null | undefined,
+    transaction: Transaction
 ): Promise<boolean> {
     if (optionGroup === null) return false
 
-    const groupSiblings = (await findActiveGroupedRows(productVariantId, excludeId))
+    const groupSiblings = (await findActiveGroupedRows(productVariantId, excludeId, transaction))
         .filter(row => materialGroupIdentity(row) === materialGroupIdentity({ optionGroup, optionGroupId }))
 
     if (groupSiblings.length === 0) return true
@@ -64,15 +68,15 @@ async function resolveIsDefaultOnWrite(
         if (currentDefaults.length > 0) {
             await ProductVariantUnitMaterial.update(
                 { isDefault: false },
-                { where: { id: { [Op.in]: currentDefaults.map(sibling => sibling.id) } } }
+                { where: { id: { [Op.in]: currentDefaults.map(sibling => sibling.id) } }, transaction }
             )
         }
     }
     return requestedIsDefault
 }
 
-async function countOtherGroupSiblings(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<number> {
-    const groupedRows = await findActiveGroupedRows(productVariantUnitMaterial.productVariantId, productVariantUnitMaterial.id)
+async function countOtherGroupSiblings(productVariantUnitMaterial: ProductVariantUnitMaterial, transaction: Transaction): Promise<number> {
+    const groupedRows = await findActiveGroupedRows(productVariantUnitMaterial.productVariantId, productVariantUnitMaterial.id, transaction)
     return groupedRows.filter(row => materialGroupIdentity(row) === materialGroupIdentity(productVariantUnitMaterial)).length
 }
 
@@ -80,10 +84,10 @@ async function countOtherGroupSiblings(productVariantUnitMaterial: ProductVarian
 // otras alternativas activas -- decisión de negocio: el admin debe elegir otro default
 // primero, nunca se cambia en silencio qué material se está costeando. La última fila de un grupo
 // sí se puede eliminar (el grupo simplemente desaparece).
-async function assertDeletionNotBlockedByDefault(productVariantUnitMaterial: ProductVariantUnitMaterial): Promise<void> {
+async function assertDeletionNotBlockedByDefault(productVariantUnitMaterial: ProductVariantUnitMaterial, transaction: Transaction): Promise<void> {
     if (productVariantUnitMaterial.optionGroup === null || !productVariantUnitMaterial.isDefault) return
 
-    if ((await countOtherGroupSiblings(productVariantUnitMaterial)) > 0) {
+    if ((await countOtherGroupSiblings(productVariantUnitMaterial, transaction)) > 0) {
         throw new AppError(409, "errors.unit_material_default_deletion_blocked", { group: productVariantUnitMaterial.optionGroup })
     }
 }
@@ -97,7 +101,8 @@ async function assertUpdateKeepsADefault(
     willBeProductVariantId: number,
     willBeGroup: string | null,
     willBeDefault: boolean,
-    willBeGroupId?: number | null
+    willBeGroupId: number | null | undefined,
+    transaction: Transaction
 ): Promise<void> {
     const isCurrentDefault = productVariantUnitMaterial.optionGroup !== null && productVariantUnitMaterial.isDefault
     if (!isCurrentDefault) return
@@ -108,7 +113,7 @@ async function assertUpdateKeepsADefault(
         materialGroupIdentity({ optionGroup: willBeGroup, optionGroupId: willBeGroupId }) === materialGroupIdentity(productVariantUnitMaterial)
     if (staysDefaultOfSameGroup) return
 
-    if ((await countOtherGroupSiblings(productVariantUnitMaterial)) > 0) {
+    if ((await countOtherGroupSiblings(productVariantUnitMaterial, transaction)) > 0) {
         throw new AppError(409, "errors.material_default_required", { group: productVariantUnitMaterial.optionGroup })
     }
 }
@@ -116,39 +121,46 @@ async function assertUpdateKeepsADefault(
 async function createProductVariantUnitMaterial(
     input: CreateProductVariantUnitMaterialInput
 ): Promise<ProductVariantUnitMaterial> {
-    await packagingService.assertPackagingHasRole(input.packagingId, "unit")
-    const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup)
-    const optionGroup = group.optionGroupId != null ? group.optionGroup : await resolveOptionGroupOnWrite(input.productVariantId, group.optionGroup, null)
-    const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, optionGroup, input.isDefault, null, group.optionGroupId)
-    return ProductVariantUnitMaterial.create({ ...input, optionGroup, optionGroupId: group.optionGroupId, isDefault })
+    return withMaterialWriteTransaction(async transaction => {
+        await packagingService.assertPackagingHasRole(input.packagingId, "unit", transaction)
+        const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup, undefined, transaction)
+        const optionGroup = group.optionGroupId != null ? group.optionGroup : await resolveOptionGroupOnWrite(input.productVariantId, group.optionGroup, null, transaction)
+        const isDefault = await resolveIsDefaultOnWrite(input.productVariantId, optionGroup, input.isDefault, null, group.optionGroupId, transaction)
+        return ProductVariantUnitMaterial.create({ ...input, optionGroup, optionGroupId: group.optionGroupId, isDefault }, { transaction })
+    })
 }
 
 async function updateProductVariantUnitMaterial(
     id: number,
     input: UpdateProductVariantUnitMaterialInput
 ): Promise<ProductVariantUnitMaterial> {
-    const productVariantUnitMaterial = await getProductVariantUnitMaterialById(id)
-    if (input.packagingId) await packagingService.assertPackagingHasRole(input.packagingId, "unit")
+    return withMaterialWriteTransaction(async transaction => {
+        const productVariantUnitMaterial = await getProductVariantUnitMaterialById(id, transaction)
+        if (input.packagingId) await packagingService.assertPackagingHasRole(input.packagingId, "unit", transaction)
 
-    const effectiveProductVariantId = input.productVariantId ?? productVariantUnitMaterial.productVariantId
-    const effectiveRequestedIsDefault = input.isDefault ?? productVariantUnitMaterial.isDefault
-    const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup, productVariantUnitMaterial.optionGroupId)
-    const optionGroup = group.optionGroupId != null ? group.optionGroup : await resolveOptionGroupOnWrite(effectiveProductVariantId, group.optionGroup, productVariantUnitMaterial.id)
-    await assertUpdateKeepsADefault(productVariantUnitMaterial, effectiveProductVariantId, optionGroup, effectiveRequestedIsDefault, group.optionGroupId)
-    const isDefault = await resolveIsDefaultOnWrite(
-        effectiveProductVariantId,
-        optionGroup,
-        effectiveRequestedIsDefault,
-        productVariantUnitMaterial.id,
-        group.optionGroupId
-    )
-    return productVariantUnitMaterial.update({ ...input, optionGroup, optionGroupId: group.optionGroupId, isDefault })
+        const effectiveProductVariantId = input.productVariantId ?? productVariantUnitMaterial.productVariantId
+        const effectiveRequestedIsDefault = input.isDefault ?? productVariantUnitMaterial.isDefault
+        const group = await resolveUnitMaterialGroup(input.optionGroupId, input.optionGroup, productVariantUnitMaterial.optionGroupId, transaction)
+        const optionGroup = group.optionGroupId != null ? group.optionGroup : await resolveOptionGroupOnWrite(effectiveProductVariantId, group.optionGroup, productVariantUnitMaterial.id, transaction)
+        await assertUpdateKeepsADefault(productVariantUnitMaterial, effectiveProductVariantId, optionGroup, effectiveRequestedIsDefault, group.optionGroupId, transaction)
+        const isDefault = await resolveIsDefaultOnWrite(
+            effectiveProductVariantId,
+            optionGroup,
+            effectiveRequestedIsDefault,
+            productVariantUnitMaterial.id,
+            group.optionGroupId,
+            transaction
+        )
+        return productVariantUnitMaterial.update({ ...input, optionGroup, optionGroupId: group.optionGroupId, isDefault }, { transaction })
+    })
 }
 
 async function deleteProductVariantUnitMaterial(id: number): Promise<void> {
-    const productVariantUnitMaterial = await getProductVariantUnitMaterialById(id)
-    await assertDeletionNotBlockedByDefault(productVariantUnitMaterial)
-    await productVariantUnitMaterial.update({ isActive: false })
+    return withMaterialWriteTransaction(async transaction => {
+        const productVariantUnitMaterial = await getProductVariantUnitMaterialById(id, transaction)
+        await assertDeletionNotBlockedByDefault(productVariantUnitMaterial, transaction)
+        await productVariantUnitMaterial.update({ isActive: false }, { transaction })
+    })
 }
 
 export const productVariantUnitMaterialService = {

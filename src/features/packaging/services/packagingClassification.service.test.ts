@@ -17,8 +17,9 @@ it.each([ ["CAJA", "per_box", 1], ["TARIMA", "per_pallet", 1], ["ESQUINERO", "pe
     const update = jest.fn()
     jest.mocked(Packaging.findOne).mockResolvedValueOnce({ id: 1, update } as unknown as Packaging).mockResolvedValueOnce(null)
     await packagingService.updatePackaging(1, input)
+    expect(Packaging.create).toHaveBeenCalledWith(expect.objectContaining({ defaultQuantityBasis: basis, defaultQuantityValue: quantity }))
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ defaultQuantityBasis: basis, defaultQuantityValue: quantity }), { transaction: {} })
     for (const mock of [Packaging.create, update]) {
-        expect(mock).toHaveBeenCalledWith(expect.objectContaining({ defaultQuantityBasis: basis, defaultQuantityValue: quantity }))
         expect(jest.mocked(mock).mock.calls[0][0]).toHaveProperty("materialType", materialType)
     }
 })
@@ -52,7 +53,7 @@ it("creates and edits specific materials with their own code and decimal cost", 
     const update = jest.fn(async values => values)
     jest.mocked(Packaging.findOne).mockResolvedValueOnce({ ...input, id: 1, update } as unknown as Packaging).mockResolvedValueOnce(null)
     await packagingService.updatePackaging(1, updatePackagingSchema.parse({ ...input, isActive: false }))
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ classification: "specific", code: base.code, unitCost: 0.1234, isActive: false }))
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ classification: "specific", code: base.code, unitCost: 0.1234, isActive: false }), { transaction: {} })
 })
 it("generic materials never take a user code: the system assigns GEN-IND/INT/PAL-NNNN per level", async () => {
     const { code: _code, ...withoutCode } = base
@@ -68,7 +69,7 @@ it("editing a generic keeps its code, rejects a different one and renews it when
     const update = jest.fn(async values => values)
     jest.mocked(Packaging.findOne).mockResolvedValue({ ...generic, id: 1, update } as unknown as Packaging)
     await packagingService.updatePackaging(1, { displayName: "Nuevo", packagingRole: "unit", unitCost: 1 })
-    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ code: "GEN-IND-0003", displayName: "Nuevo" }))
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ code: "GEN-IND-0003", displayName: "Nuevo" }), { transaction: {} })
     await expect(packagingService.updatePackaging(1, { code: "MIO-1", packagingRole: "unit", unitCost: 1 })).rejects.toMatchObject({ key: "errors.packaging_generic_code_forbidden" })
     await packagingService.updatePackaging(1, { packagingRole: "intermediate", unitCost: 1 })
     expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ code: "GEN-INT-0001", packagingRole: "intermediate" }), { transaction: {} })
@@ -84,7 +85,7 @@ it.each([0, 0.1234, 0.12345, 0.123456789012, 0.000000000001, 999999.9999])("pres
     const update = jest.fn(async values => values)
     jest.mocked(Packaging.findOne).mockResolvedValueOnce({ ...input, id: 1, update } as unknown as Packaging).mockResolvedValueOnce(null)
     await packagingService.updatePackaging(1, updatePackagingSchema.parse({ ...input, unitCost }))
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ unitCost }))
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ unitCost }), { transaction: {} })
 })
 it("requires explicit classification on new API input and retains compatibility on edits", () => {
     expect(createPackagingSchema.safeParse(base).success).toBe(false)
@@ -96,7 +97,7 @@ it("requires both names on creation and allows a historical English name to rema
     const update = jest.fn()
     jest.mocked(Packaging.findOne).mockResolvedValueOnce({ ...base, id: 1, update } as unknown as Packaging).mockResolvedValueOnce(null)
     await packagingService.updatePackaging(1, { ...base, displayNameEn: " " })
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ displayName: base.displayName, displayNameEn: null }))
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ displayName: base.displayName, displayNameEn: null }), { transaction: {} })
 })
 it.each(["Bag", "", null, 123])("imports the new English column without inventing names: %s", async displayNameEn => {
     const workbook = new ExcelJS.Workbook(), sheet = workbook.addWorksheet("Empaques")
@@ -172,11 +173,11 @@ it("a material in the pallet kit cannot be deactivated or reshaped until it is r
     jest.mocked(Packaging.findOne).mockImplementation((async ({ where }: { where: Record<string, unknown> }) => "code" in where ? null : kitMaterial) as never)
     jest.mocked(PalletKitMaterial.findOne).mockResolvedValue({ packagingId: 4 } as PalletKitMaterial)
     await packagingService.updatePackaging(4, { packagingRole: "pallet", unitCost: 2 })
-    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ unitCost: 2, materialType: "ESQUINERO" }))
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ unitCost: 2, materialType: "ESQUINERO" }), { transaction: {} })
     for (const change of [{ materialType: "TARIMA" as const }, { classification: "specific" as const, code: "X-1" }, { isActive: false }])
         await expect(packagingService.updatePackaging(4, { packagingRole: "pallet", unitCost: 2, ...change })).rejects.toMatchObject({ key: "errors.packaging_in_pallet_kit" })
     await expect(packagingService.deletePackaging(4)).rejects.toMatchObject({ key: "errors.packaging_in_pallet_kit" })
     jest.mocked(PalletKitMaterial.findOne).mockResolvedValue(null)
     await packagingService.deletePackaging(4)
-    expect(update).toHaveBeenLastCalledWith({ isActive: false })
+    expect(update).toHaveBeenLastCalledWith({ isActive: false }, { transaction: {} })
 })

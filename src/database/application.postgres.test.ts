@@ -944,6 +944,98 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         } finally {if(app)await app.end();await clone.end()}
         expect(await rowFingerprint()).toEqual(source)
     },60000)
+    test.each(["staff", "representative"] as const)("deactivating a %s account rejects its previously issued token", async kind => {
+        const User = sequelize.model("User")
+        const Salesperson = sequelize.model("Salesperson")
+        const administrator = await User.findByPk((jwt.decode(adminToken) as jwt.JwtPayload).sub)
+        const password = await bcrypt.hash(credentials.password, 10)
+        const account = kind === "staff"
+            ? await User.create({ name: "Session regression", username: "session_regression", password, role_id: administrator!.get("role_id") })
+            : await Salesperson.create({ name: "Session regression", email: "session-regression@example.invalid", password })
+        const loginPath = kind === "staff" ? "/api/login" : "/api/salesperson-login"
+        const input = kind === "staff" ? { username: "session_regression", password: credentials.password } : { email: "session-regression@example.invalid", password: credentials.password }
+        const login = await request(server).post(loginPath).send(input)
+        expect(login.status).toBe(200)
+        const token = login.body.data.token
+        const route = kind === "staff" ? "/api/packagings" : `/api/quote-reviews/${randomUUID()}`
+        const activeStatus = kind === "staff" ? 200 : 404
+        try {
+            expect((await request(server).get(route).set("Authorization", `Bearer ${token}`)).status).toBe(activeStatus)
+            await account.update({ isActive: false })
+            expect((await request(server).get(route).set("Authorization", `Bearer ${token}`)).status).toBe(401)
+        } finally { await account.destroy() }
+    }, 30000)
+
+    test.each(["staff", "representative"] as const)("concurrent incorrect passwords lock the %s account after five committed attempts", async kind => {
+        const model = sequelize.model(kind === "staff" ? "User" : "Salesperson")
+        const administrator = await sequelize.model("User").findByPk((jwt.decode(adminToken) as jwt.JwtPayload).sub)
+        const password = await bcrypt.hash(credentials.password, 10)
+        const account = await model.create(kind === "staff"
+            ? { name: "Concurrent login", username: "concurrent_login", password, role_id: administrator!.get("role_id") }
+            : { name: "Concurrent login", email: "concurrent-login@example.invalid", password })
+        const loginPath = kind === "staff" ? "/api/login" : "/api/salesperson-login"
+        const identity = kind === "staff" ? { username: "concurrent_login" } : { email: "concurrent-login@example.invalid" }
+        try {
+            const attempts = await Promise.all(Array.from({ length: 10 }, () => request(server).post(loginPath).send({ ...identity, password: "incorrect-password" })))
+            expect(attempts.filter(response => response.status === 401)).toHaveLength(5)
+            expect(attempts.filter(response => response.status === 423)).toHaveLength(5)
+            await account.reload()
+            expect(account.get("failed_attempts")).toBe(0)
+            expect((account.get("locked_until") as Date).getTime()).toBeGreaterThan(Date.now())
+            expect((await request(server).post(loginPath).send({ ...identity, password: credentials.password })).status).toBe(423)
+        } finally { await account.destroy() }
+    }, 30000)
+
+    test.each(["Unit", "Intermediate", "Pallet"] as const)("%s alternative changes rollback failed demotions and serialize concurrent defaults", async level => {
+        const role = level.toLowerCase()
+        const model = sequelize.model(`ProductVariant${level}Material`)
+        const packaging = sequelize.model("Packaging")
+        const group = level === "Intermediate" ? null : await sequelize.model("PackagingGroup").create({ displayName: `Audit ${level}`, nameKey: `audit ${role}` })
+        const materials = await Promise.all([1, 2].map(index => packaging.create({
+            code: `AUDIT-${level}-${index}`, displayName: `Audit ${level} ${index}`, packagingRole: role,
+            materialType: level === "Unit" ? "INDIVIDUAL" : level === "Intermediate" ? "INTERMEDIO" : "OTRO", unitCost: 1,
+        })))
+        const unit = await import("../features/product/services/productVariantUnitMaterial.service")
+        const intermediate = await import("../features/product/services/productVariantIntermediateMaterial.service")
+        const pallet = await import("../features/product/services/productVariantPalletMaterial.service")
+        const input = (packagingId: number, isDefault: boolean) => ({ productVariantId: variantId, packagingId, optionGroup: `Audit ${level}`,
+            optionGroupId: group?.id ?? null, isDefault, quantityPerUnit: 1, quantityBasis: "per_pallet" as const, quantityValue: 1 })
+        const create = (packagingId: number, isDefault: boolean) => level === "Unit" ? unit.productVariantUnitMaterialService.createProductVariantUnitMaterial(input(packagingId, isDefault))
+            : level === "Intermediate" ? intermediate.productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial(input(packagingId, isDefault))
+            : pallet.productVariantPalletMaterialService.createProductVariantPalletMaterial(input(packagingId, isDefault))
+        const update = (id: number, packagingId: number) => level === "Unit" ? unit.productVariantUnitMaterialService.updateProductVariantUnitMaterial(id, input(packagingId, true))
+            : level === "Intermediate" ? intermediate.productVariantIntermediateMaterialService.updateProductVariantIntermediateMaterial(id, input(packagingId, true))
+            : pallet.productVariantPalletMaterialService.updateProductVariantPalletMaterial(id, input(packagingId, true))
+        try {
+            const first = await create(materials[0].id, true)
+            const second = await create(materials[1].id, false)
+            await expect(create(materials[1].id, true)).rejects.toMatchObject({ name: "SequelizeUniqueConstraintError" })
+            await first.reload()
+            expect(first.isDefault).toBe(true)
+            await Promise.all([update(first.id, materials[0].id), update(second.id, materials[1].id)])
+            expect(await model.count({ where: { id: [first.id, second.id], isDefault: true } })).toBe(1)
+        } finally {
+            await model.destroy({ where: { packagingId: materials.map(material => material.id) } })
+            await Promise.all(materials.map(material => material.destroy()))
+            if (group) await group.destroy()
+        }
+    }, 30000)
+
+    test("changing an associated pallet material type is rejected without modifying the catalog or SKU", async () => {
+        const material = await sequelize.model("Packaging").create({ code: "AUDIT-TYPE", displayName: "Audit box", classification: "specific", packagingRole: "pallet", materialType: "CAJA", defaultQuantityBasis: "per_box", defaultQuantityValue: 1, unitCost: 2 })
+        const association = await sequelize.model("ProductVariantPalletMaterial").create({ productVariantId: variantId, packagingId: material.id, quantityBasis: "per_box", quantityValue: 1 })
+        const before = material.toJSON()
+        try {
+            const response = await request(server).put(`/api/packagings/${material.id}`).set("Authorization", `Bearer ${adminToken}`).set("Accept-Language", "en")
+                .send({ code: "AUDIT-TYPE", packagingRole: "pallet", materialType: "TARIMA", unitCost: 2 })
+            expect(response.status).toBe(422)
+            expect(response.body.message).toBe("The type of a material with existing associations cannot be changed.")
+            await material.reload()
+            expect(material.toJSON()).toEqual(before)
+            expect(await sequelize.model("ProductVariantPalletMaterial").count({ where: { id: association.id } })).toBe(1)
+        } finally { await association.destroy(); await material.destroy() }
+    }, 30000)
+
     test("client pallet rules apply automatically to every SKU, reject overrides and protect assigned materials", async () => {
         const model = (name: string) => sequelize.models[name] as any
         const client = await model("Client").create({ name: "Synthetic pallet exception" })

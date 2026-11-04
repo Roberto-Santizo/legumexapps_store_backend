@@ -1,3 +1,7 @@
+jest.mock("../../genericPackaging/models/GenericPackagingConfigurationMaterial.model", () => ({ __esModule: true, default: { findOne: jest.fn().mockResolvedValue(null) } }))
+jest.mock("../../product/models/ProductVariantPalletMaterial.model", () => ({ __esModule: true, default: { findOne: jest.fn().mockResolvedValue(null) } }))
+jest.mock("../../product/models/ProductVariantIntermediateMaterial.model", () => ({ __esModule: true, default: { findOne: jest.fn().mockResolvedValue(null) } }))
+jest.mock("../../product/models/ProductVariantUnitMaterial.model", () => ({ __esModule: true, default: { findOne: jest.fn().mockResolvedValue(null) } }))
 import "reflect-metadata"
 import ExcelJS from "exceljs"
 import { Op } from "sequelize"
@@ -7,7 +11,7 @@ import { Op } from "sequelize"
 jest.mock("../models/Packaging.model", () => ({
     __esModule: true,
     default: { bulkCreate: jest.fn(), findOne: jest.fn(), findAll: jest.fn(), findAndCountAll: jest.fn(), create: jest.fn(),
-        sequelize: { transaction: jest.fn(async (work: (transaction: object) => unknown) => work({})), query: jest.fn() } }
+        sequelize: { transaction: jest.fn(async (work: (transaction: object) => unknown) => work({ LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } })), query: jest.fn() } }
 }))
 
 jest.mock("../../palletKit/models/PalletKitMaterial.model", () => ({ __esModule: true, default: { findOne: jest.fn().mockResolvedValue(null) } }))
@@ -15,6 +19,10 @@ jest.mock("../../palletKit/models/PalletKitMaterial.model", () => ({ __esModule:
 import Packaging from "../models/Packaging.model"
 import { packagingService } from "./packaging.service"
 import { BulkImportError } from "../../../shared/errors/AppError"
+import UnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
+import IntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
+import PalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
+import GenericMaterial from "../../genericPackaging/models/GenericPackagingConfigurationMaterial.model"
 
 const mockBulkCreate = Packaging.bulkCreate as unknown as jest.Mock
 const mockPackagingFindOne = Packaging.findOne as unknown as jest.Mock
@@ -347,7 +355,7 @@ describe("packagingService.updatePackaging", () => {
 
         await packagingService.updatePackaging(1, { code: "BOL-001", packagingRole: "unit", unitCost: 2 })
 
-        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ code: "BOL-001" }))
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ code: "BOL-001" }), { transaction: { LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } } })
     })
 })
 
@@ -381,20 +389,20 @@ describe("packaging catalog consumption import and update", () => {
         const material = { ...BASE_CREATE_INPUT, packagingRole: "pallet", materialType: "OTRO", id: 100, defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4, update }
         mockPackagingFindOne.mockResolvedValueOnce(material).mockResolvedValueOnce(null)
         await packagingService.updatePackaging(100, { ...BASE_CREATE_INPUT, packagingRole: "pallet", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 5 })
-        expect(update).toHaveBeenCalledWith(expect.objectContaining({ materialType: "OTRO", defaultQuantityValue: 5 }))
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ materialType: "OTRO", defaultQuantityValue: 5 }), { transaction: { LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } } })
         expect(material.defaultQuantityValue).toBe(4)
     })
     it("editing a pallet material without sending a type keeps its type and consumption", async () => {
         const update = jest.fn()
         mockPackagingFindOne.mockResolvedValueOnce({ ...BASE_CREATE_INPUT, packagingRole: "pallet", materialType: "ESQUINERO", defaultQuantityBasis: "per_pallet", defaultQuantityValue: "4.00", update }).mockResolvedValueOnce(null)
         await packagingService.updatePackaging(100, { ...BASE_CREATE_INPUT, packagingRole: "pallet" })
-        expect(update).toHaveBeenCalledWith({ ...BASE_CREATE_INPUT, packagingRole: "pallet", materialType: "ESQUINERO" })
+        expect(update).toHaveBeenCalledWith({ ...BASE_CREATE_INPUT, packagingRole: "pallet", materialType: "ESQUINERO" }, { transaction: { LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } } })
     })
     it("clears unused pallet defaults when changing to a non-pallet role", async () => {
         const update = jest.fn()
         mockPackagingFindOne.mockResolvedValueOnce({ ...BASE_CREATE_INPUT, packagingRole: "pallet", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4, update }).mockResolvedValueOnce(null)
         await packagingService.updatePackaging(100, BASE_CREATE_INPUT)
-        expect(update).toHaveBeenCalledWith({ ...BASE_CREATE_INPUT, materialType: "INDIVIDUAL", defaultQuantityBasis: null, defaultQuantityValue: null })
+        expect(update).toHaveBeenCalledWith({ ...BASE_CREATE_INPUT, materialType: "INDIVIDUAL", defaultQuantityBasis: null, defaultQuantityValue: null }, { transaction: { LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } } })
     })
 })
 
@@ -468,5 +476,34 @@ describe("packagingService.listPackagings search", () => {
             where: { isActive: true }, order: [["createdAt", "DESC"], ["id", "DESC"]],
             limit: 10, offset: 0, distinct: true,
         })
+    })
+})
+
+
+describe("material type changes preserve existing associations", () => {
+    const references = [UnitMaterial, IntermediateMaterial, PalletMaterial, GenericMaterial]
+    beforeEach(() => {
+        mockPackagingFindOne.mockReset()
+        for (const model of references) jest.mocked(model.findOne).mockReset().mockResolvedValue(null)
+    })
+    afterEach(() => {
+        for (const model of references) jest.mocked(model.findOne).mockReset().mockResolvedValue(null)
+    })
+    it.each(references)("rejects changing a referenced material type before any update (%#)", async model => {
+        const update = jest.fn()
+        const current = { id: 5, code: "AUDIT-BOX", classification: "specific", packagingRole: "pallet", materialType: "CAJA", defaultQuantityBasis: "per_box", defaultQuantityValue: 1, update }
+        mockPackagingFindOne.mockResolvedValueOnce(current).mockResolvedValueOnce(null)
+        jest.mocked(model.findOne).mockResolvedValue({ id: 9 } as never)
+        await expect(packagingService.updatePackaging(5, { code: "AUDIT-BOX", packagingRole: "pallet", materialType: "TARIMA", unitCost: 2 }))
+            .rejects.toMatchObject({ statusCode: 422, key: "errors.packaging_material_type_in_use" })
+        expect(update).not.toHaveBeenCalled()
+        expect(current.materialType).toBe("CAJA")
+        expect(mockPackagingFindOne.mock.calls[0][0]).toMatchObject({ lock: "UPDATE", transaction: expect.anything() })
+    })
+    it("allows an unreferenced material to change type with its consumption rule", async () => {
+        const update = jest.fn()
+        mockPackagingFindOne.mockResolvedValueOnce({ id: 5, code: "AUDIT-BOX", classification: "specific", packagingRole: "pallet", materialType: "CAJA", update }).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(5, { code: "AUDIT-BOX", packagingRole: "pallet", materialType: "TARIMA", unitCost: 2 })
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ materialType: "TARIMA", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 1 }), { transaction: expect.anything() })
     })
 })

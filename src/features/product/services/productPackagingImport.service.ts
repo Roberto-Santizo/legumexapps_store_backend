@@ -1,5 +1,6 @@
 import type { ParsedWorkbook } from "../../../shared/utils/parsedWorkbook"
 import { resolvePalletConsumptionRule } from "../../packaging/services/packagingConsumption.service"
+import { lockMaterialWrites } from "./materialWriteTransaction"
 import { isPalletKitType } from "../../packaging/constants/packagingMaterialType.constant"
 import ExcelJS from "exceljs"
 import { createHash } from "node:crypto"
@@ -284,6 +285,7 @@ async function confirmProductPackagingImport(buffer: Buffer, previewHash: string
     if (!/^[a-f0-9]{64}$/.test(previewHash)) throw new AppError(422, "errors.packaging_association_import.preview_required")
     const parsed = await parseFile(buffer)
     return sequelize.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async transaction => {
+        await lockMaterialWrites(transaction)
         const result = await buildPackagingAssociationPlan(parsed, transaction)
         if (result.summary.error) throw new BulkImportError(result.plan.flatMap(row => row.preview.issues))
         if (result.previewHash !== previewHash) throw new AppError(409, "errors.packaging_association_import.stale_preview")

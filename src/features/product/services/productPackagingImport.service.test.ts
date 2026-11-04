@@ -1,3 +1,4 @@
+jest.mock("./materialWriteTransaction", () => ({ lockMaterialWrites: jest.fn().mockResolvedValue(undefined) }))
 import ExcelJS from "exceljs"
 import { Transaction } from "sequelize"
 jest.mock("../../../database/connection", () => ({ __esModule: true, default: { transaction: jest.fn() } }))

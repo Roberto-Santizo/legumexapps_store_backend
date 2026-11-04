@@ -5,6 +5,10 @@ import Packaging from "../models/Packaging.model"
 import { lockGenericCodes, nextGenericCodes } from "./packagingCode.service"
 import { PACKAGING_MATERIAL_TYPES, PALLET_MATERIAL_TYPES, fixedPalletConsumption, type PalletMaterialType } from "../constants/packagingMaterialType.constant"
 import PalletKitMaterial from "../../palletKit/models/PalletKitMaterial.model"
+import UnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
+import IntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
+import PalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
+import GenericMaterial from "../../genericPackaging/models/GenericPackagingConfigurationMaterial.model"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
 import { CreatePackagingInput, PackagingImportInput, UpdatePackagingInput, packagingDefaultsSchema, PackagingQuery, importLegacyPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
@@ -43,17 +47,17 @@ async function listPackagings(pagination?: PaginationParams, search?: string, fi
     return paginate(Packaging, { where, order: [["createdAt", "DESC"], ["id", "DESC"]] }, pagination)
 }
 
-async function getPackagingById(id: number): Promise<Packaging> {
-    const packaging = await Packaging.findOne({ where: { id } })
+async function getPackagingById(id: number, transaction?: Transaction, lock = Transaction.LOCK.UPDATE): Promise<Packaging> {
+    const packaging = await Packaging.findOne({ where: { id }, ...(transaction ? { transaction, lock } : {}) })
     if (!packaging) throw new NotFoundError("Packaging", id)
     return packaging
 }
 
 // El código es manual y único: se rechaza con un error de negocio claro ANTES de llegar al unique
 // constraint de la columna (que daría el 409 genérico "errors.unique_constraint").
-async function assertCodeIsUnique(code: string, excludeId?: number): Promise<void> {
+async function assertCodeIsUnique(code: string, excludeId?: number, transaction?: Transaction): Promise<void> {
     const where: WhereOptions = excludeId ? { code, id: { [Op.ne]: excludeId } } : { code }
-    const existing = await Packaging.findOne({ where })
+    const existing = await Packaging.findOne({ where, ...(transaction ? { transaction } : {}) })
     if (existing) throw new AppError(409, "errors.packaging_code_already_exists", { code })
 }
 
@@ -84,51 +88,60 @@ function resolveMaterialType<T extends UpdatePackagingInput>(input: T, current?:
 }
 
 // A kit material must stay an active generic pallet material of its kit type while it is in the kit.
-async function assertKitMembershipKept(packaging: Packaging, next: { classification?: string; packagingRole?: string; materialType?: string; isActive?: boolean }) {
+async function assertKitMembershipKept(packaging: Packaging, next: { classification?: string; packagingRole?: string; materialType?: string; isActive?: boolean }, transaction: Transaction) {
     const leavesKitShape = (next.classification ?? packaging.classification) !== "generic" || (next.packagingRole ?? packaging.packagingRole) !== "pallet"
         || (next.materialType ?? packaging.materialType) !== packaging.materialType || next.isActive === false
-    if (leavesKitShape && await PalletKitMaterial.findOne({ where: { packagingId: packaging.id } })) throw new AppError(422, "errors.packaging_in_pallet_kit")
+    if (leavesKitShape && await PalletKitMaterial.findOne({ where: { packagingId: packaging.id }, transaction })) throw new AppError(422, "errors.packaging_in_pallet_kit")
 }
 
 async function updatePackaging(id: number, input: UpdatePackagingInput): Promise<Packaging> {
-    const packaging = await getPackagingById(id)
-    const classification = input.classification ?? packaging.classification
-    if (classification === "generic") {
-        if (input.code && input.code !== packaging.code) throw new AppError(422, "errors.packaging_generic_code_forbidden")
-        // Becoming generic, or changing level, takes a new code of the level's pattern.
-        if (packaging.classification !== "generic" || input.packagingRole !== packaging.packagingRole) {
-            return Packaging.sequelize!.transaction(async transaction => {
+    return Packaging.sequelize!.transaction(async transaction => {
+        const packaging = await getPackagingById(id, transaction)
+        const classification = input.classification ?? packaging.classification
+        if (classification === "generic") {
+            if (input.code && input.code !== packaging.code) throw new AppError(422, "errors.packaging_generic_code_forbidden")
+            // Becoming generic, or changing level, takes a new code of the level's pattern.
+            if (packaging.classification !== "generic" || input.packagingRole !== packaging.packagingRole) {
                 await lockGenericCodes(transaction)
                 const [code] = await nextGenericCodes(input.packagingRole, 1, transaction)
                 return applyPackagingUpdate(packaging, { ...input, code }, transaction)
-            })
+            }
+            return applyPackagingUpdate(packaging, { ...input, code: packaging.code }, transaction)
         }
-        return applyPackagingUpdate(packaging, { ...input, code: packaging.code })
-    }
-    if (!input.code) throw new AppError(422, "errors.packaging_code_required")
-    await assertCodeIsUnique(input.code, id)
-    return applyPackagingUpdate(packaging, input)
+        if (!input.code) throw new AppError(422, "errors.packaging_code_required")
+        await assertCodeIsUnique(input.code, id, transaction)
+        return applyPackagingUpdate(packaging, input, transaction)
+    })
 }
 
-async function applyPackagingUpdate(packaging: Packaging, input: UpdatePackagingInput, transaction?: Transaction): Promise<Packaging> {
+async function applyPackagingUpdate(packaging: Packaging, input: UpdatePackagingInput, transaction: Transaction): Promise<Packaging> {
     const values = resolveMaterialType(input, packaging)
-    await assertKitMembershipKept(packaging, values)
+    await assertKitMembershipKept(packaging, values, transaction)
+    if (packaging.materialType && values.materialType !== packaging.materialType) {
+        const query = { where: { packagingId: packaging.id }, attributes: ["id"], transaction }
+        if (await UnitMaterial.findOne(query) || await IntermediateMaterial.findOne(query)
+            || await PalletMaterial.findOne(query) || await GenericMaterial.findOne(query)) {
+            throw new AppError(422, "errors.packaging_material_type_in_use")
+        }
+    }
     const effective = packagingDefaultsSchema.safeParse({ defaultQuantityBasis: packaging.defaultQuantityBasis, defaultQuantityValue: packaging.defaultQuantityValue == null ? null : Number(packaging.defaultQuantityValue), ...values })
     if (!effective.success) throw new AppError(422, "errors.packaging_consumption_defaults")
     const changes = { ...values, ...(input.displayNameEn !== undefined ? { displayNameEn: input.displayNameEn?.trim() || null } : {}) }
-    return transaction ? packaging.update(changes, { transaction }) : packaging.update(changes)
+    return packaging.update(changes, { transaction })
 }
 
 async function deletePackaging(id: number): Promise<void> {
-    const packaging = await getPackagingById(id)
-    await assertKitMembershipKept(packaging, { isActive: false })
-    await packaging.update({ isActive: false })
+    await Packaging.sequelize!.transaction(async transaction => {
+        const packaging = await getPackagingById(id, transaction)
+        await assertKitMembershipKept(packaging, { isActive: false }, transaction)
+        await packaging.update({ isActive: false }, { transaction })
+    })
 }
 
 // Defensa en profundidad: un packagingId de otro rol (ej. un material de palet como empaque
 // individual) se rechaza aunque venga por fuera de la UI, porque alimenta el cálculo.
-async function assertPackagingHasRole(packagingId: number, expectedRole: string): Promise<Packaging> {
-    const packaging = await getPackagingById(packagingId)
+async function assertPackagingHasRole(packagingId: number, expectedRole: string, transaction?: Transaction): Promise<Packaging> {
+    const packaging = await getPackagingById(packagingId, transaction, Transaction.LOCK.SHARE)
     if (!packaging.isActive) throw new NotFoundError("Packaging", packagingId)
     if (packaging.classification === "generic") throw new AppError(422, "errors.packaging_generic_not_available")
     if (packaging.packagingRole !== expectedRole) {

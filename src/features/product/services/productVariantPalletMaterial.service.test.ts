@@ -1,3 +1,7 @@
+const mockTransaction = { LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } }
+jest.mock("./materialWriteTransaction", () => ({
+    withMaterialWriteTransaction: async (work: (transaction: object) => unknown) => work(mockTransaction),
+}))
 jest.mock("../models/ProductVariant.model", () => ({ __esModule: true, default: { findOne: jest.fn(async () => ({ boxesPerPallet: 198 })) } }))
 import ProductVariant from "../models/ProductVariant.model"
 jest.mock("../../packagingGroup/services/packagingGroup.service", () => ({
@@ -60,13 +64,13 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, isDefault: true })
 
             expect(mockFindAll).not.toHaveBeenCalled()
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }), { transaction: mockTransaction })
         })
 
         it("la primera fila de un grupo se fuerza a isDefault=true sin importar lo pedido", async () => {
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroup: "Caja", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }), { transaction: mockTransaction })
         })
 
         it("la primera fila de un grupo NUEVO es su default aunque otro grupo del SKU ya tenga default (grupos independientes)", async () => {
@@ -74,7 +78,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroup: "Esquinero", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }), { transaction: mockTransaction })
             expect(mockUpdate).not.toHaveBeenCalled()
         })
 
@@ -83,7 +87,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroup: "Caja", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }), { transaction: mockTransaction })
             expect(mockUpdate).not.toHaveBeenCalled()
         })
 
@@ -93,8 +97,8 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroup: "Caja", isDefault: true })
 
             expect(mockUpdate).toHaveBeenCalledTimes(1)
-            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [1] } } })
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: true }))
+            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [1] } } , transaction: mockTransaction })
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: true }), { transaction: mockTransaction })
         })
 
         it("reutiliza la grafía de un grupo existente del SKU (\"  caja \" se une a \"Caja\")", async () => {
@@ -102,18 +106,18 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroup: "  caja ", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: false }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: false }), { transaction: mockTransaction })
         })
 
         it("colapsa espacios internos de un nombre de grupo nuevo", async () => {
             await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroup: "Caja   de   envío", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja de envío" }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja de envío" }), { transaction: mockTransaction })
         })
 
         it("valida el rol de empaque (pallet) antes de crear", async () => {
             await productVariantPalletMaterialService.createProductVariantPalletMaterial(BASE_INPUT)
-            expect(mockAssertRole).toHaveBeenCalledWith(5, "pallet")
+            expect(mockAssertRole).toHaveBeenCalledWith(5, "pallet", mockTransaction)
         })
     })
 
@@ -159,8 +163,8 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.updateProductVariantPalletMaterial(1, { ...BASE_INPUT, optionGroup: "Esquinero", isDefault: true })
 
-            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [3] } } })
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }))
+            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [3] } } , transaction: mockTransaction })
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }), { transaction: mockTransaction })
         })
 
         it("permite editar otros campos del default mientras siga siendo default del mismo grupo (sin distinguir mayúsculas)", async () => {
@@ -171,7 +175,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
             await productVariantPalletMaterialService.updateProductVariantPalletMaterial(1, { ...BASE_INPUT, optionGroup: "CAJA", isDefault: true })
 
             expect(mockUpdate).not.toHaveBeenCalled()
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }))
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }), { transaction: mockTransaction })
         })
 
         it("permite quitar isDefault a una fila que NO es el default de su grupo", async () => {
@@ -181,7 +185,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.updateProductVariantPalletMaterial(2, { ...BASE_INPUT, optionGroup: "Caja", isDefault: false })
 
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }))
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }), { transaction: mockTransaction })
         })
 
         it("volver fija la ÚNICA fila de un grupo sí se permite -- el grupo simplemente desaparece", async () => {
@@ -191,7 +195,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.updateProductVariantPalletMaterial(1, { ...BASE_INPUT, optionGroup: null, isDefault: false })
 
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }))
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }), { transaction: mockTransaction })
         })
     })
 
@@ -216,7 +220,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
 
             await productVariantPalletMaterialService.deleteProductVariantPalletMaterial(1)
 
-            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false })
+            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false }, { transaction: mockTransaction })
         })
 
         it("permite eliminar una fila no-default (o fija) sin consultar hermanas", async () => {
@@ -226,7 +230,7 @@ describe("productVariantPalletMaterialService -- grupos de opciones (2026-09-24)
             await productVariantPalletMaterialService.deleteProductVariantPalletMaterial(2)
 
             expect(mockFindAll).not.toHaveBeenCalled()
-            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false })
+            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false }, { transaction: mockTransaction })
         })
     })
 })
@@ -241,7 +245,7 @@ describe("explicit pallet alternative consumption rules", () => {
     it.each([[4, "per_box", 1], [5, "per_pallet", 4]] as const)("supports group %s without interpreting its label", async (optionGroupId, quantityBasis, quantityValue) => {
         mockFindAll.mockResolvedValue([{ id: 1, productVariantId: 10, optionGroupId, optionGroup: "Renamed", quantityBasis, quantityValue, isDefault: true }])
         await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...BASE_INPUT, optionGroupId, quantityBasis, quantityValue })
-        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroupId, quantityBasis, quantityValue, isDefault: false }))
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroupId, quantityBasis, quantityValue, isDefault: false }), { transaction: mockTransaction })
     })
     it.each([["per_pallet", 1], ["per_box", 2]] as const)("rejects changing a box alternative to %s=%s before demoting defaults", async (quantityBasis, quantityValue) => {
         mockFindAll.mockResolvedValue([{ id: 1, productVariantId: 10, optionGroupId: 4, optionGroup: "Anything", quantityBasis: "per_box", quantityValue: "1.00", isDefault: true }])
@@ -271,7 +275,7 @@ describe("simplified manual pallet consumption", () => {
     it.each([["per_box", 1], ["per_pallet", 4], ["per_pallet", 1], ["per_pallet", 93.3]] as const)("copies catalog rule %s/%s to new associations", async (basis, quantity) => {
         mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: basis, defaultQuantityValue: String(quantity) })
         await productVariantPalletMaterialService.createProductVariantPalletMaterial(simplified)
-        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: basis, quantityValue: quantity, optionGroupId: null, isDefault: false }))
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: basis, quantityValue: quantity, optionGroupId: null, isDefault: false }), { transaction: mockTransaction })
     })
     it("blocks creation when the catalog default is missing", async () => {
         mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: null, defaultQuantityValue: null })
@@ -282,22 +286,22 @@ describe("simplified manual pallet consumption", () => {
         const update = jest.fn()
         mockFindOne.mockResolvedValue({ ...simplified, id: 100, quantityBasis: "per_pallet", quantityValue: "7.00", update })
         await productVariantPalletMaterialService.updateProductVariantPalletMaterial(100, simplified)
-        expect(update).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: "per_pallet", quantityValue: 7 }))
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: "per_pallet", quantityValue: 7 }), { transaction: mockTransaction })
         mockAssertRole.mockResolvedValue({ code: "MP-X", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 5 })
         await productVariantPalletMaterialService.updateProductVariantPalletMaterial(100, simplified)
-        expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ quantityValue: 7 }))
+        expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ quantityValue: 7 }), { transaction: mockTransaction })
     })
     it("uses the new material default when changing material identity", async () => {
         const update = jest.fn()
         mockFindOne.mockResolvedValue({ ...simplified, id: 100, quantityBasis: "per_pallet", quantityValue: 7, update })
         await productVariantPalletMaterialService.updateProductVariantPalletMaterial(100, { ...simplified, packagingId: 6 })
-        expect(update).toHaveBeenCalledWith(expect.objectContaining({ packagingId: 6, quantityValue: 4 }))
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ packagingId: 6, quantityValue: 4 }), { transaction: mockTransaction })
     })
     it("permits an explicit override without changing the global catalog", async () => {
         const material = { code: "MP-X", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 4 }
         mockAssertRole.mockResolvedValue(material)
         await productVariantPalletMaterialService.createProductVariantPalletMaterial({ ...simplified, quantityBasis: "per_pallet", quantityValue: 9 })
-        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ quantityValue: 9 }))
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ quantityValue: 9 }), { transaction: mockTransaction })
         expect(material.defaultQuantityValue).toBe(4)
     })
     it.each([null, 0, -1, Infinity])("rejects per_box with invalid boxesPerPallet %s", async boxesPerPallet => {

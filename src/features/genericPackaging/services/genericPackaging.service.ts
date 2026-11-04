@@ -44,7 +44,8 @@ async function assertGenericReferences(input: GenericConfigurationInput, transac
         if (!await PackagingGroup.findOne({ where: { id: group.packagingGroupId, isActive: true }, transaction }))
             genericError("configuration");
         for (const option of group.options) {
-            const material = await Packaging.findOne({ where: { id: option.packagingId, isActive: true, classification: "generic", packagingRole: group.level }, transaction });
+            const material = await Packaging.findOne({ where: { id: option.packagingId, isActive: true, classification: "generic", packagingRole: group.level }, transaction,
+                ...(transaction ? { lock: transaction.LOCK.SHARE } : {}) });
             if (!material)
                 genericError("selection");
             if (isPalletKitType(material?.materialType))

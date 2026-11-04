@@ -79,6 +79,9 @@
     "excludeGroup": "Do not include this group"
   },
   "errors": {
+    "request_invalid_json": "The request body must contain valid JSON.",
+    "request_body_too_large": "The request body exceeds the allowed size.",
+    "packaging_material_type_in_use": "The type of a material with existing associations cannot be changed.",
     "fixed_quote_packaging_invalid": "Cannot quote: a packaging material is inactive, has the wrong level or has no valid cost.",
     "generic_packaging_import_invalid": "Enter a valid value for {{field}}. Check the template instructions.",
     "generic_packaging_import_0": "Missing worksheet",

@@ -11,7 +11,7 @@ interface SalespersonAccessTokenPayload {
 
 // El claim `type` se queda literal "customer" a propósito: es el valor que ya llevan los JWT emitidos
 // y cambiarlo invalidaría toda sesión activa.
-export function authenticateSalesperson(req: Request, _res: Response, next: NextFunction): void {
+export async function authenticateSalesperson(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const header = req.headers.authorization
     if (!header?.startsWith("Bearer ")) {
         next(new AppError(401, "errors.unauthenticated"))
@@ -22,7 +22,12 @@ export function authenticateSalesperson(req: Request, _res: Response, next: Next
 
     try {
         const payload = jwt.verify(token, env.jwtSecret, { algorithms: ["HS256"] }) as unknown as SalespersonAccessTokenPayload
-        if (payload.type !== "customer") {
+        if (payload.type !== "customer" || !Number.isSafeInteger(payload.sub) || payload.sub <= 0) {
+            next(new AppError(401, "errors.unauthenticated"))
+            return
+        }
+
+        if (!req.app.locals.accountStatus || !await req.app.locals.accountStatus.isSalespersonActive(payload.sub)) {
             next(new AppError(401, "errors.unauthenticated"))
             return
         }

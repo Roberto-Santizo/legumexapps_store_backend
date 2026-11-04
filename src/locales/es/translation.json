@@ -79,6 +79,9 @@
     "excludeGroup": "No incluir este grupo"
   },
   "errors": {
+    "request_invalid_json": "El cuerpo de la solicitud debe contener JSON válido.",
+    "request_body_too_large": "El cuerpo de la solicitud supera el tamaño permitido.",
+    "packaging_material_type_in_use": "No se puede cambiar el tipo de un material con asociaciones existentes.",
     "fixed_quote_packaging_invalid": "No se puede cotizar: un material de empaque está inactivo, no corresponde al nivel o no tiene un costo válido.",
     "generic_packaging_import_invalid": "Indique un valor válido para {{field}}. Revise las instrucciones de la plantilla.",
     "generic_packaging_import_0": "Falta una hoja requerida.",

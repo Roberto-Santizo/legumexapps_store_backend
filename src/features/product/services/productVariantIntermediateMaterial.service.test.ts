@@ -1,3 +1,7 @@
+const mockTransaction = { LOCK: { UPDATE: "UPDATE", SHARE: "SHARE" } }
+jest.mock("./materialWriteTransaction", () => ({
+    withMaterialWriteTransaction: async (work: (transaction: object) => unknown) => work(mockTransaction),
+}))
 import "reflect-metadata"
 import { Op } from "sequelize"
 
@@ -52,13 +56,13 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, isDefault: true })
 
             expect(mockFindAll).not.toHaveBeenCalled()
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }), { transaction: mockTransaction })
         })
 
         it("la primera fila de un grupo se fuerza a isDefault=true sin importar lo pedido", async () => {
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, optionGroup: "Caja", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }), { transaction: mockTransaction })
         })
 
         it("la primera fila de un grupo NUEVO es su default aunque otro grupo del SKU ya tenga default (grupos independientes)", async () => {
@@ -66,7 +70,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, optionGroup: "Esquinero", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }), { transaction: mockTransaction })
             expect(mockUpdate).not.toHaveBeenCalled()
         })
 
@@ -75,7 +79,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, optionGroup: "Caja", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }), { transaction: mockTransaction })
             expect(mockUpdate).not.toHaveBeenCalled()
         })
 
@@ -85,8 +89,8 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, optionGroup: "Caja", isDefault: true })
 
             expect(mockUpdate).toHaveBeenCalledTimes(1)
-            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [1] } } })
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: true }))
+            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [1] } } , transaction: mockTransaction })
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: true }), { transaction: mockTransaction })
         })
 
         it("reutiliza la grafía de un grupo existente del SKU (\"  caja \" se une a \"Caja\")", async () => {
@@ -94,18 +98,18 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, optionGroup: "  caja ", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: false }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: false }), { transaction: mockTransaction })
         })
 
         it("colapsa espacios internos de un nombre de grupo nuevo", async () => {
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial({ ...BASE_INPUT, optionGroup: "Caja   de   envío", isDefault: false })
 
-            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja de envío" }))
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja de envío" }), { transaction: mockTransaction })
         })
 
         it("valida el rol de empaque (intermediate) antes de crear", async () => {
             await productVariantIntermediateMaterialService.createProductVariantIntermediateMaterial(BASE_INPUT)
-            expect(mockAssertRole).toHaveBeenCalledWith(5, "intermediate")
+            expect(mockAssertRole).toHaveBeenCalledWith(5, "intermediate", mockTransaction)
         })
     })
 
@@ -151,8 +155,8 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.updateProductVariantIntermediateMaterial(1, { ...BASE_INPUT, optionGroup: "Esquinero", isDefault: true })
 
-            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [3] } } })
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }))
+            expect(mockUpdate).toHaveBeenCalledWith({ isDefault: false }, { where: { id: { [Op.in]: [3] } } , transaction: mockTransaction })
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Esquinero", isDefault: true }), { transaction: mockTransaction })
         })
 
         it("permite editar otros campos del default mientras siga siendo default del mismo grupo (sin distinguir mayúsculas)", async () => {
@@ -163,7 +167,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
             await productVariantIntermediateMaterialService.updateProductVariantIntermediateMaterial(1, { ...BASE_INPUT, optionGroup: "CAJA", isDefault: true })
 
             expect(mockUpdate).not.toHaveBeenCalled()
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }))
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: "Caja", isDefault: true }), { transaction: mockTransaction })
         })
 
         it("permite quitar isDefault a una fila que NO es el default de su grupo", async () => {
@@ -173,7 +177,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.updateProductVariantIntermediateMaterial(2, { ...BASE_INPUT, optionGroup: "Caja", isDefault: false })
 
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }))
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }), { transaction: mockTransaction })
         })
 
         it("volver fija la ÚNICA fila de un grupo sí se permite -- el grupo simplemente desaparece", async () => {
@@ -183,7 +187,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.updateProductVariantIntermediateMaterial(1, { ...BASE_INPUT, optionGroup: null, isDefault: false })
 
-            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }))
+            expect(rowUpdate).toHaveBeenCalledWith(expect.objectContaining({ optionGroup: null, isDefault: false }), { transaction: mockTransaction })
         })
     })
 
@@ -208,7 +212,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
 
             await productVariantIntermediateMaterialService.deleteProductVariantIntermediateMaterial(1)
 
-            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false })
+            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false }, { transaction: mockTransaction })
         })
 
         it("permite eliminar una fila no-default (o fija) sin consultar hermanas", async () => {
@@ -218,7 +222,7 @@ describe("productVariantIntermediateMaterialService -- grupos de opciones (2026-
             await productVariantIntermediateMaterialService.deleteProductVariantIntermediateMaterial(2)
 
             expect(mockFindAll).not.toHaveBeenCalled()
-            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false })
+            expect(rowUpdate).toHaveBeenCalledWith({ isActive: false }, { transaction: mockTransaction })
         })
     })
 

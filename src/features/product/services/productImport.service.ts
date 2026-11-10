@@ -422,7 +422,7 @@ async function buildProductImportTemplate(instructions: string[] = []): Promise<
     const lastMaterialRow = MAX_PRODUCT_PACKAGING_IMPORT_ROWS + 1
     addImportValidation(materials, `C2:C${lastMaterialRow}`, { type: "list", allowBlank: false, formulae: [`"${SKU_MATERIAL_TYPES.join(",")}"`] })
     addImportValidation(materials, `E2:E${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ['"SI,NO"'] })
-    addImportValidation(materials, `F2:F${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ['"POR CAJA,POR PALLET"'] })
+    addImportValidation(materials, `F2:F${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ['"POR UNIDAD,POR CAJA,POR PALLET"'] })
     if (groups.length) addImportValidation(materials, `D2:D${lastMaterialRow}`, { type: "list", allowBlank: true, formulae: ["InitialPackagingGroups"] })
     return writeWorkbookToBuffer(workbook)
 }

@@ -1,5 +1,5 @@
 
-export type PackagingImportField = "displayNameEn" | "classification" | "code" | "displayName" | "packagingRole" | "materialType" | "unitCost"
+export type PackagingImportField = "displayNameEn" | "classification" | "code" | "displayName" | "packagingRole" | "materialType" | "unitCost" | "defaultQuantityBasis" | "defaultQuantityValue"
 
 interface ImportColumnDef {
     header: string
@@ -16,6 +16,8 @@ export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumn
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
     materialType: { header: "Tipo de material", aliases: ["tipo de material", "material type"] },
     unitCost: { header: "Costo por unidad (USD)", aliases: ["costo por unidad (usd)", "costo por unidad (q)", "costo por unidad", "costo"] },
+    defaultQuantityBasis: { header: "Base de consumo (OTRO)", aliases: ["base de consumo (otro)", "defaultquantitybasis"] },
+    defaultQuantityValue: { header: "Cantidad de consumo (OTRO)", aliases: ["cantidad de consumo (otro)", "defaultquantityvalue"] },
 }
 
 // "Código" is required per row only for specific materials; generic ones get a system code.

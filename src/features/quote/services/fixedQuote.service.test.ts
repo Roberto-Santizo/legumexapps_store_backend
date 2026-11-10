@@ -55,6 +55,18 @@ test("foreign material ids, inactive packaging and missing volume fail closed", 
     variant.sizePresentation.netVolumeMl = null
     await expect(calculateLinkedJuice(juice, input, "es")).rejects.toMatchObject({ key: "errors.juice_volume_required" })
 })
+test.each([[1, 80, 12, 1], [5, 80, 12, 2], [5, 100, 6, 1]])("juice unit and box labels follow SKU logistics independently (%s/%s/%s/%s)", async (pallets, boxes, units, multiplier) => {
+    variant.boxesPerPallet = boxes; variant.bagsPerBox = units
+    variant.unitMaterials.push({ id: 4, packagingId: 4, quantityPerUnit: multiplier, usedUnitMaterial: packaging(4, "unit", 0.02), ...fixed })
+    variant.palletMaterials.push({ id: 5, packagingId: 5, quantityValue: multiplier, quantityBasis: "per_box", usedPalletMaterial: packaging(5, "pallet", 0.05), ...fixed })
+    const result = await calculateLinkedJuice(juice, { ...input, requestedPallets: pallets }, "es")
+    const unitLabel = result.breakdown.unitMaterials.find(row => row.packagingId === 4)!
+    const boxLabel = result.breakdown.palletMaterials.find(row => row.packagingId === 5)!
+    expect(unitLabel.lineTotal).toBe(pallets * boxes * units * multiplier * 0.02)
+    expect(boxLabel.lineTotal).toBe(pallets * boxes * multiplier * 0.05)
+    expect(boxLabel.quantityPerPallet * boxLabel.requestedPallets).toBe(pallets * boxes * multiplier)
+    expect(result.processingCostTotal).toBe(0)
+})
 test("legacy weight recipes and transport cannot enter the juice cost path", async () => {
     await expect(calculateLinkedJuice(juice, { ...input, destinationId: 5 }, "es")).rejects.toMatchObject({ key: "errors.juice_direct_costs_only" })
     variant.parentProduct.productRawMaterials = [{ id: 1 }]

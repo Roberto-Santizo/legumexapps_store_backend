@@ -19,6 +19,7 @@ import { optionGroupKey } from "../../../shared/utils/optionGroup.util"
 import { materialGroupIdentity } from "../../../shared/utils/materialGroupIdentity.util"
 import { skuCodeKey } from "./productSkuReference"
 import { MAX_PRODUCT_PACKAGING_IMPORT_ROWS, PRODUCT_PACKAGING_IMPORT_COLUMNS } from "../constants/productPackagingImport.constant"
+import { createProductVariantUnitMaterialSchema } from "../schemas/productVariantUnitMaterial.schema"
 
 const validPositive = (value: unknown) => Number.isFinite(Number(value)) && Number(value) > 0
 
@@ -102,7 +103,7 @@ async function parseFile(buffer: Buffer): Promise<ParsedPackagingRow[]> {
             return Number.isFinite(number) ? number : null
         }
         result.push({ row: rowNumber, skuCode: text("skuCode"), packagingCode: text("packagingCode"), group: text("group"),
-            isDefault: trueValues.includes(defaultText), defaultSpecified: defaultText !== "", legacyRule: columns.has("quantityBasis") || columns.has("quantity"), quantityBasis: text("quantityBasis").toLowerCase(), quantity: numeric("quantity"),
+            isDefault: trueValues.includes(defaultText), defaultSpecified: defaultText !== "", legacyRule: text("quantityBasis") !== "" || text("quantity") !== "", quantityBasis: text("quantityBasis").toLowerCase(), quantity: numeric("quantity"),
             materialName: text("materialName"), unitCost: numeric("unitCost"), issues })
     }
     if (!result.length) throw new AppError(422, "errors.bulk_import_empty_file")
@@ -151,6 +152,7 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
         if (packagingMatches.length > 1) error("packagingCode", "ambiguous_packaging", { code: row.packagingCode })
         else if (!packaging) error("packagingCode", "unknown_packaging", { code: row.packagingCode })
         else if (!packaging.isActive) error("packagingCode", "inactive_packaging")
+        else if (packaging.classification !== "specific") error("packagingCode", "specific_packaging_required", { code: packaging.code })
         if (row.group && !row.defaultSpecified) error("isDefault", "default_required")
         if (row.group && !group) error("group", "unknown_group", { group: row.group })
         if (group && !group.isActive) error("group", "inactive_group", { group: group.displayName })
@@ -159,7 +161,8 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
         if (variant && variant.usesPalletKit !== false && packaging?.packagingRole === "pallet" && isPalletKitType(packaging.materialType)) error("packagingCode", "pallet_kit_type", { code: packaging.code })
         const level = packaging?.packagingRole as Level | undefined
         if (row.expectedRole && packaging && level !== row.expectedRole) error("materialType", "type_role", { type: row.materialType, role: level })
-        if (initial && packaging?.packagingRole === "pallet" && (packaging.defaultQuantityBasis != null || packaging.defaultQuantityValue != null)) {
+        const hasExplicitOtherRule = row.legacyRule && row.materialType === "OTRO PALETIZACIÓN" && packaging?.materialType === "OTRO"
+        if (initial && packaging?.packagingRole === "pallet" && !hasExplicitOtherRule && (packaging.defaultQuantityBasis != null || packaging.defaultQuantityValue != null)) {
             try {
                 const defaults = resolvePalletConsumptionRule(packaging)
                 if (defaults.quantityBasis !== row.quantityBasis || defaults.quantityValue !== row.quantity) error("materialType", "catalog_conflict", { code: packaging.code })
@@ -173,10 +176,10 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
             values = { productVariantId: variant.id, packagingId: packaging.id, optionGroup: group?.displayName ?? null, isDefault: row.isDefault, isActive: true }
             if (level !== "intermediate") values.optionGroupId = group?.id ?? null
             if (level === "unit") {
-                if ((row.quantity !== null && row.quantity !== 1) || (row.quantityBasis && row.quantityBasis !== "per_unit")) error("quantity", "unit_rule")
-                values.quantityPerUnit = row.quantity === null && !row.quantityBasis && existing ? Number((existing as ProductVariantUnitMaterial).quantityPerUnit) : 1
+                values.quantityPerUnit = row.quantity ?? (existing ? Number((existing as ProductVariantUnitMaterial).quantityPerUnit) : 1)
+                if (!createProductVariantUnitMaterialSchema.shape.quantityPerUnit.safeParse(values.quantityPerUnit).success || (row.quantityBasis && row.quantityBasis !== "per_unit")) error("quantity", "unit_rule")
                 preview.quantity = values.quantityPerUnit; preview.quantityBasis = "per_unit"
-                preview.ruleSource = existing && row.quantity === null && !row.quantityBasis ? "association" : "unit"
+                preview.ruleSource = existing && row.quantity === null ? "association" : "unit"
             } else if (level === "intermediate") {
                 if (!validPositive(variant.unitsPerIntermediatePackage)) error("quantity", "intermediate_configuration")
                 if (row.quantity !== null || row.quantityBasis) error("quantity", "intermediate_rule")
@@ -254,7 +257,7 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
     const state = {
         variants: variants.map(row => [row.id, row.skuCode, row.isActive, row.productId, row.boxesPerPallet, row.bagsPerBox, row.unitsPerIntermediatePackage, row.usesPalletKit]).sort(),
         products: products.map(row => [row.id, row.isActive]).sort(),
-        packagings: packagings.map(row => [row.id, row.code, row.isActive, row.packagingRole, row.materialType, row.unitCost, row.displayName, row.defaultQuantityBasis ?? null, row.defaultQuantityValue == null ? null : Number(row.defaultQuantityValue)]).sort(),
+        packagings: packagings.map(row => [row.id, row.code, row.isActive, row.classification, row.packagingRole, row.materialType, row.unitCost, row.displayName, row.defaultQuantityBasis ?? null, row.defaultQuantityValue == null ? null : Number(row.defaultQuantityValue)]).sort(),
         groups: groups.map(row => [row.id, row.isActive, row.nameKey, row.displayName]).sort(),
         associations: Object.fromEntries(Object.entries(associations).map(([level, rows]) => [level, rows.map(row => [row.id, associationValues(row, level as Level)]).sort()])),
     }
@@ -297,12 +300,13 @@ async function confirmProductPackagingImport(buffer: Buffer, previewHash: string
 async function buildProductPackagingImportTemplate(instructions: string[] = []): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const sheet = workbook.addWorksheet("Materiales por variante")
-    sheet.columns = Object.entries(PRODUCT_PACKAGING_IMPORT_COLUMNS).slice(0, 4).map(([key, column]) => ({ header: column.header, key, width: 26 }))
+    sheet.columns = Object.entries(PRODUCT_PACKAGING_IMPORT_COLUMNS).slice(0, 6).map(([key, column]) => ({ header: column.header, key, width: 26 }))
     sheet.getRow(1).font = { bold: true }
     sheet.getColumn("skuCode").numFmt = "@"; sheet.getColumn("packagingCode").numFmt = "@"
     sheet.views = [{ state: "frozen", ySplit: 1 }]
     for (let row = 2; row <= MAX_PRODUCT_PACKAGING_IMPORT_ROWS + 1; row++) {
         sheet.getCell(row, 4).dataValidation = { type: "list", allowBlank: true, formulae: ['"SI,NO"'] }
+        sheet.getCell(row, 5).dataValidation = { type: "list", allowBlank: true, formulae: ['"per_unit,per_box,per_pallet"'] }
     }
     const help = workbook.addWorksheet("Instrucciones")
     help.columns = [{ header: "Instrucciones / Instructions", key: "text", width: 120 }]

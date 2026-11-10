@@ -294,8 +294,15 @@ function processPackagingImportRow(
     if (resolvedRole && (resolvedRole === "pallet" ? !palletType : typeKey && declaredType !== levelType)) {
         ctx.rowIssues.push({ row: rowNumber, field: "materialType", key: "errors.packaging_import_material_type" })
     }
+    const rawBasis = readImportCell(row, columnIndexByField.get("defaultQuantityBasis"))
+    const rawQuantity = readImportCell(row, columnIndexByField.get("defaultQuantityValue"))
+    const basis = String(rawBasis ?? "").trim()
+    const quantity = String(rawQuantity ?? "").trim()
+    const hasConsumption = basis !== "" || quantity !== ""
+    if (hasConsumption && palletType !== "OTRO") ctx.rowIssues.push({ row: rowNumber, field: "defaultQuantityBasis", key: "errors.packaging_import_other_consumption" })
     const candidate = { ...baseCandidate, displayNameEn, classification: classifications[classificationKey] ?? classificationKey, materialType: palletType ?? levelType,
-        ...(palletType && palletType !== "OTRO" ? fixedPalletConsumption(palletType) : {}) }
+        ...(palletType && palletType !== "OTRO" ? fixedPalletConsumption(palletType) : {}),
+        ...(hasConsumption && palletType === "OTRO" ? { defaultQuantityBasis: basis || undefined, defaultQuantityValue: quantity ? (/^\d+(?:\.\d+)?$/.test(quantity) ? Number(quantity) : Number.NaN) : undefined } : {}) }
     const { validated, issues: zodIssues } = collectPackagingZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
     ctx.rowIssues.push(...zodIssues)
 
@@ -388,6 +395,8 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         { header: PACKAGING_IMPORT_COLUMNS.packagingRole.header, key: "packagingRole", width: 34 },
         { header: PACKAGING_IMPORT_COLUMNS.unitCost.header, key: "unitCost", width: 20 },
         { header: PACKAGING_IMPORT_COLUMNS.materialType.header, key: "materialType", width: 24 },
+        { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityBasis.header, key: "defaultQuantityBasis", width: 26 },
+        { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityValue.header, key: "defaultQuantityValue", width: 28 },
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
@@ -420,6 +429,7 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     // Generic example: the code stays empty, the system assigns GEN-IND-0001 style codes.
     sheet.addRow({ classification: "Genérico", displayName: "Bolsa genérica con zipper", displayNameEn: "Generic zipper bag", packagingRole: PACKAGING_ROLE_LABELS.unit, unitCost: 0.1, materialType: "INDIVIDUAL" })
     for (let row = 2; row <= MAX_PACKAGING_IMPORT_ROWS + 1; row++) {
+        sheet.getRow(row).getCell("defaultQuantityBasis").dataValidation = { type: "list", allowBlank: true, formulae: ['"per_box,per_pallet"'] }
         sheet.getRow(row).getCell("materialType").dataValidation = { type: "list", allowBlank: true, formulae: ['"INDIVIDUAL,INTERMEDIO,CAJA,ESQUINERO,TARIMA,STRETCH,OTRO"'] }
         sheet.getRow(row).getCell("classification").dataValidation = { type: "list", allowBlank: true, formulae: ['"Específico de cliente,Genérico"'] }
     }
@@ -432,7 +442,7 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     helpSheet.addRow({ role: "Clasificación: Específico de cliente (material destinado a productos de clientes) o Genérico (material para configuraciones genéricas de productos nuevos). Columna ausente o celda vacía: Específico de cliente. Se aceptan los valores de plantillas anteriores. El código es interno, no requiere ERP." })
     helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}": obligatorio para materiales Específicos (el código que ya tiene el material del cliente; único, no puede repetirse). Para materiales Genéricos déjelo vacío: el sistema asigna GEN-IND-0001 (individual), GEN-INT-0001 (intermedio) o GEN-PAL-0001 (paletización).` })
 
-    helpSheet.addRow({ role: "Tipo de material: obligatorio para materiales de paletización (CAJA = 1 por caja de la variante; ESQUINERO = 4, TARIMA = 1 y STRETCH = 93.3 metros por pallet; OTRO = consumo definido en cada SKU, p. ej. fleje). En empaque individual e intermedio puede quedar vacío: se asigna solo. El costo del stretch debe ser por metro. El tipo no se deduce del nombre." })
+    helpSheet.addRow({ role: "Tipo de material: obligatorio para paletización (CAJA = 1 por caja; ESQUINERO = 4, TARIMA = 1 y STRETCH = 93.3 metros por pallet). El costo del stretch debe ser por metro. OTRO permite Base de consumo (OTRO) = per_box/per_pallet y Cantidad de consumo (OTRO) positiva; complete ambos o deje ambos vacíos. Ejemplo: etiqueta de caja = OTRO, per_box, 1; conserva su propio costo. Las demás clases dejan estas columnas vacías. El consumo individual se define al asociar el material al SKU. El tipo no se deduce del nombre." })
     return writeWorkbookToBuffer(workbook)
 }
 

@@ -73,6 +73,25 @@ function fixture() {
 }
 beforeEach(() => { process.env.JWT_SECRET = "catalog-test-secret"; fixture() })
 
+it.each([[1, 80, 12, 1], [5, 80, 12, 2], [5, 100, 6, 1]])("generic configurations freeze independent label quantities (%s/%s/%s/%s)", async (pallets, boxes, units, multiplier) => {
+    const { variant } = fixture()
+    variant.boxesPerPallet = boxes; variant.bagsPerBox = units
+    variant.unitMaterials[0].quantityPerUnit = multiplier
+    variant.unitMaterials[0].usedUnitMaterial.unitCost = "0.02"
+    variant.palletMaterials[2].quantityBasis = "per_box"; variant.palletMaterials[2].quantityValue = multiplier
+    variant.palletMaterials[2].usedPalletMaterial.unitCost = "0.05"
+    const result = await calculateCatalogQuote({ ...input, requestedPallets: pallets }, "es")
+    const snapshot = result.configuration.snapshot
+    const unitLabel = snapshot.packaging.find(row => row.packagingId === 101)!
+    const boxLabel = snapshot.packaging.find(row => row.packagingId === 303)!
+    expect(unitLabel.effectiveQuantity).toBe(pallets * boxes * units * multiplier)
+    expect(boxLabel.effectiveQuantity).toBe(pallets * boxes * multiplier)
+    expect(unitLabel.lineTotal).toBe(unitLabel.effectiveQuantity * 0.02)
+    expect(boxLabel.lineTotal).toBe(boxLabel.effectiveQuantity * 0.05)
+    expect(snapshot.quantity.totalBoxes).toBe(pallets * boxes)
+    expect(snapshot.quantity.totalUnits).toBe(pallets * boxes * units)
+})
+
 test("linked juices cannot enter customizable weight-based product discovery", async () => {
     const { parent, variant } = fixture()
     Object.assign(variant, { productId: parent.id })

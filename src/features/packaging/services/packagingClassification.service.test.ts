@@ -40,6 +40,23 @@ it.each(["", "INTERMEDIO", "INDIVIDUAL"])("rejects missing or incompatible palle
     await expect(packagingService.bulkImportPackagings(Buffer.from(await workbook.xlsx.writeBuffer()))).rejects.toBeInstanceOf(BulkImportError)
     expect(Packaging.bulkCreate).not.toHaveBeenCalled()
 })
+it("imports a box label with its own cost and explicit OTHER catalog consumption", async () => {
+    const workbook = new ExcelJS.Workbook(), sheet = workbook.addWorksheet("Empaques")
+    sheet.addRow(["Código", "Nombre", "Rol del material", "Costo", "Tipo de material", "Base de consumo (OTRO)", "Cantidad de consumo (OTRO)"])
+    sheet.addRow([base.code, "Box label", "pallet", 0.05, "OTRO", "per_box", 2])
+    await packagingService.bulkImportPackagings(Buffer.from(await workbook.xlsx.writeBuffer()))
+    expect(Packaging.bulkCreate).toHaveBeenCalledWith([expect.objectContaining({ materialType: "OTRO", unitCost: 0.05, defaultQuantityBasis: "per_box", defaultQuantityValue: 2 })])
+})
+it.each([
+    ["OTRO", "per_box", null], ["OTRO", "", 2], ["OTRO", "per_unit", 1], ["OTRO", "per_box", 0],
+    ["OTRO", "per_box", 1.001], ["OTRO", "per_box", "0x10"], ["CAJA", "per_box", 2], ["INDIVIDUAL", "per_box", 1],
+])("rejects invalid or misplaced OTHER consumption %s/%s/%s before writing", async (type, basis, quantity) => {
+    const workbook = new ExcelJS.Workbook(), sheet = workbook.addWorksheet("Empaques")
+    sheet.addRow(["Código", "Nombre", "Rol del material", "Costo", "Tipo de material", "Base de consumo (OTRO)", "Cantidad de consumo (OTRO)"])
+    sheet.addRow([base.code, "Material", type === "INDIVIDUAL" ? "unit" : "pallet", 0.05, type, basis, quantity])
+    await expect(packagingService.bulkImportPackagings(Buffer.from(await workbook.xlsx.writeBuffer()))).rejects.toBeInstanceOf(BulkImportError)
+    expect(Packaging.bulkCreate).not.toHaveBeenCalled()
+})
 beforeEach(() => {
     jest.clearAllMocks()
     jest.mocked(Packaging.findOne).mockResolvedValue(null)

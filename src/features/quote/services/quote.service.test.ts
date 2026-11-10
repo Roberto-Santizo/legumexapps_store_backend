@@ -82,6 +82,25 @@ describe("quoteService.calculateQuote", () => {
         requestedPallets: 1,
     }
 
+    it.each([
+        [1, 80, 12, 1, 960, 80], [5, 80, 12, 1, 4800, 400],
+        [5, 100, 12, 1, 6000, 500], [5, 80, 6, 1, 2400, 400], [5, 80, 12, 2, 9600, 800],
+    ])("keeps unit labels, box labels and boxes independent for %s pallets/%s boxes/%s units/%s labels", async (pallets, boxes, units, multiplier, unitLabels, boxLabels) => {
+        const packaging = (id: number, packagingRole: string, unitCost: number) => ({ id, displayName: `Material ${id}`, packagingRole, unitCost, isActive: true, classification: "specific", materialType: packagingRole === "unit" ? "INDIVIDUAL" : "OTRO" })
+        mockVariantFindOne.mockResolvedValue({ id: 10, productId: 2, boxesPerPallet: boxes, bagsPerBox: units, usesPalletKit: false,
+            parentProduct: { productRawMaterials: [] },
+            unitMaterials: [{ id: 1, packagingId: 1, optionGroup: null, quantityPerUnit: multiplier, usedUnitMaterial: packaging(1, "unit", 0.02) }],
+            palletMaterials: [
+                { id: 2, packagingId: 2, optionGroup: null, quantityBasis: "per_box", quantityValue: multiplier, usedPalletMaterial: packaging(2, "pallet", 0.05) },
+                { id: 3, packagingId: 3, optionGroup: null, quantityBasis: "per_box", quantityValue: 1, usedPalletMaterial: packaging(3, "pallet", 1) },
+            ] })
+        const result = await quoteService.calculateQuote({ productVariantId: 10, requestedPallets: pallets })
+        expect(result.breakdown.unitMaterials[0].lineTotal).toBe(unitLabels * 0.02)
+        expect(result.breakdown.palletMaterials.map(row => row.quantityPerPallet * row.requestedPallets)).toEqual([boxLabels, pallets * boxes])
+        expect(result.breakdown.palletMaterials.map(row => row.lineTotal)).toEqual([boxLabels * 0.05, pallets * boxes])
+        expect(result.totalCost).toBe(unitLabels * 0.02 + boxLabels * 0.05 + pallets * boxes)
+    })
+
     it.each(["unit", "intermediate", "pallet"])("rejects invalid selected %s packaging before calculating", async role => {
         const packaging = (level: string) => ({ id: 1, isActive: true, classification: "specific", packagingRole: level, displayName: "Test", unitCost: 1 })
         const unit = { packagingId: 1, quantityPerUnit: 1, usedUnitMaterial: packaging("unit") }

@@ -36,6 +36,25 @@ async function excel(rows: unknown[][] = [
 }
 const issueKeys = async (rows: unknown[][]) => (await planGenericImport(await excel(rows))).issues.map(issue => [issue.row, issue.field, issue.key]);
 
+it("imports multiple unit labels and OTHER box labels as cumulative materials with separate costs", async () => {
+    const options = catalogs();
+    Object.assign(options.materials[0], { unitCost: "0.02" });
+    Object.assign(options.materials[2], { defaultQuantityBasis: "per_box", defaultQuantityValue: "1.00", unitCost: "0.05" });
+    (genericCatalogOptions as jest.Mock).mockResolvedValue(options);
+    const file = await excel([
+        [...configurationRow, "individual", "Bolsa", "INCLUIDO SIEMPRE", "GEN-10", 2],
+        [...blank, "pallet", "Paletizado", "INCLUIDO SIEMPRE", "GEN-20", 3],
+    ]);
+    const plan = await planGenericImport(file);
+    expect(plan.issues).toEqual([]);
+    expect(plan.profiles[0].input.groups.map(group => group.options[0])).toEqual([
+        { packagingId: 10, quantityBasis: "per_unit", quantityValue: 2 },
+        { packagingId: 20, quantityBasis: "per_box", quantityValue: 3 },
+    ]);
+    await confirmGenericImport(file, plan.previewHash);
+    expect(saveGenericProfile).toHaveBeenCalledWith(plan.profiles[0].input, undefined, expect.anything());
+})
+
 it("one worksheet: rows sharing a reference become one configuration with catalog consumption, then confirm saves it", async () => {
     const file = await excel(), plan = await planGenericImport(file);
     expect(plan.issues).toEqual([]);

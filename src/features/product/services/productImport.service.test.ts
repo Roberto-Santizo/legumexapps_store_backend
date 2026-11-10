@@ -465,7 +465,7 @@ describe("productImportService.buildProductImportTemplate", () => {
         expect(materials.getCell("C2").dataValidation.formulae?.[0]).toBe('"INDIVIDUAL,INTERMEDIO,CAJA,OTRO PALETIZACIÓN"')
         expect(materials.getCell("D2").dataValidation.formulae).toEqual(["InitialPackagingGroups"])
         expect(materials.getCell("E2").dataValidation.formulae).toEqual(['"SI,NO"'])
-        expect(materials.getCell("F2").dataValidation.formulae).toEqual(['"POR CAJA,POR PALLET"'])
+        expect(materials.getCell("F2").dataValidation.formulae).toEqual(['"POR UNIDAD,POR CAJA,POR PALLET"'])
         expect(materials.views[0]).toMatchObject({ state: "frozen", ySplit: 1 })
         expect(materials.autoFilter).toBeDefined()
         expect(workbook.worksheets[2].getColumn(1).values).toContain("Opciones reales")
@@ -499,7 +499,7 @@ describe("carga inicial conjunta", () => {
             { id: 3, code: "MP-U", displayName: "Bolsa", packagingRole: "unit", isActive: true, unitCost: 1 },
             { id: 4, code: "MP-U2", displayName: "Otra bolsa", packagingRole: "unit", isActive: true, unitCost: 2 },
             { id: 5, code: "MP-I", displayName: "Intermedio", packagingRole: "intermediate", isActive: true, unitCost: 1 },
-        ]
+        ].map(packaging => ({ ...packaging, classification: "specific" }))
         groups = [{ id: 10, nameKey: "opciones", displayName: "Opciones", isActive: true }]
         ;(Packaging.findAll as jest.Mock).mockImplementation(async () => packagings)
         ;(PackagingGroup.findAll as jest.Mock).mockImplementation(async () => groups)
@@ -626,6 +626,18 @@ describe("carga inicial conjunta", () => {
         expect(association.create).toHaveBeenCalledWith(expect.objectContaining({ productVariantId: 102 }), { transaction })
         expect(transaction.commit).toHaveBeenCalledTimes(1)
     })
+    it("imports multiple individual labels and box labels independently in the initial workbook", async () => {
+        const buffer = await combinedExcel([
+            material("INDIVIDUAL", { packagingCode: "MP-U", basis: "POR UNIDAD", quantity: 2 }),
+            material("OTRO PALETIZACIÓN", { packagingCode: "MP-B", basis: "POR CAJA", quantity: 3 }),
+        ])
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.summary.errors).toBe(0)
+        expect(preview.materials.map(row => [row.quantityBasis, row.quantity])).toEqual([["per_unit", 2], ["per_box", 3]])
+        await productImportService.confirmProductImport(buffer, preview.previewHash)
+        expect(UnitMaterial.create).toHaveBeenCalledWith(expect.objectContaining({ quantityPerUnit: 2 }), { transaction })
+        expect(PalletMaterial.create).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis: "per_box", quantityValue: 3 }), { transaction })
+    })
     it("crea todas las asociaciones y dos variantes en la misma transacción", async () => {
         const buffer = await combinedExcel([
             material("INDIVIDUAL", { packagingCode: "MP-U" }), material("INTERMEDIO", { packagingCode: "MP-I" }),
@@ -684,6 +696,62 @@ describe("carga inicial conjunta", () => {
         const preview = await productImportService.previewProductImport(await combinedExcel([material(), material("OTRO PALETIZACIÓN", { packagingCode: "MP-B2", basis: "POR PALLET", quantity: 2.5 })]))
         expect(preview.issues).toEqual([])
         expect(preview.materials[1]).toMatchObject({ quantityBasis: "per_pallet", quantity: 2.5 })
+    })
+    it.each([
+        ["POR CAJA", "per_box", 2, 80], ["POR PALLET", "per_pallet", 2.5, 2.5],
+    ])("allows explicit OTHER consumption %s without changing catalog defaults", async (basis, quantityBasis, quantity, quantityPerPallet) => {
+        Object.assign(packagings[0], { materialType: "OTRO", defaultQuantityBasis: "per_box", defaultQuantityValue: 1 })
+        const catalogBefore = JSON.stringify(packagings)
+        const buffer = await combinedExcel([material("OTRO PALETIZACIÓN", { basis, quantity })])
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.issues).toEqual([])
+        expect(preview.materials[0]).toMatchObject({ quantityBasis, quantity, quantityPerPallet, unitCost: 2 })
+        await productImportService.confirmProductImport(buffer, preview.previewHash)
+        expect(PalletMaterial.create).toHaveBeenCalledWith(expect.objectContaining({ quantityBasis, quantityValue: quantity }), { transaction })
+        expect(JSON.stringify(packagings)).toBe(catalogBefore)
+    })
+    it.each([
+        ["INDIVIDUAL", "MP-U"], ["INTERMEDIO", "MP-I"], ["OTRO PALETIZACIÓN", "MP-B"],
+    ])("rejects generic material %s in initial import before creating products", async (materialType, packagingCode) => {
+        const packaging = packagings.find(row => row.code === packagingCode)!
+        Object.assign(packaging, { classification: "generic", materialType: materialType === "OTRO PALETIZACIÓN" ? "OTRO" : materialType })
+        const row = material(materialType, { packagingCode, ...(materialType === "OTRO PALETIZACIÓN" ? { basis: "POR CAJA", quantity: 2 } : {}) })
+        const buffer = await combinedExcel([row], [baseRow({ "Unidades por empaque intermedio": 6 })])
+        const preview = await productImportService.previewProductImport(buffer)
+        expect(preview.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({ row: 2, sheet: INITIAL_PACKAGING_SHEET, field: "packagingCode", key: "errors.packaging_association_import.specific_packaging_required" }),
+        ]))
+        await expect(productImportService.confirmProductImport(buffer, preview.previewHash)).rejects.toBeInstanceOf(BulkImportError)
+        noWrites()
+        expect(transaction.staged).toEqual([])
+    })
+    it.each(["CAJA", "TARIMA", "ESQUINERO", "STRETCH"])("does not override fixed catalog consumption for %s by declaring OTHER", async materialType => {
+        Object.assign(packagings[0], { materialType, defaultQuantityBasis: "per_box", defaultQuantityValue: 1 })
+        await issue([material("OTRO PALETIZACIÓN", { basis: "POR CAJA", quantity: 2 })], "catalog_conflict")
+    })
+    it.each(["es", "en"])("reports the specific-material requirement by row in %s over HTTP", async language => {
+        Object.assign(packagings[0], { classification: "generic", materialType: "OTRO" })
+        const buffer = await combinedExcel([material("OTRO PALETIZACIÓN", { basis: "POR CAJA", quantity: 2 })])
+        const app = buildTestApp("/api/products", productRouter)
+        const token = jwt.sign({ sub: 1, type: "staff", permissions: ["products:create"] }, "test-secret")
+        const response = await request(app).post("/api/products/bulk-import/preview")
+            .set("Authorization", `Bearer ${token}`).set("Accept-Language", language)
+            .attach("file", buffer, { filename: "labels.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+        expect(response.status).toBe(200)
+        expect(response.body.data.summary.errors).toBe(1)
+        expect(response.body.data.issues).toContainEqual(expect.objectContaining({ row: 2, sheet: INITIAL_PACKAGING_SHEET, field: "packagingCode", message: expect.stringMatching(language === "es" ? /MP-B.*específico/ : /MP-B.*specific/) }))
+        noWrites()
+    })
+    it("requires an explicit OTHER type in the workbook to override OTHER catalog consumption", async () => {
+        Object.assign(packagings[0], { materialType: "OTRO", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 9 })
+        await issue([material("CAJA")], "catalog_conflict")
+    })
+    it.each([
+        ["POR CAJA", 0, "number"], ["POR CAJA", 1.001, "pallet_quantity"],
+        ["", 2, "other_rule_required"], ["POR CAJA", null, "other_rule_required"],
+    ])("rejects invalid explicit OTHER consumption %s/%s", async (basis, quantity, key) => {
+        Object.assign(packagings[0], { materialType: "OTRO", defaultQuantityBasis: "per_box", defaultQuantityValue: 1 })
+        await issue([material("OTRO PALETIZACIÓN", { basis, quantity })], key)
     })
     it("un error en Hoja 1 impide guardar materiales válidos", async () => {
         await expect(productImportService.bulkImportProducts(await combinedExcel([material()], [baseRow({ "Cliente": "Faltante" })]))).rejects.toBeInstanceOf(BulkImportError)

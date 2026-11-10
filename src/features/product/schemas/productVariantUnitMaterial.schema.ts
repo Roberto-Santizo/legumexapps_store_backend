@@ -3,7 +3,7 @@ import z from "zod"
 export const createProductVariantUnitMaterialSchema = z.object({
     productVariantId: z.number().int().positive(),
     packagingId: z.number().int().positive(),
-    quantityPerUnit: z.number().positive(),
+    quantityPerUnit: z.number().positive().max(99999999.99).multipleOf(0.01),
     // Grupos de opciones: null (default) es una fila fija. Un nombre de grupo la marca como alternativa
     // dentro de ese grupo; el servicio normaliza el nombre (espacios, grafía de un grupo ya existente).
     optionGroup: z.string().trim().min(1).max(60).nullable().default(null),

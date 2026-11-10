@@ -37,12 +37,14 @@ export function parseInitialPackagingSheet(sheet?: ParsedWorksheet): ParsedPacka
         const rawQuantity = text("quantity")
         const quantity = rawQuantity ? Number(rawQuantity) : null
         if (rawQuantity && (!/^\d+(?:\.\d+)?$/.test(rawQuantity) || !Number.isFinite(quantity) || !(Number(quantity) > 0))) error("quantity", "number")
-        const forms: Record<string, string> = { "por caja": "per_box", "por pallet": "per_pallet" }
+        const forms: Record<string, string> = { "por unidad": "per_unit", "por caja": "per_box", "por pallet": "per_pallet" }
         const rawBasis = text("basis")
         const basis = rawBasis ? forms[normalizeImportText(rawBasis)] : ""
         if (rawBasis && !basis) error("basis", "friendly_basis")
         const other = type === "OTRO PALETIZACIÓN"
-        if (rule && !other) {
+        const individual = type === "INDIVIDUAL"
+        if (individual && rawBasis && basis !== "per_unit") error("basis", "type_rule")
+        if (rule && !other && !individual) {
             if (rawBasis && basis !== rule.basis) error("basis", "type_rule")
             if (rawQuantity && quantity !== rule.quantity) error("quantity", "type_rule")
         }
@@ -50,8 +52,8 @@ export function parseInitialPackagingSheet(sheet?: ParsedWorksheet): ParsedPacka
         rows.push({ row: number, skuCode: text("skuCode"), packagingCode: text("packagingCode"), materialName: "", unitCost: null,
             materialType: type ?? text("materialType"), expectedRole: rule?.role,
             group: text("group"), isDefault: ["si", "yes"].includes(defaultText), defaultSpecified: !!defaultText,
-            legacyRule: true, quantityBasis: other ? basis ?? "" : rule?.basis ?? "",
-            quantity: other ? quantity : rule?.quantity ?? null, issues })
+            legacyRule: true, quantityBasis: individual ? "per_unit" : other ? basis ?? "" : rule?.basis ?? "",
+            quantity: individual ? quantity ?? 1 : other ? quantity : rule?.quantity ?? null, issues })
     }
     return rows
 }

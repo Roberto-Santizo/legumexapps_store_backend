@@ -69,7 +69,7 @@ beforeEach(() => {
         { id: 24, code: "MP-S", displayName: "Unclassified D", packagingRole: "pallet", isActive: true, unitCost: 0.1 },
         { id: 25, code: "MP-I", displayName: "Intermediate", packagingRole: "intermediate", isActive: true, unitCost: 0.2 },
         { id: 26, code: "MP-B2", displayName: "Other box", packagingRole: "pallet", isActive: true, unitCost: 3 },
-    ]
+    ].map(packaging => ({ ...packaging, classification: "specific" }))
     groups = [{ id: 4, displayName: "Renamed box group", nameKey: "renamed box group", isActive: true }, { id: 5, displayName: "Renamed corner group", nameKey: "renamed corner group", isActive: true }]
     existing = []
     mock(ProductVariant.findAll).mockImplementation(async () => variants)
@@ -122,6 +122,40 @@ describe("Excel associations: preview and confirmation", () => {
     it("reports inactive variant", async () => { variants[0].isActive = false; await expectIssue(unit, "inactive_variant") })
     it("reports inactive product", async () => { products[0].isActive = false; await expectIssue(unit, "inactive_product") })
     it("reports inactive Packaging", async () => { packagings[0].isActive = false; await expectIssue(unit, "inactive_packaging") })
+    it.each(["MP-U", "MP-I", "MP-B"])("rejects generic material %s by row during preview and confirmation without writes", async packagingCode => {
+        const packaging = packagings.find(row => row.code === packagingCode)!
+        packaging.classification = "generic"
+        const buffer = await excel([{ ...unit, packagingCode, ...(packaging.packagingRole === "pallet" ? { quantityBasis: "per_box", quantity: 1 } : {}) }])
+        const preview = await service.previewProductPackagingImport(buffer)
+        expect(preview.summary.error).toBe(1)
+        expect(preview.rows[0]).toMatchObject({ action: "error", issues: expect.arrayContaining([
+            expect.objectContaining({ row: 2, field: "packagingCode", key: "errors.packaging_association_import.specific_packaging_required", params: { code: packagingCode } }),
+        ]) })
+        noWrites()
+        await expect(service.confirmProductPackagingImport(buffer, preview.previewHash)).rejects.toBeInstanceOf(BulkImportError)
+        noWrites()
+        expect(transaction.staged).toEqual([])
+    })
+    it("requires a new preview when an incompatible material becomes specific", async () => {
+        packagings[0].classification = "generic"
+        const buffer = await excel([unit])
+        const incompatible = await service.previewProductPackagingImport(buffer)
+        expect(incompatible.summary.error).toBe(1)
+        packagings[0].classification = "specific"
+        const corrected = await service.previewProductPackagingImport(buffer)
+        expect(corrected.summary.error).toBe(0)
+        expect(corrected.previewHash).not.toBe(incompatible.previewHash)
+        await expect(service.confirmProductPackagingImport(buffer, incompatible.previewHash)).rejects.toMatchObject({ statusCode: 409, key: "errors.packaging_association_import.stale_preview" })
+        noWrites()
+    })
+    it("rejects reclassification to generic after a valid preview", async () => {
+        const buffer = await excel([unit])
+        const preview = await service.previewProductPackagingImport(buffer)
+        expect(preview.summary.error).toBe(0)
+        packagings[0].classification = "generic"
+        await expect(service.confirmProductPackagingImport(buffer, preview.previewHash)).rejects.toBeInstanceOf(BulkImportError)
+        noWrites()
+    })
     it("rejects ambiguous material codes differing only by case", async () => {
         packagings.push({ ...packagings[0], id: 99, code: "mp-u" })
         await expectIssue(unit, "ambiguous_packaging")
@@ -138,7 +172,22 @@ describe("Excel associations: preview and confirmation", () => {
         const result = await service.previewProductPackagingImport(await excel([{ ...box, quantity }]))
         expect(result.summary.error).toBe(1); noWrites()
     })
-    it("rejects unit quantity other than one", async () => { await expectIssue({ ...unit, quantity: 2 }, "unit_rule") })
+    it("imports multiple labels per unit with their own quantity and catalog cost", async () => {
+        const buffer = await excel([{ ...unit, quantityBasis: "per_unit", quantity: 2 }])
+        const result = await service.previewProductPackagingImport(buffer)
+        expect(result.summary.error).toBe(0)
+        expect(result.rows[0]).toMatchObject({ quantity: 2, quantityBasis: "per_unit", unitCost: 0.6 })
+        await service.confirmProductPackagingImport(buffer, result.previewHash)
+        expect(UnitMaterial.create).toHaveBeenCalledWith(expect.objectContaining({ quantityPerUnit: 2 }), { transaction })
+    })
+    it("rejects a box consumption basis for individual materials", async () => { await expectIssue({ ...unit, quantityBasis: "per_box", quantity: 2 }, "unit_rule") })
+    it.each([0, -1, 1.001, 100000000, Infinity])("rejects individual consumption outside the stored quantity contract (%s) without writes", async quantity => {
+        const result = await service.previewProductPackagingImport(await excel([{ ...unit, quantityBasis: "per_unit", quantity }]))
+        expect(result.summary.error).toBe(1)
+        noWrites()
+        await expect(service.confirmProductPackagingImport(await excel([{ ...unit, quantityBasis: "per_unit", quantity }]), result.previewHash)).rejects.toBeInstanceOf(BulkImportError)
+        expect(transaction.staged).toEqual([])
+    })
     it.each(["x", "maybe", "2"])("rejects ambiguous default %s", async isDefault => { await expectIssue({ ...box, isDefault }, "boolean") })
     it("requires an intermediate configuration from the variant", async () => { variants[0].unitsPerIntermediatePackage = null; await expectIssue({ ...unit, packagingCode: "MP-I" }, "intermediate_configuration") })
     it("imports intermediate without an invented association quantity", async () => {
@@ -270,9 +319,10 @@ describe("Excel associations: preview and confirmation", () => {
         await expect(service.previewProductPackagingImport(await excel(Array.from({ length: 1001 }, () => unit)))).rejects.toMatchObject({ key: "errors.bulk_import_too_many_rows" })
         noWrites()
     })
-    it("generates the minimal downloadable template with instructions and group references", async () => {
+    it("generates a template with optional consumption columns and group references", async () => {
         const workbook = await loadWorkbookFromBuffer(await service.buildProductPackagingImportTemplate(["USD only"]))
-        expect(workbook.worksheets[0].getRow(1).values).toEqual([undefined, ...Object.values(columns).slice(0, 4).map(column => column.header)])
+        expect(workbook.worksheets[0].getRow(1).values).toEqual([undefined, ...Object.values(columns).slice(0, 6).map(column => column.header)])
+        expect(workbook.worksheets[0].getCell("E2").dataValidation.formulae).toEqual(['"per_unit,per_box,per_pallet"'])
         expect(workbook.worksheets[1].getCell("A2").value).toBe("USD only")
         expect(workbook.worksheets[2].getCell("A2").value).toBe("Renamed box group")
         expect(JSON.stringify(workbook.worksheets[0].getRow(1).values)).not.toContain("(Q)")
@@ -331,6 +381,16 @@ describe("simplified four-column associations", () => {
         const result = await service.previewProductPackagingImport(await excel([unit], [...fields]))
         expect(result.rows[0]).toMatchObject({ action: "unchanged", quantity: 2, ruleSource: "association" })
     })
+    it("blank consumption cells in the extended template preserve saved rules and use catalog defaults for new rows", async () => {
+        packagings[1].defaultQuantityBasis = "per_box"; packagings[1].defaultQuantityValue = 2
+        const preview = await service.previewProductPackagingImport(await excel([simpleBox]))
+        expect(preview.summary.error).toBe(0)
+        expect(preview.rows[0]).toMatchObject({ quantityBasis: "per_box", quantity: 2, quantityPerPallet: 80, ruleSource: "catalog" })
+        existing = [{ id: 100, productVariantId: 10, packagingId: 21, optionGroupId: 4, optionGroup: "Renamed box group", quantityBasis: "per_box", quantityValue: 3, isDefault: true, isActive: true }]
+        const saved = await service.previewProductPackagingImport(await excel([simpleBox]))
+        expect(saved.summary.error).toBe(0)
+        expect(saved.rows[0]).toMatchObject({ action: "unchanged", quantity: 3, ruleSource: "association" })
+    })
     it("requires an explicit group default even with a persisted default", async () => {
         existing = [{ id: 100, productVariantId: 10, packagingId: 21, optionGroupId: 4, optionGroup: "Renamed box group", quantityBasis: "per_box", quantityValue: 1, isDefault: true, isActive: true }]
         const result = await service.previewProductPackagingImport(await excel([{ ...simpleBox, isDefault: undefined }], [...fields]))
@@ -356,11 +416,12 @@ describe("simplified four-column associations", () => {
         await expect(service.confirmProductPackagingImport(buffer, first.previewHash)).rejects.toMatchObject({ key: "errors.packaging_association_import.stale_preview" })
         expect(transaction.rollback).toHaveBeenCalled(); noWrites()
     })
-    it("legacy quantities remain explicit and blank legacy rules cannot use catalog defaults", async () => {
+    it("explicit quantities override catalog rules while blank cells use the catalog", async () => {
         const result = await service.previewProductPackagingImport(await excel([{ ...box, quantityBasis: "per_pallet", quantity: 9 }]))
         expect(result.rows[0]).toMatchObject({ quantityBasis: "per_pallet", quantity: 9, ruleSource: "legacy", action: "new" })
         const blank = await service.previewProductPackagingImport(await excel([simpleBox]))
-        expect(blank.summary.error).toBe(1)
+        expect(blank.summary.error).toBe(0)
+        expect(blank.rows[0]).toMatchObject({ quantityBasis: "per_box", quantity: 1, ruleSource: "catalog" })
     })
     it("rolls back a failed write after earlier rows were staged", async () => {
         const buffer = await excel([unit, simpleBox], [...fields])

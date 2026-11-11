@@ -9,6 +9,7 @@ import UnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
 import IntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
 import PalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
 import GenericMaterial from "../../genericPackaging/models/GenericPackagingConfigurationMaterial.model"
+import { packagingVolumePricingSchema } from "../schemas/packagingVolumePricing.schema"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
 import { CreatePackagingInput, PackagingImportInput, UpdatePackagingInput, packagingDefaultsSchema, PackagingQuery, importLegacyPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
@@ -62,6 +63,7 @@ async function assertCodeIsUnique(code: string, excludeId?: number, transaction?
 }
 
 async function createPackaging(input: CreatePackagingInput): Promise<Packaging> {
+    if (!packagingVolumePricingSchema.safeParse(input).success) throw new AppError(422, "errors.packaging_volume_pricing_invalid", { code: input.code ?? "" })
     if (input.classification !== "generic") {
         await assertCodeIsUnique(input.code!)
         return Packaging.create(resolveMaterialType(input))
@@ -116,6 +118,17 @@ async function updatePackaging(id: number, input: UpdatePackagingInput): Promise
 
 async function applyPackagingUpdate(packaging: Packaging, input: UpdatePackagingInput, transaction: Transaction): Promise<Packaging> {
     const values = resolveMaterialType(input, packaging)
+    const volumePricing = packagingVolumePricingSchema.safeParse({
+        lowVolumeMaximumQuantity: packaging.lowVolumeMaximumQuantity == null ? null : Number(packaging.lowVolumeMaximumQuantity),
+        mediumVolumeMaximumQuantity: packaging.mediumVolumeMaximumQuantity == null ? null : Number(packaging.mediumVolumeMaximumQuantity),
+        mediumVolumeMinimumQuantity: packaging.mediumVolumeMinimumQuantity == null ? null : Number(packaging.mediumVolumeMinimumQuantity),
+        mediumVolumeUnitCost: packaging.mediumVolumeUnitCost == null ? null : Number(packaging.mediumVolumeUnitCost),
+        highVolumeMinimumQuantity: packaging.highVolumeMinimumQuantity == null ? null : Number(packaging.highVolumeMinimumQuantity),
+        highVolumeUnitCost: packaging.highVolumeUnitCost == null ? null : Number(packaging.highVolumeUnitCost),
+        ...values,
+        classification: values.classification ?? packaging.classification,
+    })
+    if (!volumePricing.success) throw new AppError(422, "errors.packaging_volume_pricing_invalid", { code: packaging.code })
     await assertKitMembershipKept(packaging, values, transaction)
     if (packaging.materialType && values.materialType !== packaging.materialType) {
         const query = { where: { packagingId: packaging.id }, attributes: ["id"], transaction }
@@ -301,7 +314,13 @@ function processPackagingImportRow(
     const quantity = String(rawQuantity ?? "").trim()
     const hasConsumption = basis !== "" || quantity !== ""
     if (hasConsumption && palletType !== "OTRO") ctx.rowIssues.push({ row: rowNumber, field: "defaultQuantityBasis", key: "errors.packaging_import_other_consumption" })
+    const volumePricing: Partial<Record<"lowVolumeMaximumQuantity" | "mediumVolumeMaximumQuantity" | "mediumVolumeMinimumQuantity" | "mediumVolumeUnitCost" | "highVolumeMinimumQuantity" | "highVolumeUnitCost", number>> = {}
+    for (const field of ["lowVolumeMaximumQuantity", "mediumVolumeMaximumQuantity", "mediumVolumeMinimumQuantity", "mediumVolumeUnitCost", "highVolumeMinimumQuantity", "highVolumeUnitCost"] as const) {
+        const raw = readImportCell(row, columnIndexByField.get(field))
+        if (raw != null && String(raw).trim() !== "") volumePricing[field] = Number(raw)
+    }
     const candidate = { ...baseCandidate, displayNameEn, classification: classifications[classificationKey] ?? classificationKey, materialType: palletType ?? levelType,
+        ...volumePricing,
         ...(palletType && palletType !== "OTRO" ? fixedPalletConsumption(palletType) : {}),
         ...(hasConsumption && palletType === "OTRO" ? { defaultQuantityBasis: basis || undefined, defaultQuantityValue: quantity ? (/^\d+(?:\.\d+)?$/.test(quantity) ? Number(quantity) : Number.NaN) : undefined } : {}) }
     const { validated, issues: zodIssues } = collectPackagingZodIssues(candidate, ctx.manuallyValidatedFields, rowNumber)
@@ -398,13 +417,21 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         { header: PACKAGING_IMPORT_COLUMNS.materialType.header, key: "materialType", width: 24 },
         { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityBasis.header, key: "defaultQuantityBasis", width: 26 },
         { header: PACKAGING_IMPORT_COLUMNS.defaultQuantityValue.header, key: "defaultQuantityValue", width: 28 },
+        { header: PACKAGING_IMPORT_COLUMNS.lowVolumeMaximumQuantity.header, key: "lowVolumeMaximumQuantity", width: 30 },
+        { header: PACKAGING_IMPORT_COLUMNS.mediumVolumeMaximumQuantity.header, key: "mediumVolumeMaximumQuantity", width: 30 },
+        { header: PACKAGING_IMPORT_COLUMNS.mediumVolumeUnitCost.header, key: "mediumVolumeUnitCost", width: 30 },
+        { header: PACKAGING_IMPORT_COLUMNS.highVolumeUnitCost.header, key: "highVolumeUnitCost", width: 30 },
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
         code: "BOL-001",
         displayName: "Bolsa plástica 2kg",
         packagingRole: PACKAGING_ROLE_LABELS.unit,
-        unitCost: 1.25
+        unitCost: 1.25,
+        lowVolumeMaximumQuantity: 5000,
+        mediumVolumeMaximumQuantity: 25000,
+        mediumVolumeUnitCost: 1,
+        highVolumeUnitCost: 0.8,
     })
     sheet.addRow({
         code: "BOL-002",
@@ -440,6 +467,8 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
     helpSheet.getRow(1).font = { bold: true }
     Object.values(PACKAGING_ROLE_LABELS).forEach(label => helpSheet.addRow({ role: label }))
     helpSheet.addRow({})
+    helpSheet.addRow({ role: "Precios por volumen específicos: cada límite incluye esa cantidad. Hasta 5,000 usa el costo alto/base; más de 5,000 y hasta 25,000 usa el medio; más de 25,000 usa el costo bajo, también por encima de 50,000. Los límites bajo y medio son editables y sus valores vacíos usan 5,000 y 25,000. El costo base es obligatorio; los otros dos son opcionales. Un costo vacío usa el anterior disponible; cero es un costo registrado." })
+    helpSheet.addRow({ role: "El volumen depende del consumo total de cada material elegido en ese producto cotizado: etiquetas por caja, multiplicadores individuales e intermedios redondeados hacia arriba. No se suman productos distintos. Las cajas pueden conservar solo su costo base. Las plantillas anteriores con referencias de volumen siguen siendo legibles; el límite medio explícito tiene prioridad sobre la referencia anterior de 25,000." })
     helpSheet.addRow({ role: "Clasificación: Específico de cliente (material destinado a productos de clientes) o Genérico (material para configuraciones genéricas de productos nuevos). Columna ausente o celda vacía: Específico de cliente. Se aceptan los valores de plantillas anteriores. El código es interno, no requiere ERP." })
     helpSheet.addRow({ role: `"${PACKAGING_IMPORT_COLUMNS.code.header}": obligatorio para materiales Específicos (el código que ya tiene el material del cliente; único, no puede repetirse). Para materiales Genéricos déjelo vacío: el sistema asigna GEN-IND-0001 (individual), GEN-INT-0001 (intermedio) o GEN-PAL-0001 (paletización).` })
 

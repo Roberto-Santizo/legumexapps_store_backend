@@ -17,7 +17,7 @@ import Unit from "../../unit/models/Unit.model"
 import { NotFoundError } from "../../../shared/errors/AppError"
 
 const unitInclude = { model: Unit, as: "costUnit", attributes: ["unitCode", "displayName"] }
-const packagingAttributes = ["id", "displayName", "displayNameEn", "code", "isActive", "packagingRole", "unitCost"]
+const packagingAttributes = ["id", "displayName", "displayNameEn", "code", "isActive", "packagingRole", "unitCost", "lowVolumeMaximumQuantity", "mediumVolumeMaximumQuantity", "mediumVolumeMinimumQuantity", "mediumVolumeUnitCost", "highVolumeMinimumQuantity", "highVolumeUnitCost"]
 
 // Read-only administrative projection. Separate has-many loads batch each association
 // across all variants, avoiding both N+1 requests and a Cartesian product of materials.

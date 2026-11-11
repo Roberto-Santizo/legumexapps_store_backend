@@ -3,6 +3,11 @@
 export const packagingChecks = [
     {
         "table": "packagings",
+        "name": "packagings_volume_pricing_check",
+        "expression": "(classification = 'specific' OR (\"lowVolumeMaximumQuantity\" IS NULL AND \"mediumVolumeMaximumQuantity\" IS NULL AND \"mediumVolumeMinimumQuantity\" IS NULL AND \"highVolumeMinimumQuantity\" IS NULL AND \"mediumVolumeUnitCost\" IS NULL AND \"highVolumeUnitCost\" IS NULL)) AND (\"lowVolumeMaximumQuantity\" IS NULL OR (\"lowVolumeMaximumQuantity\" > 0 AND \"lowVolumeMaximumQuantity\" <= 99999999.99)) AND (\"mediumVolumeMaximumQuantity\" IS NULL OR (\"mediumVolumeMaximumQuantity\" > 0 AND \"mediumVolumeMaximumQuantity\" <= 99999999.99)) AND (\"mediumVolumeMinimumQuantity\" IS NULL OR (\"mediumVolumeMinimumQuantity\" > 0 AND \"mediumVolumeMinimumQuantity\" <= 99999999.99)) AND (\"highVolumeMinimumQuantity\" IS NULL OR (\"highVolumeMinimumQuantity\" > 0 AND \"highVolumeMinimumQuantity\" <= 99999999.99)) AND (\"mediumVolumeUnitCost\" IS NULL OR (\"mediumVolumeUnitCost\" >= 0 AND \"mediumVolumeUnitCost\" <= 999999.9999)) AND (\"highVolumeUnitCost\" IS NULL OR (\"highVolumeUnitCost\" >= 0 AND \"highVolumeUnitCost\" <= 999999.9999)) AND COALESCE(\"mediumVolumeMaximumQuantity\", \"mediumVolumeMinimumQuantity\", 25000) > COALESCE(\"lowVolumeMaximumQuantity\", 5000)"
+    },
+    {
+        "table": "packagings",
         "name": "packagings_consumption_defaults_check",
         "expression": "(\"defaultQuantityBasis\" IS NULL AND \"defaultQuantityValue\" IS NULL) OR (\"packagingRole\"='pallet' AND \"defaultQuantityBasis\" IS NOT NULL AND \"defaultQuantityValue\" IS NOT NULL AND \"defaultQuantityValue\">0 AND \"defaultQuantityValue\"<=99999999.99)"
     },

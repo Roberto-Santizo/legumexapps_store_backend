@@ -296,6 +296,13 @@ describe("Excel associations: preview and confirmation", () => {
         await expect(service.confirmProductPackagingImport(buffer, result.previewHash)).rejects.toMatchObject({ statusCode: 409, key: "errors.packaging_association_import.stale_preview" })
         noWrites()
     })
+    it("rejects a stale preview after a volume cost changes even when the base price stays the same", async () => {
+        const buffer = await excel([unit])
+        const result = await service.previewProductPackagingImport(buffer)
+        Object.assign(packagings[0], { mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: 0.5 })
+        await expect(service.confirmProductPackagingImport(buffer, result.previewHash)).rejects.toMatchObject({ statusCode: 409, key: "errors.packaging_association_import.stale_preview" })
+        noWrites()
+    })
     it("requires a preview hash and binds it to file contents", async () => {
         const buffer = await excel([unit]); const result = await service.previewProductPackagingImport(buffer)
         await expect(service.confirmProductPackagingImport(buffer, "")).rejects.toMatchObject({ key: "errors.packaging_association_import.preview_required" })

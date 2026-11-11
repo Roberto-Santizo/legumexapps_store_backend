@@ -257,7 +257,7 @@ export async function buildPackagingAssociationPlan(parsed: ParsedPackagingRow[]
     const state = {
         variants: variants.map(row => [row.id, row.skuCode, row.isActive, row.productId, row.boxesPerPallet, row.bagsPerBox, row.unitsPerIntermediatePackage, row.usesPalletKit]).sort(),
         products: products.map(row => [row.id, row.isActive]).sort(),
-        packagings: packagings.map(row => [row.id, row.code, row.isActive, row.classification, row.packagingRole, row.materialType, row.unitCost, row.displayName, row.defaultQuantityBasis ?? null, row.defaultQuantityValue == null ? null : Number(row.defaultQuantityValue)]).sort(),
+        packagings: packagings.map(row => [row.id, row.code, row.isActive, row.classification, row.packagingRole, row.materialType, row.unitCost, row.displayName, row.defaultQuantityBasis ?? null, row.defaultQuantityValue == null ? null : Number(row.defaultQuantityValue), row.lowVolumeMaximumQuantity ?? null, row.mediumVolumeMaximumQuantity ?? null, row.mediumVolumeMinimumQuantity ?? null, row.mediumVolumeUnitCost ?? null, row.highVolumeMinimumQuantity ?? null, row.highVolumeUnitCost ?? null]).sort(),
         groups: groups.map(row => [row.id, row.isActive, row.nameKey, row.displayName]).sort(),
         associations: Object.fromEntries(Object.entries(associations).map(([level, rows]) => [level, rows.map(row => [row.id, associationValues(row, level as Level)]).sort()])),
     }

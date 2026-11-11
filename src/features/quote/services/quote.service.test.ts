@@ -82,6 +82,32 @@ describe("quoteService.calculateQuote", () => {
         requestedPallets: 1,
     }
 
+    it.each([[2, 5000, "base", 0.12], [10, 25000, "medium", 0.1], [20, 50000, "high", 0.08]])("prices specific bags from %s pallets while boxes keep one cost", async (pallets, bags, tier, bagCost) => {
+        const packaging = (id: number, role: string, unitCost: number) => ({ id, displayName: `Material ${id}`, packagingRole: role, unitCost, isActive: true, classification: "specific" })
+        mockVariantFindOne.mockResolvedValue({ id: 10, productId: 2, boxesPerPallet: 100, bagsPerBox: 25, usesPalletKit: false,
+            parentProduct: { productRawMaterials: [] },
+            unitMaterials: [{ id: 1, packagingId: 1, optionGroup: null, quantityPerUnit: 1, usedUnitMaterial: { ...packaging(1, "unit", 0.12),
+                mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: 0.1, highVolumeMinimumQuantity: 50000, highVolumeUnitCost: 0.08 } }],
+            palletMaterials: [{ id: 2, packagingId: 2, optionGroup: null, quantityBasis: "per_box", quantityValue: 1, usedPalletMaterial: packaging(2, "pallet", 2) }] })
+        const result = await quoteService.calculateQuote({ productVariantId: 10, requestedPallets: Number(pallets) })
+        expect(result.breakdown.unitMaterials[0]).toMatchObject({ unitCost: bagCost, volumePricing: { tier, materialQuantity: bags } })
+        expect(result.breakdown.palletMaterials[0]).toMatchObject({ unitCost: 2, lineTotal: Number(pallets) * 100 * 2 })
+        expect(result.totalCost).toBe(Number(bags) * Number(bagCost) + Number(pallets) * 100 * 2)
+    })
+
+    it("prices the reported 5472 bags at medium cost and 912 boxes at base cost independently", async () => {
+        const packaging = (id: number, role: string) => ({ id, displayName: `Material ${id}`, packagingRole: role, unitCost: 3, isActive: true, classification: "specific" })
+        mockVariantFindOne.mockResolvedValue({ id: 10, productId: 2, boxesPerPallet: 912, bagsPerBox: 6, usesPalletKit: false,
+            parentProduct: { productRawMaterials: [] },
+            unitMaterials: [{ id: 1, packagingId: 1, optionGroup: null, quantityPerUnit: 1, usedUnitMaterial: { ...packaging(1, "unit"),
+                lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeUnitCost: 2, highVolumeUnitCost: 1 } }],
+            palletMaterials: [{ id: 2, packagingId: 2, optionGroup: null, quantityBasis: "per_box", quantityValue: 1, usedPalletMaterial: packaging(2, "pallet") }] })
+        const result = await quoteService.calculateQuote({ productVariantId: 10, requestedPallets: 1 })
+        expect(result.breakdown.unitMaterials[0]).toMatchObject({ unitCost: 2, lineTotal: 10944, volumePricing: { tier: "medium", priceTier: "medium", materialQuantity: 5472 } })
+        expect(result.breakdown.palletMaterials[0]).toMatchObject({ unitCost: 3, lineTotal: 2736, volumePricing: { tier: "base", materialQuantity: 912 } })
+        expect(result.totalCost).toBe(13680)
+    })
+
     it.each([
         [1, 80, 12, 1, 960, 80], [5, 80, 12, 1, 4800, 400],
         [5, 100, 12, 1, 6000, 500], [5, 80, 6, 1, 2400, 400], [5, 80, 12, 2, 9600, 800],

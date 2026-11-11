@@ -1087,6 +1087,78 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         } finally { await association.destroy(); await material.destroy() }
     }, 30000)
 
+    test("specific material volume prices persist numerically, satisfy database guards and follow real quoted consumption", async () => {
+        const variant = (await sequelize.model("ProductVariant").findByPk(variantId))!
+        const unitsPerPallet = Number(variant.get("boxesPerPallet")) * Number(variant.get("bagsPerBox"))
+        const payload = { code: "VOLUME-PG-BAG", displayName: "Volume bag", displayNameEn: "Volume bag", classification: "specific", packagingRole: "unit", unitCost: 0.12, lowVolumeMaximumQuantity: unitsPerPallet,
+            mediumVolumeMaximumQuantity: unitsPerPallet * 2, mediumVolumeUnitCost: 0.1, highVolumeUnitCost: 0.08 }
+        const created = await request(server).post("/api/packagings").set("Authorization", `Bearer ${adminToken}`).send(payload)
+        expect(created.status).toBe(201)
+        expect(created.body.data.mediumVolumeUnitCost).toBe(0.1)
+        expect(created.body.data.lowVolumeMaximumQuantity).toBe(unitsPerPallet)
+        expect(typeof created.body.data.mediumVolumeMaximumQuantity).toBe("number")
+        const packagingId: number = created.body.data.id
+        const association = await sequelize.model("ProductVariantUnitMaterial").create({ productVariantId: variantId, packagingId, quantityPerUnit: 1 })
+        try {
+            const updated = await request(server).put(`/api/packagings/${packagingId}`).set("Authorization", `Bearer ${adminToken}`)
+                .send({ code: payload.code, packagingRole: "unit", unitCost: 0.12, lowVolumeMaximumQuantity: unitsPerPallet + 1 })
+            expect(updated.status).toBe(200)
+            const reloaded = await request(server).get(`/api/packagings/${packagingId}`).set("Authorization", `Bearer ${adminToken}`)
+            expect(reloaded.body.data.lowVolumeMaximumQuantity).toBe(unitsPerPallet + 1)
+            for (const [pallets, tier, cost] of [[1, "base", 0.12], [2, "medium", 0.1], [3, "high", 0.08]] as const) {
+                const preview = await request(server).post("/api/admin/quotes/preview").set("Authorization", `Bearer ${adminToken}`).send({ productVariantId: variantId, requestedPallets: pallets })
+                expect(preview.status).toBe(200)
+                expect(preview.body.data.breakdown.unitMaterials.find((line: { packagingId: number }) => line.packagingId === packagingId))
+                    .toMatchObject({ unitCost: cost, volumePricing: { tier, materialQuantity: unitsPerPallet * pallets } })
+            }
+            for (const invalid of [
+                { lowVolumeMaximumQuantity: 0 }, { lowVolumeMaximumQuantity: -1 },
+                { mediumVolumeUnitCost: -1 }, { mediumVolumeMaximumQuantity: unitsPerPallet }, { classification: "generic" },
+            ]) {
+                await expect(sequelize.model("Packaging").create({ ...payload, ...invalid, code: "VOLUME-PG-INVALID", materialType: "INDIVIDUAL" }))
+                    .rejects.toMatchObject({ original: { constraint: "packagings_volume_pricing_check" } })
+            }
+        } finally {
+            await association.destroy()
+            await sequelize.model("Packaging").destroy({ where: { id: packagingId } })
+        }
+    }, 30000)
+
+    test("real quote API independently assigns 5472 bags to medium and 912 boxes to low volume", async () => {
+        const variant = (await sequelize.model("ProductVariant").findByPk(variantId))!
+        const original = { boxesPerPallet: variant.get("boxesPerPallet"), bagsPerBox: variant.get("bagsPerBox") }
+        let bagId = 0, boxId = 0
+        try {
+            await variant.update({ boxesPerPallet: 912, bagsPerBox: 6 })
+            const bag = await request(server).post("/api/packagings").set("Authorization", `Bearer ${adminToken}`).send({
+                code: "RANGE-5472-BAG", displayName: "Synthetic range bag", displayNameEn: "Synthetic range bag", classification: "specific", packagingRole: "unit", unitCost: 3,
+                lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeUnitCost: 2, highVolumeUnitCost: 1,
+            })
+            expect(bag.status).toBe(201)
+            bagId = bag.body.data.id
+            const box = await request(server).post("/api/packagings").set("Authorization", `Bearer ${adminToken}`).send({
+                code: "RANGE-912-BOX", displayName: "Synthetic fixed-price box", displayNameEn: "Synthetic fixed-price box", classification: "specific", packagingRole: "pallet", materialType: "CAJA", unitCost: 3,
+            })
+            expect(box.status).toBe(201)
+            boxId = box.body.data.id
+            await sequelize.model("ProductVariantUnitMaterial").create({ productVariantId: variantId, packagingId: bagId, quantityPerUnit: 1 })
+            await sequelize.model("ProductVariantPalletMaterial").create({ productVariantId: variantId, packagingId: boxId, quantityBasis: "per_box", quantityValue: 1 })
+            const response = await request(server).post("/api/admin/quotes/preview").set("Authorization", `Bearer ${adminToken}`).send({ productVariantId: variantId, requestedPallets: 1 })
+            expect(response.status).toBe(200)
+            const { unitMaterials, palletMaterials } = response.body.data.breakdown
+            expect(unitMaterials.find((line: { packagingId: number }) => line.packagingId === bagId)).toMatchObject({
+                unitCost: 2, lineTotal: 10944, volumePricing: { tier: "medium", priceTier: "medium", materialQuantity: 5472, minimumQuantity: 5000, maximumQuantity: 25000 },
+            })
+            expect(palletMaterials.find((line: { packagingId: number }) => line.packagingId === boxId)).toMatchObject({
+                unitCost: 3, lineTotal: 2736, volumePricing: { tier: "base", priceTier: "base", materialQuantity: 912, maximumQuantity: 5000 },
+            })
+        } finally {
+            if (bagId) { await sequelize.model("ProductVariantUnitMaterial").destroy({ where: { packagingId: bagId } }); await sequelize.model("Packaging").destroy({ where: { id: bagId } }) }
+            if (boxId) { await sequelize.model("ProductVariantPalletMaterial").destroy({ where: { packagingId: boxId } }); await sequelize.model("Packaging").destroy({ where: { id: boxId } }) }
+            await variant.update(original)
+        }
+    }, 30000)
+
     test("client pallet rules apply automatically to every SKU, reject overrides and protect assigned materials", async () => {
         const model = (name: string) => sequelize.models[name] as any
         const client = await model("Client").create({ name: "Synthetic pallet exception" })

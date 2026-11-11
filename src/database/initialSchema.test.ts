@@ -3,10 +3,10 @@ import { databaseModels } from "./models"
 import { schemaChecks, schemaFunctions, schemaTriggers } from "./schemaExtras"
 const metadata=new Sequelize({dialect:'postgres',logging:false,models:databaseModels})
 afterAll(()=>metadata.close())
-test("the sole current schema contract has 49 models, 15 checks, 5 functions and 7 triggers",()=>{
+test("the sole current schema contract has 49 models, 16 checks, 5 functions and 7 triggers",()=>{
     expect(databaseModels).toHaveLength(49)
     expect(new Set(metadata.modelManager.models.map(model=>model.tableName)).size).toBe(49)
-    expect(schemaChecks).toHaveLength(15)
+    expect(schemaChecks).toHaveLength(16)
     expect(schemaFunctions).toHaveLength(5)
     expect(schemaTriggers).toHaveLength(7)
     for(const trigger of schemaTriggers) expect(schemaFunctions.some(fn=>fn.name===trigger.functionName)).toBe(true)
@@ -17,6 +17,11 @@ test("current juice and USD models exclude retired economic fields",()=>{
     expect(attrs('JuicePresentation')).not.toHaveProperty('marginPerCase')
     expect(attrs('Product')).toHaveProperty('isOrganic')
     expect(attrs('ProductVariant')).toHaveProperty('bagsPerBox.field','unitsPerBox')
+})
+
+test("volume pricing DECIMAL attributes serialize as nullable numbers without connecting", () => {
+    const material = metadata.model("Packaging").build({ lowVolumeMaximumQuantity: "5000.00", mediumVolumeMaximumQuantity: "25000.00", mediumVolumeMinimumQuantity: null, mediumVolumeUnitCost: "0.123456789012", highVolumeMinimumQuantity: null, highVolumeUnitCost: null })
+    expect(material.toJSON()).toMatchObject({ lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeMinimumQuantity: null, mediumVolumeUnitCost: 0.123456789012, highVolumeMinimumQuantity: null, highVolumeUnitCost: null })
 })
 
 test("retired option tables, juice administration tables and organic column are absent", () => {

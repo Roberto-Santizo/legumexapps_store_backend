@@ -86,6 +86,7 @@ export function errorHandler(error: unknown, req: Request, res: Response, _next:
         const keys: Record<string, string> = {
             generic_packaging_assignment: "errors.generic_packaging_selection",
             packaging_associations_protected: "errors.packaging_associations_protected",
+            packagings_volume_pricing_check: "errors.packaging_volume_pricing_invalid",
             packaging_generic_not_available: "errors.packaging_generic_not_available",
             packaging_role_mismatch: "errors.packaging_role_mismatch",
         }

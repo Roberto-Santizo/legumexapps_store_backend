@@ -49,6 +49,97 @@ async function buildWorkbookBuffer(headers: string[], rows: SheetRow[]): Promise
 // de encabezado, no por posición, así que el orden acá no es lo que se está probando.
 const HEADERS = ["Código", "Nombre", "Rol del material", "Costo por unidad (USD)"]
 
+describe("specific packaging volume pricing import and edits", () => {
+    const volumeHeaders = ["Cantidad mínima volumen medio", "Costo volumen medio (USD)", "Cantidad mínima volumen alto", "Costo volumen alto (USD)"]
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mockPackagingFindOne.mockReset()
+        mockPackagingFindAll.mockResolvedValue([])
+        mockBulkCreate.mockImplementation(async rows => rows)
+    })
+
+    it("imports full tiers, one-price boxes, equal costs and a skipped middle tier", async () => {
+        const headers = [...HEADERS, "Tipo de material", ...volumeHeaders, "Límite volumen bajo"]
+        const buffer = await buildWorkbookBuffer(headers, [
+            { "Código": "V-BAG", "Nombre": "Bag", "Rol del material": "unit", "Costo por unidad (USD)": 0.12,
+                "Límite volumen bajo": 5000, [volumeHeaders[0]]: 25000, [volumeHeaders[1]]: 0.10, [volumeHeaders[2]]: 50000, [volumeHeaders[3]]: 0.08 },
+            { "Código": "V-BOX", "Nombre": "Box", "Rol del material": "pallet", "Tipo de material": "CAJA", "Costo por unidad (USD)": 2 },
+            { "Código": "V-EQUAL", "Nombre": "Equal", "Rol del material": "unit", "Costo por unidad (USD)": 0.12,
+                [volumeHeaders[0]]: 25000, [volumeHeaders[1]]: 0.12, [volumeHeaders[2]]: 50000, [volumeHeaders[3]]: 0.12 },
+            { "Código": "V-HIGH", "Nombre": "High only", "Rol del material": "unit", "Costo por unidad (USD)": 0.12,
+                [volumeHeaders[2]]: 50000, [volumeHeaders[3]]: 0 },
+        ])
+        const rows = await packagingService.bulkImportPackagings(buffer)
+        expect(rows[0]).toMatchObject({ lowVolumeMaximumQuantity: 5000, mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: 0.10, highVolumeMinimumQuantity: 50000, highVolumeUnitCost: 0.08 })
+        expect(rows[1]).not.toHaveProperty("mediumVolumeUnitCost")
+        expect(rows[2]).toMatchObject({ mediumVolumeUnitCost: 0.12, highVolumeUnitCost: 0.12 })
+        expect(rows[3]).toMatchObject({ highVolumeUnitCost: 0 })
+    })
+
+    it.each([
+        { "Cantidad mínima volumen medio": 0 },
+        { "Costo volumen medio (USD)": -0.1 },
+        { "Cantidad mínima volumen medio": 4000, "Costo volumen medio (USD)": 0.1, "Cantidad mínima volumen alto": 20000, "Costo volumen alto (USD)": 0.08 },
+        { "Cantidad mínima volumen alto": 50000, "Costo volumen alto (USD)": -1 },
+        { "Cantidad mínima volumen alto": 50000, "Costo volumen alto (USD)": "not-a-price" },
+    ])("rejects the whole workbook with row/field evidence for invalid tiers %j", invalid => {
+        return buildWorkbookBuffer([...HEADERS, ...volumeHeaders], [
+            { "Código": "GOOD", "Nombre": "Good", "Rol del material": "unit", "Costo por unidad (USD)": 0.12 },
+            { "Código": "BAD", "Nombre": "Bad", "Rol del material": "unit", "Costo por unidad (USD)": 0.12, ...invalid },
+        ]).then(async buffer => {
+            await expect(packagingService.bulkImportPackagings(buffer)).rejects.toMatchObject({ rowIssues: expect.arrayContaining([expect.objectContaining({ row: 3, field: expect.stringMatching(/Volume/) })]) })
+            expect(mockBulkCreate).not.toHaveBeenCalled()
+        })
+    })
+
+    it("rejects generic rows carrying specific-only volume pricing", async () => {
+        const buffer = await buildWorkbookBuffer([...HEADERS, "Clasificación", ...volumeHeaders], [
+            { "Nombre": "Generic", "Rol del material": "unit", "Costo por unidad (USD)": 0.12, "Clasificación": "Genérico", [volumeHeaders[0]]: 25000, [volumeHeaders[1]]: 0.1 },
+        ])
+        await expect(packagingService.bulkImportPackagings(buffer)).rejects.toBeInstanceOf(BulkImportError)
+        expect(mockBulkCreate).not.toHaveBeenCalled()
+    })
+
+    const current = () => ({ id: 1, code: "V-BAG", classification: "specific", packagingRole: "unit", materialType: "INDIVIDUAL", unitCost: 0.12,
+        lowVolumeMaximumQuantity: 5000,
+        mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: 0.1, highVolumeMinimumQuantity: 50000, highVolumeUnitCost: 0.08, update: jest.fn() })
+
+    it("preserves stored tiers when an older client edits only the base cost", async () => {
+        const packaging = current()
+        mockPackagingFindOne.mockResolvedValueOnce(packaging).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(1, { code: "V-BAG", packagingRole: "unit", unitCost: 0.13 })
+        expect(packaging.update).toHaveBeenCalledWith(expect.not.objectContaining({ mediumVolumeMinimumQuantity: expect.anything() }), expect.anything())
+        expect(packaging.mediumVolumeUnitCost).toBe(0.1)
+        expect(packaging.lowVolumeMaximumQuantity).toBe(5000)
+    })
+
+    it("persists an edited low-volume limit without rewriting prices", async () => {
+        const packaging = current()
+        mockPackagingFindOne.mockResolvedValueOnce(packaging).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(1, { code: "V-BAG", packagingRole: "unit", unitCost: 0.12, lowVolumeMaximumQuantity: 6000 })
+        expect(packaging.update).toHaveBeenCalledWith(expect.objectContaining({ lowVolumeMaximumQuantity: 6000, unitCost: 0.12 }), expect.anything())
+    })
+
+    it("validates edited tiers against retained tiers and permits explicit clearing", async () => {
+        const packaging = current()
+        mockPackagingFindOne.mockResolvedValueOnce(packaging).mockResolvedValueOnce(null)
+        await expect(packagingService.updatePackaging(1, { code: "V-BAG", packagingRole: "unit", unitCost: 0.12, lowVolumeMaximumQuantity: 30000 }))
+            .rejects.toMatchObject({ key: "errors.packaging_volume_pricing_invalid" })
+        expect(packaging.update).not.toHaveBeenCalled()
+        mockPackagingFindOne.mockResolvedValueOnce(packaging).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(1, { code: "V-BAG", packagingRole: "unit", unitCost: 0.12, mediumVolumeMinimumQuantity: null, mediumVolumeUnitCost: null })
+        expect(packaging.update).toHaveBeenCalledWith(expect.objectContaining({ mediumVolumeMinimumQuantity: null, mediumVolumeUnitCost: null }), expect.anything())
+    })
+
+    it("imports canonical inclusive limits without obsolete minimum references", async () => {
+        const headers = [...HEADERS, "Límite volumen bajo", "Límite volumen medio", "Costo volumen medio (USD)", "Costo volumen alto (USD)"]
+        const buffer = await buildWorkbookBuffer(headers, [{ "Código": "RANGES", "Nombre": "Range bag", "Rol del material": "unit", "Costo por unidad (USD)": 3,
+            "Límite volumen bajo": 5000, "Límite volumen medio": 25000, "Costo volumen medio (USD)": 2, "Costo volumen alto (USD)": 1 }])
+        const rows = await packagingService.bulkImportPackagings(buffer)
+        expect(rows[0]).toMatchObject({ lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, unitCost: 3, mediumVolumeUnitCost: 2, highVolumeUnitCost: 1 })
+    })
+})
+
 describe("packagingService.bulkImportPackagings", () => {
     beforeEach(() => {
         mockBulkCreate.mockReset()
@@ -348,7 +439,7 @@ describe("packagingService.updatePackaging", () => {
     it("permite guardar sin cambiar de código (la unicidad no se compara consigo mismo)", async () => {
         const mockUpdate = jest.fn().mockResolvedValue(undefined)
         mockPackagingFindOne.mockImplementation(({ where }: { where: Record<string, unknown> }) => {
-            if ("id" in where && !("code" in where)) return Promise.resolve({ id: 1, code: "BOL-001", update: mockUpdate })
+            if ("id" in where && !("code" in where)) return Promise.resolve({ id: 1, code: "BOL-001", classification: "specific", update: mockUpdate })
             if ("code" in where) return Promise.resolve(null) // nadie más usa "BOL-001"
             return Promise.resolve(null)
         })

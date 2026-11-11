@@ -38,6 +38,12 @@ beforeEach(() => {
     jest.mocked(loadJuiceRecipe).mockResolvedValue({ recipe: { rawMaterials: [{ rawMaterialId: 1, displayName: "Synthetic raw", percentage: 100, costPerLiter: 2 }], spices: [{ spiceMaterialId: 7, displayName: "Synthetic ingredient", gramsPerLiter: .5, costPerGram: 1 }] }, ingredientRows: [{ ingredientId: 7, gramsPerLiter: .5, ingredient: { id: 7, displayName: "Synthetic ingredient", costPerUnit: 453.592, costUnit: { unitCode: "pound", unitType: "weight", baseFactor: 453.592 } } }] } as never)
 })
 
+test.each([[1, "base", 0.1], [2, "medium", 0.08], [3, "high", 0.06]] as const)("linked juice uses the shared material volume tier for %s pallets", async (pallets, tier, cost) => {
+    Object.assign(variant.unitMaterials[0].usedUnitMaterial, { lowVolumeMaximumQuantity: 6, mediumVolumeMaximumQuantity: 12, mediumVolumeUnitCost: 0.08, highVolumeUnitCost: 0.06 })
+    const result = await calculateLinkedJuice(juice, { ...input, requestedPallets: pallets }, "es")
+    expect(result.breakdown.unitMaterials[0]).toMatchObject({ unitCost: cost, volumePricing: { tier, materialQuantity: pallets * 6 } })
+})
+
 test("shared packaging, volume recipe and ingredients sum to an independent oracle without extra charges", async () => {
     const result = await calculateLinkedJuice(juice, input, "es")
     // 12 bottles: 24 raw + 6 ingredient + 1.2 bottles + 3 boxes + 20 pallets.

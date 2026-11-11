@@ -13,6 +13,7 @@ import { AppError } from "../../../shared/errors/AppError"
 import { ContentLanguage, pickTranslatedName } from "../../../shared/utils/translation.util"
 import { toDecimal, roundMoney, sumMoney } from "../../../shared/utils/money.util"
 import { normalizeOptionGroup } from "../../../shared/utils/optionGroup.util"
+import { resolvePackagingCost, type PackagingVolumePricing } from "./packagingVolumePricing"
 
 // Línea de mezcla por % de materia prima (la recibe buildCustomizableRawMaterials).
 export interface RawMaterialMixLineInput {
@@ -61,6 +62,7 @@ export interface IngredientLine {
 // costeada (null = fila fija), congelado en el snapshot para que el desglose admin muestre
 // "Caja: caja de envío" aunque el admin renombre el grupo después.
 export interface UnitMaterialLine {
+    volumePricing?: PackagingVolumePricing
     packagingId: number
     code?: string
     displayName: string
@@ -73,6 +75,7 @@ export interface UnitMaterialLine {
 }
 
 export interface IntermediateMaterialLine {
+    volumePricing?: PackagingVolumePricing
     packagingId: number
     code?: string
     displayName: string
@@ -102,6 +105,7 @@ export interface PercentageCostLine {
 }
 
 export interface PalletMaterialLine {
+    volumePricing?: PackagingVolumePricing
     packagingId: number
     code?: string
     displayName: string
@@ -347,8 +351,8 @@ export function buildUnitMaterialLine(
     quantityPerUnitValue: number | string,
     totalUnits: number
 ): UnitMaterialLine {
-    const unitCost = toDecimal(packaging?.unitCost ?? 0)
     const quantityPerUnit = toDecimal(quantityPerUnitValue)
+    const { unitCost, volumePricing } = resolvePackagingCost(packaging, quantityPerUnit.times(totalUnits))
     const lineTotal = roundMoney(unitCost.times(quantityPerUnit).times(totalUnits))
     return {
         packagingId,
@@ -358,6 +362,7 @@ export function buildUnitMaterialLine(
         unitCost: unitCost.toNumber(),
         quantityPerUnit: quantityPerUnit.toNumber(),
         totalUnits,
+        ...(volumePricing ? { volumePricing } : {}),
         lineTotal
     }
 }
@@ -376,8 +381,8 @@ export function buildIntermediateMaterialLine(
     if (!unitsPerIntermediatePackage || unitsPerIntermediatePackage <= 0) {
         throw new AppError(422, "errors.intermediate_packaging_missing_units")
     }
-    const unitCost = toDecimal(packaging?.unitCost ?? 0)
     const packagesNeeded = Math.ceil(totalUnits / unitsPerIntermediatePackage)
+    const { unitCost, volumePricing } = resolvePackagingCost(packaging, toDecimal(packagesNeeded))
     return {
         packagingId,
         code: packaging?.code,
@@ -387,6 +392,7 @@ export function buildIntermediateMaterialLine(
         unitsPerPackage: unitsPerIntermediatePackage,
         totalUnits,
         packagesNeeded,
+        ...(volumePricing ? { volumePricing } : {}),
         lineTotal: roundMoney(unitCost.times(packagesNeeded))
     }
 }
@@ -400,8 +406,8 @@ export function buildPalletMaterialLine(
     quantityPerPalletValue: number | string,
     requestedPallets: number
 ): PalletMaterialLine {
-    const unitCost = toDecimal(packaging?.unitCost ?? 0)
     const quantityPerPallet = toDecimal(quantityPerPalletValue)
+    const { unitCost, volumePricing } = resolvePackagingCost(packaging, quantityPerPallet.times(requestedPallets))
     const lineTotal = roundMoney(unitCost.times(quantityPerPallet).times(requestedPallets))
     return {
         packagingId,
@@ -411,6 +417,7 @@ export function buildPalletMaterialLine(
         unitCost: unitCost.toNumber(),
         quantityPerPallet: quantityPerPallet.toNumber(),
         requestedPallets,
+        ...(volumePricing ? { volumePricing } : {}),
         lineTotal
     }
 }

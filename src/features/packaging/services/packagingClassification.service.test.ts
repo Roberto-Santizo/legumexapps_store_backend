@@ -112,7 +112,7 @@ it("requires both names on creation and allows a historical English name to rema
     expect(createPackagingSchema.safeParse({ ...base, classification: "specific", displayNameEn: " " }).success).toBe(false)
     expect(createPackagingSchema.safeParse({ ...base, classification: "specific", displayNameEn: null }).success).toBe(false)
     const update = jest.fn()
-    jest.mocked(Packaging.findOne).mockResolvedValueOnce({ ...base, id: 1, update } as unknown as Packaging).mockResolvedValueOnce(null)
+    jest.mocked(Packaging.findOne).mockResolvedValueOnce({ ...base, classification: "specific", id: 1, update } as unknown as Packaging).mockResolvedValueOnce(null)
     await packagingService.updatePackaging(1, { ...base, displayNameEn: " " })
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ displayName: base.displayName, displayNameEn: null }), { transaction: {} })
 })

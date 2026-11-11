@@ -57,6 +57,66 @@ class Packaging extends BaseCatalogModel {
     declare unitCost: number
 
     @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("lowVolumeMaximumQuantity") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare lowVolumeMaximumQuantity: number | null
+
+    @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("mediumVolumeMaximumQuantity") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare mediumVolumeMaximumQuantity: number | null
+
+    @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("mediumVolumeMinimumQuantity") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare mediumVolumeMinimumQuantity: number | null
+
+    @Column({
+        type: DataType.DECIMAL(18, 12),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("mediumVolumeUnitCost") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare mediumVolumeUnitCost: number | null
+
+    @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("highVolumeMinimumQuantity") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare highVolumeMinimumQuantity: number | null
+
+    @Column({
+        type: DataType.DECIMAL(18, 12),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("highVolumeUnitCost") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare highVolumeUnitCost: number | null
+
+    @Column({
         type: DataType.ENUM("per_box", "per_pallet"),
         allowNull: true
     })

@@ -1,5 +1,6 @@
 
 export type PackagingImportField = "displayNameEn" | "classification" | "code" | "displayName" | "packagingRole" | "materialType" | "unitCost" | "defaultQuantityBasis" | "defaultQuantityValue"
+    | "lowVolumeMaximumQuantity" | "mediumVolumeMaximumQuantity" | "mediumVolumeMinimumQuantity" | "mediumVolumeUnitCost" | "highVolumeMinimumQuantity" | "highVolumeUnitCost"
 
 interface ImportColumnDef {
     header: string
@@ -16,6 +17,12 @@ export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumn
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
     materialType: { header: "Tipo de material", aliases: ["tipo de material", "material type"] },
     unitCost: { header: "Costo por unidad (USD)", aliases: ["costo por unidad (usd)", "costo por unidad (q)", "costo por unidad", "costo"] },
+    lowVolumeMaximumQuantity: { header: "Límite volumen bajo", aliases: ["limite volumen bajo", "lowvolumemaximumquantity"] },
+    mediumVolumeMaximumQuantity: { header: "Límite volumen medio", aliases: ["limite volumen medio", "mediumvolumemaximumquantity"] },
+    mediumVolumeMinimumQuantity: { header: "Cantidad mínima volumen medio", aliases: ["cantidad minima volumen medio", "mediumvolumeminimumquantity"] },
+    mediumVolumeUnitCost: { header: "Costo volumen medio (USD)", aliases: ["costo volumen medio (usd)", "costo volumen medio", "mediumvolumeunitcost"] },
+    highVolumeMinimumQuantity: { header: "Cantidad mínima volumen alto", aliases: ["cantidad minima volumen alto", "highvolumeminimumquantity"] },
+    highVolumeUnitCost: { header: "Costo volumen alto (USD)", aliases: ["costo volumen alto (usd)", "costo volumen alto", "highvolumeunitcost"] },
     defaultQuantityBasis: { header: "Base de consumo (OTRO)", aliases: ["base de consumo (otro)", "defaultquantitybasis"] },
     defaultQuantityValue: { header: "Cantidad de consumo (OTRO)", aliases: ["cantidad de consumo (otro)", "defaultquantityvalue"] },
 }

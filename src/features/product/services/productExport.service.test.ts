@@ -61,6 +61,24 @@ it("exports all configurations, inactive alternatives, precise costs and text co
     for (const sheet of reopened.worksheets) { expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 1 }); expect(sheet.autoFilter).toBeDefined() }
     expect(original.products[0].additionalCostPerUnit).toBe("0.0123")
 })
+
+it("exports volume minimums and twelve-decimal costs without replacing the base price", async () => {
+    const data = fixture()
+    Object.assign(data.packagings[0], { lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: "0.012345678901", highVolumeMinimumQuantity: 50000, highVolumeUnitCost: 0 })
+    const workbook = buildProductExportWorkbook(data)
+    const reopened = new ExcelJS.Workbook()
+    await reopened.xlsx.load(await workbook.xlsx.writeBuffer())
+    const sheet = reopened.getWorksheet("Empaques unidad")!
+    const headers = sheet.getRow(1).values as string[]
+    const mediumCostColumn = headers.indexOf("Costo volumen medio USD / Medium unit cost")
+    const highCostColumn = headers.indexOf("Costo volumen alto USD / High unit cost")
+    expect(sheet.getRow(2).getCell(mediumCostColumn).value).toBe(0.012345678901)
+    expect(sheet.getRow(2).getCell(highCostColumn).value).toBe(0)
+    expect(sheet.getRow(2).getCell(headers.indexOf("Limite volumen bajo / Low maximum")).value).toBe(5000)
+    expect(sheet.getRow(2).getCell(headers.indexOf("Limite volumen medio / Medium maximum")).value).toBe(25000)
+    expect(sheet.getColumn(mediumCostColumn).numFmt).toBe("0.000000000000")
+    expect(sheet.getRow(2).getCell(headers.indexOf("Costo USD / Unit cost USD")).value).toBe(0.0123)
+})
 it("exports empty catalogs with all headers and keeps unresolved references visible", () => {
     const data = fixture()
     for (const key of Object.keys(data) as (keyof ProductExportData)[]) data[key] = []

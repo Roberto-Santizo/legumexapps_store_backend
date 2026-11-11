@@ -1,6 +1,7 @@
 import z from "zod"
 import { paginationQuerySchema } from "../../../shared/schemas/pagination.schema"
 import { PACKAGING_MATERIAL_TYPES } from "../constants/packagingMaterialType.constant"
+import { packagingUnitCostSchema, packagingVolumePricingFields, validatePackagingVolumePricing } from "./packagingVolumePricing.schema"
 
 const packagingRoleEnum = z.enum(["unit", "intermediate", "pallet"])
 
@@ -12,7 +13,8 @@ const packagingFields = z.object({
     classification: z.enum(["specific", "generic"]),
     // Chosen for pallet materials; unit and intermediate ones get theirs from the level (packaging.service.ts).
     materialType: z.enum(PACKAGING_MATERIAL_TYPES).optional(),
-    unitCost: z.number().nonnegative().max(999999.9999).multipleOf(0.000000000001),
+    unitCost: packagingUnitCostSchema,
+    ...packagingVolumePricingFields,
     defaultQuantityBasis: z.enum(["per_box", "per_pallet"]).nullable().optional(),
     defaultQuantityValue: z.number().positive().max(99999999.99).refine(value => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001).nullable().optional(),
 })
@@ -34,7 +36,11 @@ function validateCode(value: { classification?: string; code?: string }, ctx: z.
     if (value.classification === "generic" && value.code) ctx.addIssue({ code: "custom", path: ["code"], message: "errors.packaging_generic_code_forbidden" })
     if (value.classification === "specific" && !value.code) ctx.addIssue({ code: "custom", path: ["code"], message: "errors.packaging_code_required" })
 }
-const validatePackaging = (value: Parameters<typeof validateDefaults>[0] & Parameters<typeof validateCode>[0], ctx: z.RefinementCtx) => { validateDefaults(value, ctx); validateCode(value, ctx) }
+const validatePackaging = (value: Parameters<typeof validateDefaults>[0] & Parameters<typeof validateCode>[0] & Parameters<typeof validatePackagingVolumePricing>[0], ctx: z.RefinementCtx) => {
+    validateDefaults(value, ctx)
+    validateCode(value, ctx)
+    validatePackagingVolumePricing(value, ctx)
+}
 
 export const packagingDefaultsSchema = packagingFields.pick({ packagingRole: true, defaultQuantityBasis: true, defaultQuantityValue: true }).superRefine(validateDefaults)
 
@@ -46,7 +52,10 @@ export const updatePackagingSchema = packagingFields.partial().extend({
     isActive: z.boolean().optional(),
     packagingRole: packagingFields.shape.packagingRole,
     unitCost: packagingFields.shape.unitCost,
-}).superRefine(validateDefaults)
+}).superRefine((value, ctx) => {
+    validateDefaults(value, ctx)
+    validatePackagingVolumePricing(value, ctx)
+})
 
 export const packagingQuerySchema = paginationQuerySchema.extend({
     search: z.string().trim().optional(),

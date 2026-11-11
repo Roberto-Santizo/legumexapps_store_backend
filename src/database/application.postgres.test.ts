@@ -1021,6 +1021,57 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         }
     }, 30000)
 
+    test.each(["option", "group"] as const)("a generic label removed by %s can move from unit to pallet without reviving its old assignment", async removal => {
+        const category = await sequelize.model("Category").create({ displayName: `Label ${removal}`, urlSlug: `label-${removal}` })
+        const presentation = await sequelize.model("Presentation").create({ displayLabel: `Label ${removal} 100g`, netWeightGrams: 100 })
+        const group = await sequelize.model("PackagingGroup").create({ displayName: `Label ${removal}`, nameKey: `label ${removal}` })
+        const createdMaterial = await request(server).post("/api/generic-packaging-configurations/materials").set("Authorization", `Bearer ${adminToken}`)
+            .send({ displayName: "Etiqueta", displayNameEn: "Label", classification: "generic", packagingRole: "unit", unitCost: 0.05 })
+        expect(createdMaterial.status).toBe(201)
+        const materialId: number = createdMaterial.body.data.id
+        const originalCode: string = createdMaterial.body.data.code
+        expect(originalCode).toMatch(/^GEN-IND-\d+$/)
+        const payload = {
+            reference: `LABEL-${removal}`, displayName: `Label ${removal}`, categoryId: category.id, presentationId: presentation.id,
+            bagsPerBox: 12, boxesPerPallet: 80, unitsPerIntermediatePackage: null, isActive: true,
+            groups: [{ packagingGroupId: group.id, level: "unit", selectionMode: "all", isRequired: true,
+                options: [{ packagingId: materialId, quantityBasis: "per_unit", quantityValue: 1 }] }],
+        }
+        const createdProfile = await request(server).post("/api/generic-packaging-configurations").set("Authorization", `Bearer ${adminToken}`).send(payload)
+        expect(createdProfile.status).toBe(201)
+        const profileId: number = createdProfile.body.data.id
+        const changedMaterial = { classification: "generic", packagingRole: "pallet", materialType: "OTRO", unitCost: 0.05, defaultQuantityBasis: "per_box", defaultQuantityValue: 1 }
+        const changeMaterial = () => request(server).put(`/api/packagings/${materialId}`).set("Authorization", `Bearer ${adminToken}`).send(changedMaterial)
+        expect((await changeMaterial()).status).toBe(422)
+        expect((await sequelize.model("Packaging").findByPk(materialId))!.get("code")).toBe(originalCode)
+
+        const removedPayload = { ...payload, groups: removal === "group" ? [] : [{ ...payload.groups[0], options: [] }] }
+        const saveProfile = (body: typeof payload) => request(server).put(`/api/generic-packaging-configurations/${profileId}`).set("Authorization", `Bearer ${adminToken}`).send(body)
+        expect((await saveProfile(removedPayload)).status).toBe(200)
+        const oldAssignment = await sequelize.model("GenericPackagingConfigurationMaterial").findOne({ where: { packagingId: materialId } })
+        expect(oldAssignment!.get("isActive")).toBe(false)
+
+        expect((await changeMaterial()).status).toBe(200)
+        const updatedMaterial = (await sequelize.model("Packaging").findByPk(materialId))!
+        expect(updatedMaterial.get("code")).toMatch(/^GEN-PAL-\d+$/)
+        expect(updatedMaterial.get("code")).not.toBe(originalCode)
+        expect(updatedMaterial.get("packagingRole")).toBe("pallet")
+        expect(updatedMaterial.get("materialType")).toBe("OTRO")
+        expect(Number(updatedMaterial.get("unitCost"))).toBe(0.05)
+        expect(updatedMaterial.get("defaultQuantityBasis")).toBe("per_box")
+        expect(Number(updatedMaterial.get("defaultQuantityValue"))).toBe(1)
+        expect((await saveProfile(removedPayload)).status).toBe(200)
+        await expect(oldAssignment!.update({ isActive: true })).rejects.toMatchObject({ original: { constraint: "generic_packaging_assignment" } })
+        expect((await saveProfile(payload)).status).toBe(422)
+
+        const palletPayload = { ...payload, groups: [{ ...payload.groups[0], level: "pallet", options: [{ packagingId: materialId, quantityBasis: "per_box", quantityValue: 1 }] }] }
+        expect((await saveProfile(palletPayload)).status).toBe(200)
+        expect(await sequelize.model("GenericPackagingConfigurationMaterial").count({ where: { packagingId: materialId, isActive: true } })).toBe(1)
+        expect((await saveProfile(palletPayload)).status).toBe(200)
+        await oldAssignment!.reload()
+        expect(oldAssignment!.get("isActive")).toBe(false)
+    }, 30000)
+
     test("changing an associated pallet material type is rejected without modifying the catalog or SKU", async () => {
         const material = await sequelize.model("Packaging").create({ code: "AUDIT-TYPE", displayName: "Audit box", classification: "specific", packagingRole: "pallet", materialType: "CAJA", defaultQuantityBasis: "per_box", defaultQuantityValue: 1, unitCost: 2 })
         const association = await sequelize.model("ProductVariantPalletMaterial").create({ productVariantId: variantId, packagingId: material.id, quantityBasis: "per_box", quantityValue: 1 })

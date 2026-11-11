@@ -506,4 +506,29 @@ describe("material type changes preserve existing associations", () => {
         await packagingService.updatePackaging(5, { code: "AUDIT-BOX", packagingRole: "pallet", materialType: "TARIMA", unitCost: 2 })
         expect(update).toHaveBeenCalledWith(expect.objectContaining({ materialType: "TARIMA", defaultQuantityBasis: "per_pallet", defaultQuantityValue: 1 }), { transaction: expect.anything() })
     })
+    it("moves a generic label with only removed associations to pallet and assigns its new code", async () => {
+        const update = jest.fn()
+        const current = { id: 22, code: "GEN-IND-0022", classification: "generic", packagingRole: "unit", materialType: "INDIVIDUAL", unitCost: 0.05, update }
+        mockPackagingFindOne.mockResolvedValueOnce(current)
+        mockPackagingFindAll.mockResolvedValue([])
+        jest.mocked(GenericMaterial.findOne).mockImplementation(async options => {
+            const where = options?.where as { isActive?: boolean } | undefined
+            return where?.isActive === true ? null : { id: 9, isActive: false } as GenericMaterial
+        })
+
+        await packagingService.updatePackaging(22, { classification: "generic", packagingRole: "pallet", materialType: "OTRO", unitCost: 0.05, defaultQuantityBasis: "per_box", defaultQuantityValue: 1 })
+
+        expect(update).toHaveBeenCalledWith(expect.objectContaining({ code: "GEN-PAL-0001", packagingRole: "pallet", materialType: "OTRO", unitCost: 0.05, defaultQuantityBasis: "per_box", defaultQuantityValue: 1 }), { transaction: expect.anything() })
+        expect(GenericMaterial.findOne).toHaveBeenCalledWith(expect.objectContaining({ where: { packagingId: 22, isActive: true } }))
+    })
+    it.each([UnitMaterial, IntermediateMaterial, PalletMaterial])("keeps protecting inactive fixed-SKU associations (%#)", async model => {
+        const update = jest.fn()
+        mockPackagingFindOne.mockResolvedValueOnce({ id: 5, code: "SPECIFIC-LABEL", classification: "specific", packagingRole: "unit", materialType: "INDIVIDUAL", update }).mockResolvedValueOnce(null)
+        jest.mocked(model.findOne).mockResolvedValue({ id: 9, isActive: false } as never)
+
+        await expect(packagingService.updatePackaging(5, { code: "SPECIFIC-LABEL", packagingRole: "pallet", materialType: "OTRO", unitCost: 0.05, defaultQuantityBasis: "per_box", defaultQuantityValue: 1 }))
+            .rejects.toMatchObject({ statusCode: 422, key: "errors.packaging_material_type_in_use" })
+
+        expect(update).not.toHaveBeenCalled()
+    })
 })

@@ -119,8 +119,9 @@ async function applyPackagingUpdate(packaging: Packaging, input: UpdatePackaging
     await assertKitMembershipKept(packaging, values, transaction)
     if (packaging.materialType && values.materialType !== packaging.materialType) {
         const query = { where: { packagingId: packaging.id }, attributes: ["id"], transaction }
+        const activeGenericQuery = { ...query, where: { ...query.where, isActive: true } }
         if (await UnitMaterial.findOne(query) || await IntermediateMaterial.findOne(query)
-            || await PalletMaterial.findOne(query) || await GenericMaterial.findOne(query)) {
+            || await PalletMaterial.findOne(query) || await GenericMaterial.findOne(activeGenericQuery)) {
             throw new AppError(422, "errors.packaging_material_type_in_use")
         }
     }

@@ -33,7 +33,7 @@ describe("representativeQuoteView", () => {
     it("keeps volume tier decisions and applied costs inside the administrative snapshot", () => {
         const withVolume = structuredClone(calculation)
         withVolume.breakdown.unitMaterials[0].volumePricing = { tier: "medium", materialQuantity: 25000, minimumQuantity: 25000 }
-        withVolume.breakdown.palletMaterials[0].volumePricing = { tier: "high", materialQuantity: 50000, minimumQuantity: 50000 }
+        withVolume.breakdown.palletMaterials[0].volumePricing = { tier: "fourth", priceTier: "high", materialQuantity: 50000, minimumQuantity: 15000, maximumQuantity: null, referenceMaximumQuantity: 20000 }
         const view = representativeQuoteView(withVolume)
         expect(JSON.stringify(view)).not.toContain("volumePricing")
         expect(amountKeys(view)).toEqual([])

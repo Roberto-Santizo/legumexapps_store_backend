@@ -117,6 +117,36 @@ class Packaging extends BaseCatalogModel {
     declare highVolumeUnitCost: number | null
 
     @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("highVolumeMaximumQuantity") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare highVolumeMaximumQuantity: number | null
+
+    @Column({
+        type: DataType.DECIMAL(10, 2),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("fourthVolumeMaximumQuantity") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare fourthVolumeMaximumQuantity: number | null
+
+    @Column({
+        type: DataType.DECIMAL(18, 12),
+        allowNull: true,
+        get(this: Packaging) {
+            const value = this.getDataValue("fourthVolumeUnitCost") as number | string | null
+            return value == null ? null : Number(value)
+        }
+    })
+    declare fourthVolumeUnitCost: number | null
+
+    @Column({
         type: DataType.ENUM("per_box", "per_pallet"),
         allowNull: true
     })

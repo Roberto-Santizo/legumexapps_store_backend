@@ -9,7 +9,7 @@ import UnitMaterial from "../../product/models/ProductVariantUnitMaterial.model"
 import IntermediateMaterial from "../../product/models/ProductVariantIntermediateMaterial.model"
 import PalletMaterial from "../../product/models/ProductVariantPalletMaterial.model"
 import GenericMaterial from "../../genericPackaging/models/GenericPackagingConfigurationMaterial.model"
-import { packagingVolumePricingSchema } from "../schemas/packagingVolumePricing.schema"
+import { packagingVolumePricingFields, packagingVolumePricingSchema } from "../schemas/packagingVolumePricing.schema"
 import { AppError, BulkImportError, NotFoundError, RowIssue } from "../../../shared/errors/AppError"
 import { CreatePackagingInput, PackagingImportInput, UpdatePackagingInput, packagingDefaultsSchema, PackagingQuery, importLegacyPackagingSchema } from "../schemas/packaging.schema"
 import { paginate, PaginatedResult, PaginationParams } from "../../../shared/utils/pagination.util"
@@ -125,6 +125,9 @@ async function applyPackagingUpdate(packaging: Packaging, input: UpdatePackaging
         mediumVolumeUnitCost: packaging.mediumVolumeUnitCost == null ? null : Number(packaging.mediumVolumeUnitCost),
         highVolumeMinimumQuantity: packaging.highVolumeMinimumQuantity == null ? null : Number(packaging.highVolumeMinimumQuantity),
         highVolumeUnitCost: packaging.highVolumeUnitCost == null ? null : Number(packaging.highVolumeUnitCost),
+        highVolumeMaximumQuantity: packaging.highVolumeMaximumQuantity == null ? null : Number(packaging.highVolumeMaximumQuantity),
+        fourthVolumeMaximumQuantity: packaging.fourthVolumeMaximumQuantity == null ? null : Number(packaging.fourthVolumeMaximumQuantity),
+        fourthVolumeUnitCost: packaging.fourthVolumeUnitCost == null ? null : Number(packaging.fourthVolumeUnitCost),
         ...values,
         classification: values.classification ?? packaging.classification,
     })
@@ -314,8 +317,8 @@ function processPackagingImportRow(
     const quantity = String(rawQuantity ?? "").trim()
     const hasConsumption = basis !== "" || quantity !== ""
     if (hasConsumption && palletType !== "OTRO") ctx.rowIssues.push({ row: rowNumber, field: "defaultQuantityBasis", key: "errors.packaging_import_other_consumption" })
-    const volumePricing: Partial<Record<"lowVolumeMaximumQuantity" | "mediumVolumeMaximumQuantity" | "mediumVolumeMinimumQuantity" | "mediumVolumeUnitCost" | "highVolumeMinimumQuantity" | "highVolumeUnitCost", number>> = {}
-    for (const field of ["lowVolumeMaximumQuantity", "mediumVolumeMaximumQuantity", "mediumVolumeMinimumQuantity", "mediumVolumeUnitCost", "highVolumeMinimumQuantity", "highVolumeUnitCost"] as const) {
+    const volumePricing: Partial<Record<keyof typeof packagingVolumePricingFields, number>> = {}
+    for (const field of Object.keys(packagingVolumePricingFields) as (keyof typeof packagingVolumePricingFields)[]) {
         const raw = readImportCell(row, columnIndexByField.get(field))
         if (raw != null && String(raw).trim() !== "") volumePricing[field] = Number(raw)
     }
@@ -421,6 +424,9 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         { header: PACKAGING_IMPORT_COLUMNS.mediumVolumeMaximumQuantity.header, key: "mediumVolumeMaximumQuantity", width: 30 },
         { header: PACKAGING_IMPORT_COLUMNS.mediumVolumeUnitCost.header, key: "mediumVolumeUnitCost", width: 30 },
         { header: PACKAGING_IMPORT_COLUMNS.highVolumeUnitCost.header, key: "highVolumeUnitCost", width: 30 },
+        { header: PACKAGING_IMPORT_COLUMNS.highVolumeMaximumQuantity.header, key: "highVolumeMaximumQuantity", width: 24 },
+        { header: PACKAGING_IMPORT_COLUMNS.fourthVolumeMaximumQuantity.header, key: "fourthVolumeMaximumQuantity", width: 24 },
+        { header: PACKAGING_IMPORT_COLUMNS.fourthVolumeUnitCost.header, key: "fourthVolumeUnitCost", width: 26 },
     ]
     sheet.getRow(1).font = { bold: true }
     sheet.addRow({
@@ -429,7 +435,10 @@ async function buildPackagingImportTemplate(): Promise<Buffer> {
         packagingRole: PACKAGING_ROLE_LABELS.unit,
         unitCost: 1.25,
         lowVolumeMaximumQuantity: 5000,
-        mediumVolumeMaximumQuantity: 25000,
+        mediumVolumeMaximumQuantity: 10000,
+        highVolumeMaximumQuantity: 15000,
+        fourthVolumeMaximumQuantity: 20000,
+        fourthVolumeUnitCost: 0.6,
         mediumVolumeUnitCost: 1,
         highVolumeUnitCost: 0.8,
     })

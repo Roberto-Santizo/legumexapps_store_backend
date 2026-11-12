@@ -64,7 +64,8 @@ it("exports all configurations, inactive alternatives, precise costs and text co
 
 it("exports volume minimums and twelve-decimal costs without replacing the base price", async () => {
     const data = fixture()
-    Object.assign(data.packagings[0], { lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: "0.012345678901", highVolumeMinimumQuantity: 50000, highVolumeUnitCost: 0 })
+    Object.assign(data.packagings[0], { lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeMinimumQuantity: 25000, mediumVolumeUnitCost: "0.012345678901", highVolumeMinimumQuantity: 50000, highVolumeUnitCost: 0,
+        highVolumeMaximumQuantity: 40000, fourthVolumeMaximumQuantity: 50000, fourthVolumeUnitCost: "0.123456789012" })
     const workbook = buildProductExportWorkbook(data)
     const reopened = new ExcelJS.Workbook()
     await reopened.xlsx.load(await workbook.xlsx.writeBuffer())
@@ -77,6 +78,12 @@ it("exports volume minimums and twelve-decimal costs without replacing the base 
     expect(sheet.getRow(2).getCell(headers.indexOf("Limite volumen bajo / Low maximum")).value).toBe(5000)
     expect(sheet.getRow(2).getCell(headers.indexOf("Limite volumen medio / Medium maximum")).value).toBe(25000)
     expect(sheet.getColumn(mediumCostColumn).numFmt).toBe("0.000000000000")
+    expect(sheet.getColumn(highCostColumn).numFmt).toBe("0.000000000000")
+    expect(sheet.getRow(2).getCell(headers.indexOf("Límite tramo 3 / Tier 3 maximum")).value).toBe(40000)
+    expect(sheet.getRow(2).getCell(headers.indexOf("Límite tramo 4 / Tier 4 maximum")).value).toBe(50000)
+    const fourthCostColumn = headers.indexOf("Costo tramo 4 USD / Tier 4 unit cost")
+    expect(sheet.getRow(2).getCell(fourthCostColumn).value).toBe(0.123456789012)
+    expect(sheet.getColumn(fourthCostColumn).numFmt).toBe("0.000000000000")
     expect(sheet.getRow(2).getCell(headers.indexOf("Costo USD / Unit cost USD")).value).toBe(0.0123)
 })
 it("exports empty catalogs with all headers and keeps unresolved references visible", () => {

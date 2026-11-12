@@ -24,6 +24,13 @@ test("volume pricing DECIMAL attributes serialize as nullable numbers without co
     expect(material.toJSON()).toMatchObject({ lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, mediumVolumeMinimumQuantity: null, mediumVolumeUnitCost: 0.123456789012, highVolumeMinimumQuantity: null, highVolumeUnitCost: null })
 })
 
+test("fourth-tier limits and twelve-decimal costs serialize numerically without connecting", () => {
+    const material = metadata.model("Packaging").build({ highVolumeMaximumQuantity: "15000.00", fourthVolumeMaximumQuantity: "20000.00", fourthVolumeUnitCost: "0.123456789012" })
+    expect(material.toJSON()).toMatchObject({ highVolumeMaximumQuantity: 15000, fourthVolumeMaximumQuantity: 20000, fourthVolumeUnitCost: 0.123456789012 })
+    const empty = metadata.model("Packaging").build({ highVolumeMaximumQuantity: null, fourthVolumeMaximumQuantity: null, fourthVolumeUnitCost: null })
+    expect(empty.toJSON()).toMatchObject({ highVolumeMaximumQuantity: null, fourthVolumeMaximumQuantity: null, fourthVolumeUnitCost: null })
+})
+
 test("retired option tables, juice administration tables and organic column are absent", () => {
     const tables = metadata.modelManager.models.map(model => model.tableName)
     for (const table of ["customQuoteRawMaterialOptions", "customQuoteIngredientOptions", "customQuotePresentationOptions", "customQuotePackagingOptions", "juiceCostConstants", "juiceClientConstantOverrides"]) expect(tables).not.toContain(table)

@@ -1,6 +1,6 @@
 
 export type PackagingImportField = "displayNameEn" | "classification" | "code" | "displayName" | "packagingRole" | "materialType" | "unitCost" | "defaultQuantityBasis" | "defaultQuantityValue"
-    | "lowVolumeMaximumQuantity" | "mediumVolumeMaximumQuantity" | "mediumVolumeMinimumQuantity" | "mediumVolumeUnitCost" | "highVolumeMinimumQuantity" | "highVolumeUnitCost"
+    | "lowVolumeMaximumQuantity" | "mediumVolumeMaximumQuantity" | "mediumVolumeMinimumQuantity" | "mediumVolumeUnitCost" | "highVolumeMinimumQuantity" | "highVolumeUnitCost" | "highVolumeMaximumQuantity" | "fourthVolumeMaximumQuantity" | "fourthVolumeUnitCost"
 
 interface ImportColumnDef {
     header: string
@@ -16,13 +16,16 @@ export const PACKAGING_IMPORT_COLUMNS: Record<PackagingImportField, ImportColumn
     displayNameEn: { header: "Nombre (Inglés)", aliases: ["nombre (ingles)", "nombre ingles", "english name", "displaynameen"] },
     packagingRole: { header: "Rol del material", aliases: ["rol del material", "rol"] },
     materialType: { header: "Tipo de material", aliases: ["tipo de material", "material type"] },
-    unitCost: { header: "Costo por unidad (USD)", aliases: ["costo por unidad (usd)", "costo por unidad (q)", "costo por unidad", "costo"] },
-    lowVolumeMaximumQuantity: { header: "Límite volumen bajo", aliases: ["limite volumen bajo", "lowvolumemaximumquantity"] },
-    mediumVolumeMaximumQuantity: { header: "Límite volumen medio", aliases: ["limite volumen medio", "mediumvolumemaximumquantity"] },
+    unitCost: { header: "Costo tramo 1 (USD)", aliases: ["costo tramo 1 (usd)", "costo por unidad (usd)", "costo por unidad (q)", "costo por unidad", "costo"] },
+    lowVolumeMaximumQuantity: { header: "Límite tramo 1", aliases: ["limite tramo 1", "limite volumen bajo", "lowvolumemaximumquantity"] },
+    mediumVolumeMaximumQuantity: { header: "Límite tramo 2", aliases: ["limite tramo 2", "limite volumen medio", "mediumvolumemaximumquantity"] },
     mediumVolumeMinimumQuantity: { header: "Cantidad mínima volumen medio", aliases: ["cantidad minima volumen medio", "mediumvolumeminimumquantity"] },
-    mediumVolumeUnitCost: { header: "Costo volumen medio (USD)", aliases: ["costo volumen medio (usd)", "costo volumen medio", "mediumvolumeunitcost"] },
+    mediumVolumeUnitCost: { header: "Costo tramo 2 (USD)", aliases: ["costo tramo 2 (usd)", "costo volumen medio (usd)", "costo volumen medio", "mediumvolumeunitcost"] },
     highVolumeMinimumQuantity: { header: "Cantidad mínima volumen alto", aliases: ["cantidad minima volumen alto", "highvolumeminimumquantity"] },
-    highVolumeUnitCost: { header: "Costo volumen alto (USD)", aliases: ["costo volumen alto (usd)", "costo volumen alto", "highvolumeunitcost"] },
+    highVolumeUnitCost: { header: "Costo tramo 3 (USD)", aliases: ["costo tramo 3 (usd)", "costo volumen alto (usd)", "costo volumen alto", "highvolumeunitcost"] },
+    highVolumeMaximumQuantity: { header: "Límite tramo 3", aliases: ["limite tramo 3", "highvolumemaximumquantity"] },
+    fourthVolumeMaximumQuantity: { header: "Límite tramo 4", aliases: ["limite tramo 4", "fourthvolumemaximumquantity"] },
+    fourthVolumeUnitCost: { header: "Costo tramo 4 (USD)", aliases: ["costo tramo 4 (usd)", "fourthvolumeunitcost"] },
     defaultQuantityBasis: { header: "Base de consumo (OTRO)", aliases: ["base de consumo (otro)", "defaultquantitybasis"] },
     defaultQuantityValue: { header: "Cantidad de consumo (OTRO)", aliases: ["cantidad de consumo (otro)", "defaultquantityvalue"] },
 }

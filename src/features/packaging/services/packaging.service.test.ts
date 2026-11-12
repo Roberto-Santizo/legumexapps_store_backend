@@ -138,6 +138,27 @@ describe("specific packaging volume pricing import and edits", () => {
         const rows = await packagingService.bulkImportPackagings(buffer)
         expect(rows[0]).toMatchObject({ lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 25000, unitCost: 3, mediumVolumeUnitCost: 2, highVolumeUnitCost: 1 })
     })
+
+    it("imports four numbered tiers and preserves an explicit fourth-tier zero", async () => {
+        const headers = ["Código", "Nombre", "Rol del material", "Costo tramo 1 (USD)", "Límite tramo 1", "Límite tramo 2", "Límite tramo 3", "Límite tramo 4", "Costo tramo 2 (USD)", "Costo tramo 3 (USD)", "Costo tramo 4 (USD)"]
+        const buffer = await buildWorkbookBuffer(headers, [{ "Código": "FOUR", "Nombre": "Bag", "Rol del material": "unit", "Costo tramo 1 (USD)": 3,
+            "Límite tramo 1": 5000, "Límite tramo 2": 10000, "Límite tramo 3": 15000, "Límite tramo 4": 20000,
+            "Costo tramo 2 (USD)": 2, "Costo tramo 3 (USD)": 1, "Costo tramo 4 (USD)": 0 }])
+        const rows = await packagingService.bulkImportPackagings(buffer)
+        expect(rows[0]).toMatchObject({ lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 10000, highVolumeMaximumQuantity: 15000, fourthVolumeMaximumQuantity: 20000, fourthVolumeUnitCost: 0 })
+    })
+
+    it("validates retained fourth-tier fields when editing the third limit", async () => {
+        const packaging = { ...current(), mediumVolumeMaximumQuantity: 10000, highVolumeMaximumQuantity: 15000, fourthVolumeMaximumQuantity: 20000, fourthVolumeUnitCost: 0 }
+        mockPackagingFindOne.mockResolvedValueOnce(packaging).mockResolvedValueOnce(null)
+        await expect(packagingService.updatePackaging(1, { code: packaging.code, packagingRole: "unit", unitCost: 0.12, highVolumeMaximumQuantity: 20000 }))
+            .rejects.toMatchObject({ key: "errors.packaging_volume_pricing_invalid" })
+        expect(packaging.update).not.toHaveBeenCalled()
+        mockPackagingFindOne.mockResolvedValueOnce(packaging).mockResolvedValueOnce(null)
+        await packagingService.updatePackaging(1, { code: packaging.code, packagingRole: "unit", unitCost: 0.13 })
+        expect(packaging.update).toHaveBeenCalledWith(expect.objectContaining({ unitCost: 0.13 }), expect.anything())
+        expect(packaging.update.mock.calls[0][0]).not.toHaveProperty("fourthVolumeUnitCost")
+    })
 })
 
 describe("packagingService.bulkImportPackagings", () => {

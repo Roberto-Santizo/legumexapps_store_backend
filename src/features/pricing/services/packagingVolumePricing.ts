@@ -3,16 +3,25 @@ import { AppError } from "../../../shared/errors/AppError"
 import { toDecimal } from "../../../shared/utils/money.util"
 import { getPackagingVolumeLimits, packagingVolumePricingSchema } from "../../packaging/schemas/packagingVolumePricing.schema"
 
+type PackagingVolumeTier = "base" | "medium" | "high" | "fourth"
+
 export interface PackagingVolumePricing {
-    tier: "base" | "medium" | "high"
+    tier: PackagingVolumeTier
     materialQuantity: number
     minimumQuantity: number
     maximumQuantity?: number | null
+    referenceMaximumQuantity?: number
     minimumExclusive?: boolean
-    priceTier?: "base" | "medium" | "high"
+    priceTier?: PackagingVolumeTier
 }
 
-type PackagingCostField = "unitCost" | "mediumVolumeUnitCost" | "highVolumeUnitCost"
+type PackagingCostField = "unitCost" | "mediumVolumeUnitCost" | "highVolumeUnitCost" | "fourthVolumeUnitCost"
+const COST_FIELDS: Record<PackagingVolumeTier, PackagingCostField> = {
+    base: "unitCost",
+    medium: "mediumVolumeUnitCost",
+    high: "highVolumeUnitCost",
+    fourth: "fourthVolumeUnitCost",
+}
 
 interface PackagingPrices {
     code?: string
@@ -24,6 +33,9 @@ interface PackagingPrices {
     mediumVolumeUnitCost?: number | string | null
     highVolumeMinimumQuantity?: number | string | null
     highVolumeUnitCost?: number | string | null
+    highVolumeMaximumQuantity?: number | string | null
+    fourthVolumeMaximumQuantity?: number | string | null
+    fourthVolumeUnitCost?: number | string | null
     getDataValue?: (field: PackagingCostField) => unknown
 }
 
@@ -43,21 +55,30 @@ export function resolvePackagingCost(packaging: PackagingPrices | undefined, mat
         mediumVolumeUnitCost: nullableNumber(packaging.mediumVolumeUnitCost),
         highVolumeMinimumQuantity: nullableNumber(packaging.highVolumeMinimumQuantity),
         highVolumeUnitCost: nullableNumber(packaging.highVolumeUnitCost),
+        highVolumeMaximumQuantity: nullableNumber(packaging.highVolumeMaximumQuantity),
+        fourthVolumeMaximumQuantity: nullableNumber(packaging.fourthVolumeMaximumQuantity),
+        fourthVolumeUnitCost: nullableNumber(packaging.fourthVolumeUnitCost),
     })
     if (!parsed.success || !materialQuantity.isFinite() || materialQuantity.lte(0)) {
         throw new AppError(422, "errors.packaging_volume_pricing_invalid", { code: packaging.code ?? "" })
     }
 
     const limits = getPackagingVolumeLimits(parsed.data)
-    const tier = materialQuantity.lte(limits.low) ? "base" : materialQuantity.lte(limits.medium) ? "medium" : "high"
-    const priceTier = tier === "high" && parsed.data.highVolumeUnitCost != null ? "high"
-        : tier !== "base" && parsed.data.mediumVolumeUnitCost != null ? "medium" : "base"
-    const costField: PackagingCostField = priceTier === "base" ? "unitCost" : `${priceTier}VolumeUnitCost`
-    const minimumQuantity = tier === "base" ? 0 : tier === "medium" ? limits.low : limits.medium
-    const maximumQuantity = tier === "base" ? limits.low : tier === "medium" ? limits.medium : null
+    const tier: PackagingVolumeTier = materialQuantity.lte(limits.low) ? "base"
+        : materialQuantity.lte(limits.medium) ? "medium"
+        : limits.high != null && materialQuantity.gt(limits.high) ? "fourth" : "high"
+    const tiers: PackagingVolumeTier[] = ["base", "medium", "high", "fourth"]
+    const priceTier = tiers.slice(0, tiers.indexOf(tier) + 1).reverse()
+        .find(candidate => parsed.data[COST_FIELDS[candidate]] != null) ?? "base"
+    const costField = COST_FIELDS[priceTier]
+    const minimumQuantity = tier === "base" ? 0 : tier === "medium" ? limits.low : tier === "high" ? limits.medium : limits.high!
+    const maximumQuantity = tier === "base" ? limits.low : tier === "medium" ? limits.medium : tier === "high" ? limits.high : null
     const rawCost = packaging.getDataValue?.(costField) ?? packaging[costField]
     if (typeof rawCost !== "number" && typeof rawCost !== "string") {
         throw new AppError(422, "errors.packaging_volume_pricing_invalid", { code: packaging.code ?? "" })
     }
-    return { unitCost: toDecimal(rawCost), volumePricing: { tier, priceTier, materialQuantity: materialQuantity.toNumber(), minimumQuantity, minimumExclusive: true, maximumQuantity } }
+    return { unitCost: toDecimal(rawCost), volumePricing: {
+        tier, priceTier, materialQuantity: materialQuantity.toNumber(), minimumQuantity, minimumExclusive: true, maximumQuantity,
+        ...(tier === "fourth" && limits.fourth != null ? { referenceMaximumQuantity: limits.fourth } : {}),
+    } }
 }

@@ -4,6 +4,65 @@ import { resolvePackagingCost } from "./packagingVolumePricing"
 import { buildUnitMaterialLine, buildIntermediateMaterialLine, buildPalletMaterialLine } from "./quoteCostLines"
 
 const prices = () => ({ code: "BAG-1", classification: "specific", unitCost: "0.12", lowVolumeMaximumQuantity: "5000", mediumVolumeMaximumQuantity: "25000", mediumVolumeUnitCost: "0.10", highVolumeMinimumQuantity: "50000", highVolumeUnitCost: "0.08" })
+const fourTierPrices = () => ({ ...prices(), mediumVolumeMaximumQuantity: "10000", highVolumeMaximumQuantity: "15000", fourthVolumeMaximumQuantity: "20000", fourthVolumeUnitCost: "0.06" })
+
+test.each([
+    [1, "base", "0.12"], [5000, "base", "0.12"], [5000.01, "medium", "0.1"],
+    [10000, "medium", "0.1"], [10000.01, "high", "0.08"], [15000, "high", "0.08"],
+    [15000.01, "fourth", "0.06"], [20000, "fourth", "0.06"], [20000.01, "fourth", "0.06"], [80000, "fourth", "0.06"],
+])("selects one price for all material at the four-tier boundary %s", (quantity, tier, cost) => {
+    const result = resolvePackagingCost(fourTierPrices(), new Decimal(quantity))
+    expect(result.unitCost.toString()).toBe(cost)
+    expect(result.volumePricing).toMatchObject({ tier, priceTier: tier, materialQuantity: quantity })
+    if (tier === "fourth") expect(result.volumePricing).toMatchObject({ minimumQuantity: 15000, maximumQuantity: null, referenceMaximumQuantity: 20000 })
+})
+
+test.each([
+    [{ fourthVolumeUnitCost: null }, "high", "0.08"],
+    [{ fourthVolumeUnitCost: null, highVolumeUnitCost: null }, "medium", "0.1"],
+    [{ fourthVolumeUnitCost: null, highVolumeUnitCost: null, mediumVolumeUnitCost: null }, "base", "0.12"],
+    [{ fourthVolumeUnitCost: "0" }, "fourth", "0"],
+    [{ fourthVolumeUnitCost: "0.12" }, "fourth", "0.12"],
+])("fourth-tier fallback preserves explicit zero and equal costs %j", (overrides, priceTier, cost) => {
+    const result = resolvePackagingCost({ ...fourTierPrices(), ...overrides }, new Decimal(20001))
+    expect(result.unitCost.toString()).toBe(cost)
+    expect(result.volumePricing).toMatchObject({ tier: "fourth", priceTier })
+})
+
+test("the fourth price cannot apply to a lower tier and retains twelve-decimal PostgreSQL precision", () => {
+    const packaging = { ...fourTierPrices(), mediumVolumeUnitCost: null, highVolumeUnitCost: null,
+        fourthVolumeUnitCost: Number("12345.123456789012"), getDataValue: (field: string) => field === "fourthVolumeUnitCost" ? "12345.123456789012" : undefined }
+    expect(resolvePackagingCost(packaging, new Decimal(15000)).unitCost.toString()).toBe("0.12")
+    expect(resolvePackagingCost(packaging, new Decimal(15000.01)).unitCost.toString()).toBe("12345.123456789012")
+})
+
+test.each([
+    { highVolumeMaximumQuantity: "10000" }, { fourthVolumeMaximumQuantity: "15000" },
+    { fourthVolumeUnitCost: "NaN" }, { fourthVolumeUnitCost: "-1" },
+])("rejects corrupt fourth-tier catalog data %j", overrides => {
+    expect(() => resolvePackagingCost({ ...fourTierPrices(), ...overrides }, new Decimal(20000))).toThrow(expect.objectContaining({ key: "errors.packaging_volume_pricing_invalid" }))
+})
+
+test("all packaging levels select the fourth tier using their actual consumption", () => {
+    const packaging = { ...fourTierPrices(), displayName: "Label", packagingRole: "unit", isActive: true } as unknown as Packaging
+    const unit = buildUnitMaterialLine(1, packaging, null, 2, 8000)
+    const intermediate = buildIntermediateMaterialLine(1, { ...packaging, packagingRole: "intermediate" } as Packaging, null, 10, 150001)
+    const pallet = buildPalletMaterialLine(1, { ...packaging, packagingRole: "pallet" } as Packaging, null, 160, 100)
+    expect(unit).toMatchObject({ unitCost: 0.06, lineTotal: 960, volumePricing: { tier: "fourth", materialQuantity: 16000 } })
+    expect(intermediate).toMatchObject({ packagesNeeded: 15001, unitCost: 0.06, lineTotal: 900.06, volumePricing: { tier: "fourth", materialQuantity: 15001 } })
+    expect(pallet).toMatchObject({ unitCost: 0.06, lineTotal: 960, volumePricing: { tier: "fourth", materialQuantity: 16000 } })
+    const otherProduct = buildUnitMaterialLine(1, packaging, null, 1, 8000)
+    expect(otherProduct).toMatchObject({ unitCost: 0.1, volumePricing: { tier: "medium" } })
+    packaging.fourthVolumeUnitCost = 9
+    expect(unit).toMatchObject({ unitCost: 0.06, lineTotal: 960 })
+})
+
+test("editing four limits preserves their inclusive boundaries", () => {
+    const packaging = { ...fourTierPrices(), lowVolumeMaximumQuantity: "6000", mediumVolumeMaximumQuantity: "12000", highVolumeMaximumQuantity: "18000", fourthVolumeMaximumQuantity: "24000" }
+    for (const [quantity, tier] of [[6000, "base"], [6000.01, "medium"], [12000, "medium"], [12000.01, "high"], [18000, "high"], [18000.01, "fourth"], [24000, "fourth"], [24000.01, "fourth"]] as const) {
+        expect(resolvePackagingCost(packaging, new Decimal(quantity)).volumePricing?.tier).toBe(tier)
+    }
+})
 
 test.each([
     [1, "base", "0.12"], [912, "base", "0.12"], [5000, "base", "0.12"],

@@ -1091,12 +1091,16 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
         const variant = (await sequelize.model("ProductVariant").findByPk(variantId))!
         const unitsPerPallet = Number(variant.get("boxesPerPallet")) * Number(variant.get("bagsPerBox"))
         const payload = { code: "VOLUME-PG-BAG", displayName: "Volume bag", displayNameEn: "Volume bag", classification: "specific", packagingRole: "unit", unitCost: 0.12, lowVolumeMaximumQuantity: unitsPerPallet,
-            mediumVolumeMaximumQuantity: unitsPerPallet * 2, mediumVolumeUnitCost: 0.1, highVolumeUnitCost: 0.08 }
+            mediumVolumeMaximumQuantity: unitsPerPallet * 2, mediumVolumeUnitCost: 0.1, highVolumeUnitCost: 0.08,
+            highVolumeMaximumQuantity: unitsPerPallet * 3, fourthVolumeMaximumQuantity: unitsPerPallet * 4, fourthVolumeUnitCost: 0.06 }
         const created = await request(server).post("/api/packagings").set("Authorization", `Bearer ${adminToken}`).send(payload)
         expect(created.status).toBe(201)
         expect(created.body.data.mediumVolumeUnitCost).toBe(0.1)
         expect(created.body.data.lowVolumeMaximumQuantity).toBe(unitsPerPallet)
         expect(typeof created.body.data.mediumVolumeMaximumQuantity).toBe("number")
+        expect(created.body.data.highVolumeMaximumQuantity).toBe(unitsPerPallet * 3)
+        expect(created.body.data.fourthVolumeMaximumQuantity).toBe(unitsPerPallet * 4)
+        expect(created.body.data.fourthVolumeUnitCost).toBe(0.06)
         const packagingId: number = created.body.data.id
         const association = await sequelize.model("ProductVariantUnitMaterial").create({ productVariantId: variantId, packagingId, quantityPerUnit: 1 })
         try {
@@ -1105,7 +1109,7 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
             expect(updated.status).toBe(200)
             const reloaded = await request(server).get(`/api/packagings/${packagingId}`).set("Authorization", `Bearer ${adminToken}`)
             expect(reloaded.body.data.lowVolumeMaximumQuantity).toBe(unitsPerPallet + 1)
-            for (const [pallets, tier, cost] of [[1, "base", 0.12], [2, "medium", 0.1], [3, "high", 0.08]] as const) {
+            for (const [pallets, tier, cost] of [[1, "base", 0.12], [2, "medium", 0.1], [3, "high", 0.08], [4, "fourth", 0.06], [5, "fourth", 0.06]] as const) {
                 const preview = await request(server).post("/api/admin/quotes/preview").set("Authorization", `Bearer ${adminToken}`).send({ productVariantId: variantId, requestedPallets: pallets })
                 expect(preview.status).toBe(200)
                 expect(preview.body.data.breakdown.unitMaterials.find((line: { packagingId: number }) => line.packagingId === packagingId))
@@ -1114,6 +1118,8 @@ suite("complete application on an owned isolated PostgreSQL cluster (explicitly 
             for (const invalid of [
                 { lowVolumeMaximumQuantity: 0 }, { lowVolumeMaximumQuantity: -1 },
                 { mediumVolumeUnitCost: -1 }, { mediumVolumeMaximumQuantity: unitsPerPallet }, { classification: "generic" },
+                { highVolumeMaximumQuantity: unitsPerPallet * 2 }, { fourthVolumeMaximumQuantity: unitsPerPallet * 3 },
+                { fourthVolumeUnitCost: -1 },
             ]) {
                 await expect(sequelize.model("Packaging").create({ ...payload, ...invalid, code: "VOLUME-PG-INVALID", materialType: "INDIVIDUAL" }))
                     .rejects.toMatchObject({ original: { constraint: "packagings_volume_pricing_check" } })

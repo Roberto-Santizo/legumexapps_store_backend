@@ -32,7 +32,26 @@ describe.each([createPackagingSchema, updatePackagingSchema, importLegacyPackagi
 })
 
 test("approved defaults, legacy references and explicit upper bounds have deterministic precedence", () => {
-    expect(getPackagingVolumeLimits({})).toEqual({ low: 5000, medium: 25000 })
-    expect(getPackagingVolumeLimits({ lowVolumeMaximumQuantity: 6000, mediumVolumeMinimumQuantity: 30000 })).toEqual({ low: 6000, medium: 30000 })
-    expect(getPackagingVolumeLimits({ mediumVolumeMaximumQuantity: 28000, mediumVolumeMinimumQuantity: 30000 })).toEqual({ low: 5000, medium: 28000 })
+    expect(getPackagingVolumeLimits({})).toEqual({ low: 5000, medium: 25000, high: null, fourth: null })
+    expect(getPackagingVolumeLimits({ lowVolumeMaximumQuantity: 6000, mediumVolumeMinimumQuantity: 30000 })).toEqual({ low: 6000, medium: 30000, high: null, fourth: null })
+    expect(getPackagingVolumeLimits({ mediumVolumeMaximumQuantity: 28000, mediumVolumeMinimumQuantity: 30000 })).toEqual({ low: 5000, medium: 28000, high: null, fourth: null })
+})
+
+describe.each([createPackagingSchema, updatePackagingSchema, importLegacyPackagingSchema])("four-tier contract (%#)", schema => {
+    const fourTiers = { lowVolumeMaximumQuantity: 5000, mediumVolumeMaximumQuantity: 10000, highVolumeMaximumQuantity: 15000, fourthVolumeMaximumQuantity: 20000, fourthVolumeUnitCost: 0.06 }
+    test.each([fourTiers, { ...fourTiers, fourthVolumeUnitCost: 0 }, { ...fourTiers, fourthVolumeUnitCost: null }, { ...fourTiers, fourthVolumeUnitCost: 0.12 }])("accepts an optional fourth price, including zero %j", fields => {
+        expect(schema.safeParse({ ...base, ...fields }).success).toBe(true)
+    })
+    test.each([
+        { highVolumeMaximumQuantity: 10000 }, { highVolumeMaximumQuantity: 15000.001 },
+        { fourthVolumeMaximumQuantity: 15000 }, { fourthVolumeMaximumQuantity: 0 },
+        { fourthVolumeUnitCost: -1 }, { fourthVolumeUnitCost: 0.1234567890123 },
+        { highVolumeMaximumQuantity: null },
+    ])("rejects invalid fourth-tier limits and costs %j", fields => {
+        expect(schema.safeParse({ ...base, ...fourTiers, ...fields }).success).toBe(false)
+    })
+    test("requires a third limit before accepting a fourth price and rejects tiers for generics", () => {
+        expect(schema.safeParse({ ...base, fourthVolumeUnitCost: 0 }).success).toBe(false)
+        expect(schema.safeParse({ ...base, ...fourTiers, classification: "generic", code: undefined }).success).toBe(false)
+    })
 })

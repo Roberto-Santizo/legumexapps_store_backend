@@ -14,11 +14,13 @@ const suites = [
     "src/database/schemaSync.postgres.test.ts",
     "src/database/bootstrap.postgres.test.ts",
     "src/database/currentSchema.postgres.test.ts",
+    "src/database/removeProspects.postgres.test.ts",
     "src/features/genericPackaging/services/genericPackaging.postgres.test.ts",
     "src/database/application.postgres.test.ts",
     "src/features/packaging/services/packagingClassification.postgres.test.ts",
     "src/features/salesperson/services/representativeClient.postgres.test.ts",
     "src/features/rawMaterialTransformation/services/rawMaterialTransformation.postgres.test.ts",
+    "src/features/rawMaterialTransformation/services/laborTemplate.postgres.test.ts",
 ]
 
 function contained(candidate, root) {

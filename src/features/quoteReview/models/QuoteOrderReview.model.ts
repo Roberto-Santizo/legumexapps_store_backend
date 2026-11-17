@@ -54,7 +54,7 @@ class QuoteOrderReview extends Model {
     })
     declare salespersonId: number | null
 
-    // Cliente real del pedido; null para un prospecto (solo productos nuevos).
+    // Cliente registrado del pedido; null para un cliente nuevo (solo productos nuevos).
     @ForeignKey(() => Client)
     @Column({
         type: DataType.INTEGER,

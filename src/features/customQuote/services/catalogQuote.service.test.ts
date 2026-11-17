@@ -12,7 +12,6 @@ jest.mock("../../processingCost/models/ProcessingCost.model", () => ({ __esModul
 jest.mock("../models/CustomQuote.model", () => ({ __esModule: true, default: { findOne: jest.fn(), create: jest.fn(), sequelize: { transaction: jest.fn(), query: jest.fn() } } }))
 // Bloqueo y estado del pedido (pedido aprobado = 409): probados contra PostgreSQL real.
 jest.mock("../../quoteReview/services/quoteOrderLock", () => ({ assertQuoteOrderOpen: jest.fn() }))
-jest.mock("../../lead/models/Lead.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
 jest.mock("../../quote/models/Quote.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
 jest.mock("../../quoteDraft/models/QuoteDraft.model", () => ({ __esModule: true, default: { create: jest.fn(), upsert: jest.fn() } }))
 jest.mock("../../salesperson/models/Salesperson.model", () => ({ __esModule: true, default: { create: jest.fn() } }))
@@ -26,7 +25,6 @@ import RawMaterial from "../../rawMaterial/models/RawMaterial.model"
 import { loadPalletKit } from "../../palletKit/services/palletKit.service"
 import ProcessingCost from "../../processingCost/models/ProcessingCost.model"
 import CustomQuote from "../models/CustomQuote.model"
-import Lead from "../../lead/models/Lead.model"
 import Quote from "../../quote/models/Quote.model"
 import QuoteDraft from "../../quoteDraft/models/QuoteDraft.model"
 import Salesperson from "../../salesperson/models/Salesperson.model"
@@ -117,7 +115,6 @@ it("admin calculator uses official prices without confirmation, customer records
     expect(CustomQuote.sequelize!.query).not.toHaveBeenCalled()
     expect(Product.create).not.toHaveBeenCalled()
     expect(ProductVariant.create).not.toHaveBeenCalled()
-    expect(Lead.create).not.toHaveBeenCalled()
     expect(Quote.create).not.toHaveBeenCalled()
     expect(QuoteDraft.create).not.toHaveBeenCalled()
     expect(QuoteDraft.upsert).not.toHaveBeenCalled()

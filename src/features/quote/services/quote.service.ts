@@ -609,7 +609,7 @@ async function listRepresentativeDestinations() {
 }
 
 
-// Una cotización guardada no captura ni vincula un prospecto (Lead).
+// La cotización conserva la identidad del pedido y su desglose calculado.
 // draftKey (opcional, solo del wizard del representante) no participa del cálculo ni del Quote.create:
 // se separa antes de calcular y solo se usa DESPUÉS de crear la cotización, para marcar el borrador
 // como convertido (best-effort: si eso falla, la cotización ya quedó guardada y se devuelve igual).

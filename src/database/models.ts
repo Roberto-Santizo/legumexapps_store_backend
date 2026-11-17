@@ -24,6 +24,10 @@ import RawMaterialTranslation from "../features/rawMaterial/models/RawMaterialTr
 import UnprocessedRawMaterial from "../features/rawMaterialTransformation/models/UnprocessedRawMaterial.model"
 import RawMaterialTransformation from "../features/rawMaterialTransformation/models/RawMaterialTransformation.model"
 import RawMaterialTransformationCost from "../features/rawMaterialTransformation/models/RawMaterialTransformationCost.model"
+import LaborTemplateLine from "../features/rawMaterialTransformation/models/LaborTemplateLine.model"
+import LaborTemplate from "../features/rawMaterialTransformation/models/LaborTemplate.model"
+import LaborTemplatePosition from "../features/rawMaterialTransformation/models/LaborTemplatePosition.model"
+import LaborTemplateRevision from "../features/rawMaterialTransformation/models/LaborTemplateRevision.model"
 import Ingredient from "../features/ingredient/models/Ingredient.model"
 import IngredientTranslation from "../features/ingredient/models/IngredientTranslation.model"
 import Destination from "../features/destination/models/Destination.model"
@@ -40,8 +44,6 @@ import CustomQuote from "../features/customQuote/models/CustomQuote.model"
 import QuoteOrderReview from "../features/quoteReview/models/QuoteOrderReview.model"
 import ProcessingCost from "../features/processingCost/models/ProcessingCost.model"
 import ProcessingCostTranslation from "../features/processingCost/models/ProcessingCostTranslation.model"
-import Lead from "../features/lead/models/Lead.model"
-import SiteImage from "../features/siteImage/models/SiteImage.model"
 import JuiceRawMaterial from "../features/juice/models/JuiceRawMaterial.model"
 import Juice from "../features/juice/models/Juice.model"
 import JuicePresentation from "../features/juice/models/JuicePresentation.model"
@@ -76,6 +78,10 @@ export const databaseModels = [
         UnprocessedRawMaterial,
         RawMaterialTransformation,
         RawMaterialTransformationCost,
+        LaborTemplateLine,
+        LaborTemplate,
+        LaborTemplatePosition,
+        LaborTemplateRevision,
         Ingredient,
         IngredientTranslation,
         Destination,
@@ -92,8 +98,6 @@ export const databaseModels = [
         QuoteOrderReview,
         ProcessingCost,
         ProcessingCostTranslation,
-        Lead,
-        SiteImage,
         JuiceRawMaterial,
         Juice,
         JuicePresentation,

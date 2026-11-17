@@ -31,7 +31,7 @@ suite("development startup initial data on owned PostgreSQL",()=>{
         process.env.BOOTSTRAP_ADMIN_USERNAME='dev-admin'
         process.env.BOOTSTRAP_ADMIN_PASSWORD='Synthetic-development-password-2026'
         try {
-            await db.query("CREATE TYPE public.enum_leads_status AS ENUM ('new','contacted')")
+            await db.query('CREATE TYPE public."enum_packagings_packagingRole" AS ENUM (\'unit\',\'intermediate\',\'pallet\')')
             await synchronizeDevelopment(db,'development')
             await runSeeders(db,{})
             expect(await rows('SELECT * FROM users')).toHaveLength(0)

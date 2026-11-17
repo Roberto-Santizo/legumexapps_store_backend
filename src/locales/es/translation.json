@@ -79,6 +79,24 @@
     "excludeGroup": "No incluir este grupo"
   },
   "errors": {
+    "labor_import_sheet": "Falta la hoja {{field}}. Descarga de nuevo la plantilla del sistema.",
+    "labor_import_limit": "La hoja supera el límite de {{max}} filas de datos.",
+    "labor_import_column": "Encabezado ausente o desconocido: {{field}}. Conserva las columnas de la plantilla descargada.",
+    "labor_import_duplicate": "El valor de {{field}} está duplicado. Cada código debe aparecer una sola vez dentro de su plantilla.",
+    "labor_import_formula": "No se aceptan fórmulas en la captura. Ingresa el dato real como valor.",
+    "labor_import_reference": "La referencia de {{field}} no coincide con las líneas, turnos y posiciones del catálogo actual. Revisa el código y descarga una plantilla actualizada.",
+    "labor_import_missingPosition": "Falta la posición {{field}}. Conserva todas las posiciones y completa salario y bono de la línea que vas a cargar.",
+    "labor_import_value": "Completa {{field}} con un dato válido y conserva los códigos y nombres de referencia.",
+    "labor_import_amount": "Completa {{field}} con un monto de 0 a 1000000 GTQ y hasta 2 decimales. Si no aplica, escribe 0; no lo dejes vacío.",
+    "labor_import_configuration": "Revisa la configuración base de la plantilla en el sistema. RR. HH. solo debe completar salario mensual y bono decreto en el Excel.",
+    "labor_import_exists": "El código de plantilla ya existe. Esta carga solo crea plantillas nuevas; usa Editar plantilla para actualizar una existente.",
+    "labor_import_selection": "Completa salario mensual y bono decreto de al menos una línea. Las líneas totalmente vacías quedan pendientes.",
+    "labor_import_changed": "El archivo, el catálogo, la configuración o la fecha cambió desde la validación. Valida de nuevo antes de confirmar.",
+    "labor_template_version_conflict": "La versión cambió mientras editabas. Recarga los datos y revisa tus cambios antes de guardar.",
+    "labor_line_code_mismatch": "El código de la línea no coincide con el registro abierto.",
+    "labor_line_unavailable": "La línea no existe o está inactiva.",
+    "labor_template_future_date": "La fecha de vigencia no puede ser futura. Los cambios se aplican al guardar.",
+    "labor_template_duplicate_code": "Ya existe una plantilla con ese código.",
     "request_invalid_json": "El cuerpo de la solicitud debe contener JSON válido.",
     "request_body_too_large": "El cuerpo de la solicitud supera el tamaño permitido.",
     "packaging_material_type_in_use": "No se puede cambiar el tipo de un material con asociaciones existentes.",
@@ -370,6 +388,9 @@
     }
   },
   "success": {
+    "labor_import_completed": "Plantillas importadas. Costos calculados y versiones iniciales guardadas.",
+    "labor_template_saved": "Versión de plantilla guardada.",
+    "labor_line_saved": "Línea guardada.",
     "representative_clients_updated": "Asignaciones de clientes actualizadas.",
     "created": "Creación de {{resource}} exitosa",
     "updated": "Actualización de {{resource}} exitosa",
@@ -385,6 +406,8 @@
     "pallet_kit_updated": "Kit de paletizado actualizado."
   },
   "resources": {
+    "LaborTemplate": "Plantilla laboral",
+    "LaborTemplateRevision": "Versión de plantilla",
     "PackagingGroup": "Grupo de empaque",
     "Category": "Categoría",
     "SubCategory": "Subcategoría",
@@ -409,8 +432,6 @@
     "Quote": "Cotización",
     "QuoteDraft": "Cotización sin finalizar",
     "ProcessingCost": "Costo adicional",
-    "Lead": "Prospecto",
-    "SiteImage": "Imagen del sitio",
     "CustomQuote": "Cotización a la medida",
     "Juice": "Jugo",
     "JuiceRawMaterial": "Materia prima de jugo",
@@ -430,6 +451,7 @@
     "review": "Revisar"
   },
   "resourcePlurals": {
+    "laborTemplates": "plantillas de mano de obra",
     "genericPackaging": "Empaques genéricos",
     "packagingGroups": "grupos de opciones de empaque",
     "categories": "categorías",
@@ -450,7 +472,6 @@
     "quoteDrafts": "cotizaciones sin finalizar",
     "dashboard": "panel",
     "processingCosts": "costos adicionales",
-    "leads": "prospectos",
     "siteContent": "contenido del sitio",
     "customQuotes": "cotizaciones a la medida",
     "juices": "jugos",

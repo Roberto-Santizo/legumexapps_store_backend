@@ -1,0 +1,4634 @@
+{
+  "plantName": "Planta 1 / Tejar",
+  "sources": [
+    {
+      "filename": "LINEAS Y POSICIONES PLANTA 1.xlsx",
+      "sha256": "1bd83cd7c447a8e0f2f4df08087843d30326ecaeda0d8a3b5c592bfed4a2f75b",
+      "sheets": [
+        "Lineas",
+        "Posiciones"
+      ]
+    },
+    {
+      "filename": "Plantillas empleados.xlsx",
+      "sha256": "c3018194d087fb4a858e3cd879fe91b47238cb4b4be27da27d21e3560fad0abb",
+      "sheets": [
+        "RECETA",
+        "HOJA TÉCNICA COSTOS",
+        "EJEMPLO PLANTILLA"
+      ]
+    }
+  ],
+  "settings": {
+    "daysPerYear": 366,
+    "weeklyHours": 44,
+    "benefits": [
+      {
+        "code": "BONO14",
+        "displayName": "Bono 14",
+        "percentage": 8.333333333333332,
+        "basis": "salary",
+        "isActive": true
+      },
+      {
+        "code": "AGUINALDO",
+        "displayName": "Aguinaldo",
+        "percentage": 8.333333333333332,
+        "basis": "salary",
+        "isActive": true
+      },
+      {
+        "code": "INDEMNIZACION",
+        "displayName": "Indemnización",
+        "percentage": 9.72222222222222,
+        "basis": "salary",
+        "isActive": true
+      },
+      {
+        "code": "VACACIONES",
+        "displayName": "Vacaciones",
+        "percentage": 4.166666666666666,
+        "basis": "salary",
+        "isActive": true
+      },
+      {
+        "code": "PATRONAL",
+        "displayName": "Cuota patronal",
+        "percentage": 12.67,
+        "basis": "salary",
+        "isActive": true
+      }
+    ]
+  },
+  "lines": [
+    {
+      "code": "1MANGA",
+      "displayName": "CLASIFICACION DE MANGO TEJAR AM",
+      "shift": "AM",
+      "sourceRow": 2,
+      "positions": [
+        {
+          "code": "1MANGA001",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 2
+        },
+        {
+          "code": "1MANGA002",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 3
+        },
+        {
+          "code": "1MANGA003",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 4
+        },
+        {
+          "code": "1MANGA004",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 5
+        },
+        {
+          "code": "1MANGA005",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 6
+        }
+      ]
+    },
+    {
+      "code": "1MANGB",
+      "displayName": "CLASIFICACION DE MANGO TEJAR PM",
+      "shift": "PM",
+      "sourceRow": 3,
+      "positions": [
+        {
+          "code": "1MANGB001",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 7
+        },
+        {
+          "code": "1MANGB002",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 8
+        },
+        {
+          "code": "1MANGB003",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 9
+        },
+        {
+          "code": "1MANGB004",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 10
+        },
+        {
+          "code": "1MANGB005",
+          "jobTitle": "CLASIFICADOR DE MANGO",
+          "sourceRow": 11
+        }
+      ]
+    },
+    {
+      "code": "1CODIA",
+      "displayName": "CODIFICACION AM",
+      "shift": "AM",
+      "sourceRow": 4,
+      "positions": [
+        {
+          "code": "1CODIA001",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 12
+        },
+        {
+          "code": "1CODIA002",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 13
+        },
+        {
+          "code": "1CODIA003",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 14
+        },
+        {
+          "code": "1CODIA004",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 15
+        },
+        {
+          "code": "1CODIA005",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 16
+        }
+      ]
+    },
+    {
+      "code": "1CODIB",
+      "displayName": "CODIFICACION PM",
+      "shift": "PM",
+      "sourceRow": 5,
+      "positions": [
+        {
+          "code": "1CODIB001",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 17
+        },
+        {
+          "code": "1CODIB002",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 18
+        },
+        {
+          "code": "1CODIB003",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 19
+        },
+        {
+          "code": "1CODIB004",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 20
+        },
+        {
+          "code": "1CODIB005",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 21
+        }
+      ]
+    },
+    {
+      "code": "1EJOTA1",
+      "displayName": "EJOTERA 3 MAQUINAS AM (10 OPERARIOS)",
+      "shift": "AM",
+      "sourceRow": 6,
+      "positions": [
+        {
+          "code": "1EJOTA1001",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 646
+        },
+        {
+          "code": "1EJOTA1002",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 647
+        },
+        {
+          "code": "1EJOTA1003",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 648
+        },
+        {
+          "code": "1EJOTA1004",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 649
+        },
+        {
+          "code": "1EJOTA1005",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 650
+        },
+        {
+          "code": "1EJOTA1006",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 651
+        },
+        {
+          "code": "1EJOTA1007",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 652
+        },
+        {
+          "code": "1EJOTA1008",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 653
+        },
+        {
+          "code": "1EJOTA1009",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 654
+        },
+        {
+          "code": "1EJOTA1010",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 655
+        },
+        {
+          "code": "1EJOTA1011",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 656
+        }
+      ]
+    },
+    {
+      "code": "1EJOTB1",
+      "displayName": "EJOTERA 3 MAQUINAS PM (10 OPERARIOS)",
+      "shift": "PM",
+      "sourceRow": 7,
+      "positions": [
+        {
+          "code": "1EJOTB1001",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 657
+        },
+        {
+          "code": "1EJOTB1002",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 658
+        },
+        {
+          "code": "1EJOTB1003",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 659
+        },
+        {
+          "code": "1EJOTB1004",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 660
+        },
+        {
+          "code": "1EJOTB1005",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 661
+        },
+        {
+          "code": "1EJOTB1006",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 662
+        },
+        {
+          "code": "1EJOTB1007",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 663
+        },
+        {
+          "code": "1EJOTB1008",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 664
+        },
+        {
+          "code": "1EJOTB1009",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 665
+        },
+        {
+          "code": "1EJOTB1010",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 666
+        },
+        {
+          "code": "1EJOTB1011",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 667
+        }
+      ]
+    },
+    {
+      "code": "1EJOTA4",
+      "displayName": "EJOTERA AM (4 OP) AM",
+      "shift": "AM",
+      "sourceRow": 8,
+      "positions": [
+        {
+          "code": "1EJOTA4001",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 22
+        },
+        {
+          "code": "1EJOTA4002",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 23
+        },
+        {
+          "code": "1EJOTA4003",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 24
+        },
+        {
+          "code": "1EJOTA4004",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 25
+        }
+      ]
+    },
+    {
+      "code": "1EJOTA8",
+      "displayName": "EJOTERA AM (8 OP) AM",
+      "shift": "AM",
+      "sourceRow": 9,
+      "positions": [
+        {
+          "code": "1EJOTA8001",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 26
+        },
+        {
+          "code": "1EJOTA8002",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 27
+        },
+        {
+          "code": "1EJOTA8003",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 28
+        },
+        {
+          "code": "1EJOTA8004",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 29
+        },
+        {
+          "code": "1EJOTA8005",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 30
+        },
+        {
+          "code": "1EJOTA8006",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 31
+        },
+        {
+          "code": "1EJOTA8007",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 32
+        },
+        {
+          "code": "1EJOTA8008",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 33
+        }
+      ]
+    },
+    {
+      "code": "1EJOTB4",
+      "displayName": "EJOTERA PM (4 OP) PM",
+      "shift": "PM",
+      "sourceRow": 10,
+      "positions": [
+        {
+          "code": "1EJOTB4001",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 34
+        },
+        {
+          "code": "1EJOTB4002",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 35
+        },
+        {
+          "code": "1EJOTB4003",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 36
+        },
+        {
+          "code": "1EJOTB4004",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 37
+        }
+      ]
+    },
+    {
+      "code": "1EJOTB8",
+      "displayName": "EJOTERA PM (8 OP) PM",
+      "shift": "PM",
+      "sourceRow": 11,
+      "positions": [
+        {
+          "code": "1EJOTB8001",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 38
+        },
+        {
+          "code": "1EJOTB8002",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 39
+        },
+        {
+          "code": "1EJOTB8003",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 40
+        },
+        {
+          "code": "1EJOTB8004",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 41
+        },
+        {
+          "code": "1EJOTB8005",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 42
+        },
+        {
+          "code": "1EJOTB8006",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 43
+        },
+        {
+          "code": "1EJOTB8007",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 44
+        },
+        {
+          "code": "1EJOTB8008",
+          "jobTitle": "INSPECCION DE EJOTE",
+          "sourceRow": 45
+        }
+      ]
+    },
+    {
+      "code": "1LMPRA",
+      "displayName": "LAVADO DE MATERIA PRIMA AM",
+      "shift": "AM",
+      "sourceRow": 12,
+      "positions": [
+        {
+          "code": "1LMPRA001",
+          "jobTitle": "LAVADOR DE MP/COMODIN RPM",
+          "sourceRow": 46
+        },
+        {
+          "code": "1LMPRA002",
+          "jobTitle": "LAVADOR DE MP/COMODIN RPM",
+          "sourceRow": 47
+        },
+        {
+          "code": "1LMPRA003",
+          "jobTitle": "LAVADOR DE MP/COMODIN RPM",
+          "sourceRow": 48
+        }
+      ]
+    },
+    {
+      "code": "1LMPRB",
+      "displayName": "LAVADO DE MATERIA PRIMA PM",
+      "shift": "PM",
+      "sourceRow": 13,
+      "positions": [
+        {
+          "code": "1LMPRB001",
+          "jobTitle": "LAVADOR DE MP/COMODIN RPM",
+          "sourceRow": 49
+        },
+        {
+          "code": "1LMPRB002",
+          "jobTitle": "LAVADOR DE MP/COMODIN RPM",
+          "sourceRow": 50
+        },
+        {
+          "code": "1LMPRB003",
+          "jobTitle": "LAVADOR DE MP/COMODIN RPM",
+          "sourceRow": 51
+        }
+      ]
+    },
+    {
+      "code": "1CHOSA",
+      "displayName": "LINEA CHOCOLATE SELMI SATURNIA A",
+      "shift": "AM",
+      "sourceRow": 14,
+      "positions": [
+        {
+          "code": "1CHOSA001",
+          "jobTitle": "SUPERVISOR DE LINEA",
+          "sourceRow": 629
+        },
+        {
+          "code": "1CHOSA002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 630
+        },
+        {
+          "code": "1CHOSA003",
+          "jobTitle": "ALIMENTADOR DE BANDA",
+          "sourceRow": 631
+        },
+        {
+          "code": "1CHOSA004",
+          "jobTitle": "ALIMENTADOR DE BANDA",
+          "sourceRow": 632
+        },
+        {
+          "code": "1CHOSA005",
+          "jobTitle": "RECEPTOR DE PRODUCTO",
+          "sourceRow": 633
+        },
+        {
+          "code": "1CHOSA006",
+          "jobTitle": "RECEPTOR DE PRODUCTO",
+          "sourceRow": 634
+        },
+        {
+          "code": "1CHOSA007",
+          "jobTitle": "PESADOR",
+          "sourceRow": 635
+        },
+        {
+          "code": "1CHOSA008",
+          "jobTitle": "PESADOR",
+          "sourceRow": 636
+        },
+        {
+          "code": "1CHOSA009",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 637
+        },
+        {
+          "code": "1CHOSA010",
+          "jobTitle": "ABASTECEDOR INTERNO",
+          "sourceRow": 638
+        },
+        {
+          "code": "1CHOSA011",
+          "jobTitle": "ABASTECEDOR EXTERNO",
+          "sourceRow": 639
+        },
+        {
+          "code": "1CHOSA012",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 640
+        },
+        {
+          "code": "1CHOSA013",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 641
+        },
+        {
+          "code": "1CHOSA014",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 642
+        },
+        {
+          "code": "1CHOSA015",
+          "jobTitle": "ENCAJADOR/CODIFICADOR",
+          "sourceRow": 643
+        },
+        {
+          "code": "1CHOSA016",
+          "jobTitle": "ENCAJADOR/CODIFICADOR",
+          "sourceRow": 644
+        },
+        {
+          "code": "1CHOSA017",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 645
+        }
+      ]
+    },
+    {
+      "code": "1OKR1A",
+      "displayName": "LINEA DE INSPECCIÓN IQF1 (4) OKRA AM",
+      "shift": "AM",
+      "sourceRow": 15,
+      "positions": [
+        {
+          "code": "1OKR1A001",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 52
+        },
+        {
+          "code": "1OKR1A002",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 53
+        },
+        {
+          "code": "1OKR1A003",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 54
+        },
+        {
+          "code": "1OKR1A004",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 55
+        }
+      ]
+    },
+    {
+      "code": "1OKR1B",
+      "displayName": "LINEA DE INSPECCIÓN IQF1 (4) OKRA PM",
+      "shift": "PM",
+      "sourceRow": 16,
+      "positions": [
+        {
+          "code": "1OKR1B001",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 56
+        },
+        {
+          "code": "1OKR1B002",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 57
+        },
+        {
+          "code": "1OKR1B003",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 58
+        },
+        {
+          "code": "1OKR1B004",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 59
+        }
+      ]
+    },
+    {
+      "code": "1ARV2A",
+      "displayName": "LINEA DE INSPECCIÓN IQF2 (4) BRO-ARV AM",
+      "shift": "AM",
+      "sourceRow": 17,
+      "positions": [
+        {
+          "code": "1ARV2A001",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 682
+        },
+        {
+          "code": "1ARV2A002",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 683
+        },
+        {
+          "code": "1ARV2A003",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 684
+        },
+        {
+          "code": "1ARV2A004",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 685
+        },
+        {
+          "code": "1ARV2A005",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 686
+        }
+      ]
+    },
+    {
+      "code": "1ARV2B",
+      "displayName": "LINEA DE INSPECCIÓN IQF2 (4) BRO-ARV PM",
+      "shift": "PM",
+      "sourceRow": 18,
+      "positions": [
+        {
+          "code": "1ARV2B001",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 687
+        },
+        {
+          "code": "1ARV2B002",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 688
+        },
+        {
+          "code": "1ARV2B003",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 689
+        },
+        {
+          "code": "1ARV2B004",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 690
+        },
+        {
+          "code": "1ARV2B005",
+          "jobTitle": "INSPECCION ARVEJA",
+          "sourceRow": 691
+        },
+        {
+          "code": "1ARV2B006",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 692
+        }
+      ]
+    },
+    {
+      "code": "1OKR2A",
+      "displayName": "LINEA DE INSPECCIÓN IQF2 (6) OKRA AM",
+      "shift": "AM",
+      "sourceRow": 19,
+      "positions": [
+        {
+          "code": "1OKR2A001",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 60
+        },
+        {
+          "code": "1OKR2A002",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 61
+        },
+        {
+          "code": "1OKR2A003",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 62
+        },
+        {
+          "code": "1OKR2A004",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 63
+        },
+        {
+          "code": "1OKR2A005",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 64
+        },
+        {
+          "code": "1OKR2A006",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 65
+        }
+      ]
+    },
+    {
+      "code": "1OKR2B",
+      "displayName": "LINEA DE INSPECCIÓN IQF2 (6) OKRA PM",
+      "shift": "PM",
+      "sourceRow": 20,
+      "positions": [
+        {
+          "code": "1OKR2B001",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 66
+        },
+        {
+          "code": "1OKR2B002",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 67
+        },
+        {
+          "code": "1OKR2B003",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 68
+        },
+        {
+          "code": "1OKR2B004",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 69
+        },
+        {
+          "code": "1OKR2B005",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 70
+        },
+        {
+          "code": "1OKR2B006",
+          "jobTitle": "INSPECCION OKRA",
+          "sourceRow": 71
+        }
+      ]
+    },
+    {
+      "code": "1LDCFA",
+      "displayName": "LINEA DESTAJO 1A MESA 1 AM",
+      "shift": "AM",
+      "sourceRow": 21,
+      "positions": [
+        {
+          "code": "1LDCFA001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 72
+        },
+        {
+          "code": "1LDCFA002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 73
+        },
+        {
+          "code": "1LDCFA003",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 74
+        },
+        {
+          "code": "1LDCFA004",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 75
+        },
+        {
+          "code": "1LDCFA005",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 76
+        },
+        {
+          "code": "1LDCFA006",
+          "jobTitle": "EXTRACCION DE RECHAZO",
+          "sourceRow": 77
+        },
+        {
+          "code": "1LDCFA007",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 78
+        },
+        {
+          "code": "1LDCFA008",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 79
+        },
+        {
+          "code": "1LDCFA009",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 80
+        },
+        {
+          "code": "1LDCFA010",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 81
+        },
+        {
+          "code": "1LDCFA011",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 82
+        },
+        {
+          "code": "1LDCFA012",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 83
+        },
+        {
+          "code": "1LDCFA013",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 84
+        },
+        {
+          "code": "1LDCFA014",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 85
+        },
+        {
+          "code": "1LDCFA015",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 86
+        },
+        {
+          "code": "1LDCFA016",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 87
+        },
+        {
+          "code": "1LDCFA017",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 88
+        },
+        {
+          "code": "1LDCFA018",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 89
+        },
+        {
+          "code": "1LDCFA019",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 90
+        },
+        {
+          "code": "1LDCFA020",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 91
+        },
+        {
+          "code": "1LDCFA021",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 92
+        },
+        {
+          "code": "1LDCFA022",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 93
+        },
+        {
+          "code": "1LDCFA023",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 94
+        },
+        {
+          "code": "1LDCFA024",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 95
+        },
+        {
+          "code": "1LDCFA025",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 96
+        },
+        {
+          "code": "1LDCFA026",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 97
+        },
+        {
+          "code": "1LDCFA027",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 98
+        },
+        {
+          "code": "1LDCFA028",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 99
+        },
+        {
+          "code": "1LDCFA029",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 100
+        },
+        {
+          "code": "1LDCFA030",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 101
+        },
+        {
+          "code": "1LDCFA031",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 102
+        },
+        {
+          "code": "1LDCFA032",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 103
+        },
+        {
+          "code": "1LDCFA033",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 104
+        },
+        {
+          "code": "1LDCFA034",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 105
+        },
+        {
+          "code": "1LDCFA035",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 106
+        },
+        {
+          "code": "1LDCFA036",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 107
+        },
+        {
+          "code": "1LDCFA037",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 108
+        },
+        {
+          "code": "1LDCFA038",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 109
+        },
+        {
+          "code": "1LDCFA039",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 110
+        },
+        {
+          "code": "1LDCFA040",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 111
+        },
+        {
+          "code": "1LDCFA041",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 112
+        },
+        {
+          "code": "1LDCFA042",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 113
+        },
+        {
+          "code": "1LDCFA043",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 114
+        },
+        {
+          "code": "1LDCFA044",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 115
+        },
+        {
+          "code": "1LDCFA045",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 116
+        },
+        {
+          "code": "1LDCFA046",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 117
+        },
+        {
+          "code": "1LDCFA047",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 118
+        },
+        {
+          "code": "1LDCFA048",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 119
+        },
+        {
+          "code": "1LDCFA049",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 120
+        },
+        {
+          "code": "1LDCFA050",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 121
+        }
+      ]
+    },
+    {
+      "code": "1LDCTA",
+      "displayName": "LINEA DESTAJO 1A MESA 2 AM",
+      "shift": "AM",
+      "sourceRow": 22,
+      "positions": [
+        {
+          "code": "1LDCTA001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 122
+        },
+        {
+          "code": "1LDCTA002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 123
+        },
+        {
+          "code": "1LDCTA003",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 124
+        },
+        {
+          "code": "1LDCTA004",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 125
+        },
+        {
+          "code": "1LDCTA005",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 126
+        },
+        {
+          "code": "1LDCTA006",
+          "jobTitle": "EXTRACCION DE RECHAZO",
+          "sourceRow": 127
+        },
+        {
+          "code": "1LDCTA007",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 128
+        },
+        {
+          "code": "1LDCTA008",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 129
+        },
+        {
+          "code": "1LDCTA009",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 130
+        },
+        {
+          "code": "1LDCTA010",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 131
+        },
+        {
+          "code": "1LDCTA011",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 132
+        },
+        {
+          "code": "1LDCTA012",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 133
+        },
+        {
+          "code": "1LDCTA013",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 134
+        },
+        {
+          "code": "1LDCTA014",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 135
+        },
+        {
+          "code": "1LDCTA015",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 136
+        },
+        {
+          "code": "1LDCTA016",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 137
+        },
+        {
+          "code": "1LDCTA017",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 138
+        },
+        {
+          "code": "1LDCTA018",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 139
+        },
+        {
+          "code": "1LDCTA019",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 140
+        },
+        {
+          "code": "1LDCTA020",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 141
+        },
+        {
+          "code": "1LDCTA021",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 142
+        },
+        {
+          "code": "1LDCTA022",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 143
+        },
+        {
+          "code": "1LDCTA023",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 144
+        },
+        {
+          "code": "1LDCTA024",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 145
+        },
+        {
+          "code": "1LDCTA025",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 146
+        },
+        {
+          "code": "1LDCTA026",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 147
+        },
+        {
+          "code": "1LDCTA027",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 148
+        },
+        {
+          "code": "1LDCTA028",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 149
+        },
+        {
+          "code": "1LDCTA029",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 150
+        },
+        {
+          "code": "1LDCTA030",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 151
+        },
+        {
+          "code": "1LDCTA031",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 152
+        },
+        {
+          "code": "1LDCTA032",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 153
+        },
+        {
+          "code": "1LDCTA033",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 154
+        },
+        {
+          "code": "1LDCTA034",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 155
+        },
+        {
+          "code": "1LDCTA035",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 156
+        },
+        {
+          "code": "1LDCTA036",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 157
+        },
+        {
+          "code": "1LDCTA037",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 158
+        },
+        {
+          "code": "1LDCTA038",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 159
+        },
+        {
+          "code": "1LDCTA039",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 160
+        },
+        {
+          "code": "1LDCTA040",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 161
+        },
+        {
+          "code": "1LDCTA041",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 162
+        },
+        {
+          "code": "1LDCTA042",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 163
+        },
+        {
+          "code": "1LDCTA043",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 164
+        },
+        {
+          "code": "1LDCTA044",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 165
+        },
+        {
+          "code": "1LDCTA045",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 166
+        },
+        {
+          "code": "1LDCTA046",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 167
+        },
+        {
+          "code": "1LDCTA047",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 168
+        },
+        {
+          "code": "1LDCTA048",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 169
+        },
+        {
+          "code": "1LDCTA049",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 170
+        },
+        {
+          "code": "1LDCTA050",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 171
+        }
+      ]
+    },
+    {
+      "code": "1LDCTB",
+      "displayName": "LINEA DESTAJO 1A MESA 2 PM",
+      "shift": "PM",
+      "sourceRow": 23,
+      "positions": [
+        {
+          "code": "1LDCTB001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 172
+        },
+        {
+          "code": "1LDCTB002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 173
+        },
+        {
+          "code": "1LDCTB003",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 174
+        },
+        {
+          "code": "1LDCTB004",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 175
+        },
+        {
+          "code": "1LDCTB005",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 176
+        },
+        {
+          "code": "1LDCTB006",
+          "jobTitle": "EXTRACCION DE RECHAZO",
+          "sourceRow": 177
+        },
+        {
+          "code": "1LDCTB007",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 178
+        },
+        {
+          "code": "1LDCTB008",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 179
+        },
+        {
+          "code": "1LDCTB009",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 180
+        },
+        {
+          "code": "1LDCTB010",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 181
+        },
+        {
+          "code": "1LDCTB011",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 182
+        },
+        {
+          "code": "1LDCTB012",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 183
+        },
+        {
+          "code": "1LDCTB013",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 184
+        },
+        {
+          "code": "1LDCTB014",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 185
+        },
+        {
+          "code": "1LDCTB015",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 186
+        },
+        {
+          "code": "1LDCTB016",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 187
+        },
+        {
+          "code": "1LDCTB017",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 188
+        },
+        {
+          "code": "1LDCTB018",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 189
+        },
+        {
+          "code": "1LDCTB019",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 190
+        },
+        {
+          "code": "1LDCTB020",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 191
+        },
+        {
+          "code": "1LDCTB021",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 192
+        },
+        {
+          "code": "1LDCTB022",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 193
+        },
+        {
+          "code": "1LDCTB023",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 194
+        },
+        {
+          "code": "1LDCTB024",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 195
+        },
+        {
+          "code": "1LDCTB025",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 196
+        },
+        {
+          "code": "1LDCTB026",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 197
+        },
+        {
+          "code": "1LDCTB027",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 198
+        },
+        {
+          "code": "1LDCTB028",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 199
+        },
+        {
+          "code": "1LDCTB029",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 200
+        },
+        {
+          "code": "1LDCTB030",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 201
+        },
+        {
+          "code": "1LDCTB031",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 202
+        },
+        {
+          "code": "1LDCTB032",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 203
+        },
+        {
+          "code": "1LDCTB033",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 204
+        },
+        {
+          "code": "1LDCTB034",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 205
+        },
+        {
+          "code": "1LDCTB035",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 206
+        },
+        {
+          "code": "1LDCTB036",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 207
+        },
+        {
+          "code": "1LDCTB037",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 208
+        },
+        {
+          "code": "1LDCTB038",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 209
+        },
+        {
+          "code": "1LDCTB039",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 210
+        },
+        {
+          "code": "1LDCTB040",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 211
+        },
+        {
+          "code": "1LDCTB041",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 212
+        },
+        {
+          "code": "1LDCTB042",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 213
+        },
+        {
+          "code": "1LDCTB043",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 214
+        },
+        {
+          "code": "1LDCTB044",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 215
+        },
+        {
+          "code": "1LDCTB045",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 216
+        },
+        {
+          "code": "1LDCTB046",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 217
+        },
+        {
+          "code": "1LDCTB047",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 218
+        },
+        {
+          "code": "1LDCTB048",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 219
+        },
+        {
+          "code": "1LDCTB049",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 220
+        },
+        {
+          "code": "1LDCTB050",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 221
+        }
+      ]
+    },
+    {
+      "code": "1LNDTA",
+      "displayName": "LINEA DIRECTA IQF 1 AM V2 (26 R)",
+      "shift": "AM",
+      "sourceRow": 24,
+      "positions": [
+        {
+          "code": "1LNDTA001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 222
+        },
+        {
+          "code": "1LNDTA002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 223
+        },
+        {
+          "code": "1LNDTA003",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 224
+        },
+        {
+          "code": "1LNDTA004",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 225
+        },
+        {
+          "code": "1LNDTA005",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 226
+        },
+        {
+          "code": "1LNDTA006",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 227
+        },
+        {
+          "code": "1LNDTA007",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 228
+        },
+        {
+          "code": "1LNDTA008",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 229
+        },
+        {
+          "code": "1LNDTA009",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 230
+        },
+        {
+          "code": "1LNDTA010",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 231
+        },
+        {
+          "code": "1LNDTA011",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 232
+        },
+        {
+          "code": "1LNDTA012",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 233
+        },
+        {
+          "code": "1LNDTA013",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 234
+        },
+        {
+          "code": "1LNDTA014",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 235
+        },
+        {
+          "code": "1LNDTA015",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 236
+        },
+        {
+          "code": "1LNDTA016",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 237
+        },
+        {
+          "code": "1LNDTA017",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 238
+        },
+        {
+          "code": "1LNDTA018",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 239
+        },
+        {
+          "code": "1LNDTA019",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 240
+        },
+        {
+          "code": "1LNDTA020",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 241
+        },
+        {
+          "code": "1LNDTA021",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 242
+        },
+        {
+          "code": "1LNDTA022",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 243
+        },
+        {
+          "code": "1LNDTA023",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 244
+        },
+        {
+          "code": "1LNDTA024",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 245
+        },
+        {
+          "code": "1LNDTA025",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 246
+        },
+        {
+          "code": "1LNDTA026",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 247
+        },
+        {
+          "code": "1LNDTA027",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 248
+        },
+        {
+          "code": "1LNDTA028",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 249
+        },
+        {
+          "code": "1LNDTA029",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 250
+        },
+        {
+          "code": "1LNDTA030",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 251
+        },
+        {
+          "code": "1LNDTA031",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 252
+        },
+        {
+          "code": "1LNDTA032",
+          "jobTitle": "CANASTERA",
+          "sourceRow": 253
+        }
+      ]
+    },
+    {
+      "code": "1PIQ1A",
+      "displayName": "LINEA DIRECTA IQF1 AM PROCESO",
+      "shift": "AM",
+      "sourceRow": 25,
+      "positions": [
+        {
+          "code": "1PIQ1A001",
+          "jobTitle": "EMPAREJADOR",
+          "sourceRow": 254
+        },
+        {
+          "code": "1PIQ1A002",
+          "jobTitle": "RECEPTOR DE SALIDA DE TUNEL",
+          "sourceRow": 255
+        },
+        {
+          "code": "1PIQ1A003",
+          "jobTitle": "RECEPTOR DE SALIDA DE TUNEL",
+          "sourceRow": 256
+        },
+        {
+          "code": "1PIQ1A004",
+          "jobTitle": "PESADOR",
+          "sourceRow": 257
+        },
+        {
+          "code": "1PIQ1A005",
+          "jobTitle": "PESADOR",
+          "sourceRow": 258
+        },
+        {
+          "code": "1PIQ1A006",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 259
+        },
+        {
+          "code": "1PIQ1A007",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 260
+        },
+        {
+          "code": "1PIQ1A008",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 261
+        },
+        {
+          "code": "1PIQ1A009",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 262
+        }
+      ]
+    },
+    {
+      "code": "1PIQ1B",
+      "displayName": "LINEA DIRECTA IQF1 PM PROCESO",
+      "shift": "PM",
+      "sourceRow": 26,
+      "positions": [
+        {
+          "code": "1PIQ1B001",
+          "jobTitle": "EMPAREJADOR",
+          "sourceRow": 263
+        },
+        {
+          "code": "1PIQ1B002",
+          "jobTitle": "RECEPTOR DE SALIDA DE TUNEL",
+          "sourceRow": 264
+        },
+        {
+          "code": "1PIQ1B003",
+          "jobTitle": "RECEPTOR DE SALIDA DE TUNEL",
+          "sourceRow": 265
+        },
+        {
+          "code": "1PIQ1B004",
+          "jobTitle": "PESADOR",
+          "sourceRow": 266
+        },
+        {
+          "code": "1PIQ1B005",
+          "jobTitle": "PESADOR",
+          "sourceRow": 267
+        },
+        {
+          "code": "1PIQ1B006",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 268
+        },
+        {
+          "code": "1PIQ1B007",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 269
+        },
+        {
+          "code": "1PIQ1B008",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 270
+        },
+        {
+          "code": "1PIQ1B009",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 271
+        }
+      ]
+    },
+    {
+      "code": "1LNDTB",
+      "displayName": "LINEA DIRECTA IQF1 PM RECORTE",
+      "shift": "PM",
+      "sourceRow": 27,
+      "positions": [
+        {
+          "code": "1LNDTB001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 272
+        },
+        {
+          "code": "1LNDTB002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 273
+        },
+        {
+          "code": "1LNDTB003",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 274
+        },
+        {
+          "code": "1LNDTB004",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 275
+        },
+        {
+          "code": "1LNDTB005",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 276
+        },
+        {
+          "code": "1LNDTB006",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 277
+        },
+        {
+          "code": "1LNDTB007",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 278
+        },
+        {
+          "code": "1LNDTB008",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 279
+        },
+        {
+          "code": "1LNDTB009",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 280
+        },
+        {
+          "code": "1LNDTB010",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 281
+        },
+        {
+          "code": "1LNDTB011",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 282
+        },
+        {
+          "code": "1LNDTB012",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 283
+        },
+        {
+          "code": "1LNDTB013",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 284
+        },
+        {
+          "code": "1LNDTB014",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 285
+        },
+        {
+          "code": "1LNDTB015",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 286
+        },
+        {
+          "code": "1LNDTB016",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 287
+        },
+        {
+          "code": "1LNDTB017",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 288
+        },
+        {
+          "code": "1LNDTB018",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 289
+        },
+        {
+          "code": "1LNDTB019",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 290
+        },
+        {
+          "code": "1LNDTB020",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 291
+        },
+        {
+          "code": "1LNDTB021",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 292
+        },
+        {
+          "code": "1LNDTB022",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 293
+        },
+        {
+          "code": "1LNDTB023",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 294
+        },
+        {
+          "code": "1LNDTB024",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 295
+        },
+        {
+          "code": "1LNDTB025",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 296
+        },
+        {
+          "code": "1LNDTB026",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 297
+        },
+        {
+          "code": "1LNDTB027",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 298
+        },
+        {
+          "code": "1LNDTB028",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 299
+        },
+        {
+          "code": "1LNDTB029",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 300
+        },
+        {
+          "code": "1LNDTB030",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 301
+        },
+        {
+          "code": "1LNDTB031",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 302
+        },
+        {
+          "code": "1LNDTB032",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 303
+        },
+        {
+          "code": "1LNDTB033",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 304
+        },
+        {
+          "code": "1LNDTB034",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 305
+        },
+        {
+          "code": "1LNDTB035",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 306
+        },
+        {
+          "code": "1LNDTB036",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 307
+        },
+        {
+          "code": "1LNDTB037",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 308
+        },
+        {
+          "code": "1LNDTB038",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 309
+        },
+        {
+          "code": "1LNDTB039",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 310
+        },
+        {
+          "code": "1LNDTB040",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 311
+        },
+        {
+          "code": "1LNDTB041",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 312
+        },
+        {
+          "code": "1LNDTB042",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 313
+        },
+        {
+          "code": "1LNDTB043",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 314
+        },
+        {
+          "code": "1LNDTB044",
+          "jobTitle": "CANASTERO",
+          "sourceRow": 315
+        }
+      ]
+    },
+    {
+      "code": "1BRR2A",
+      "displayName": "LINEA IQF 2 AM INSPECCIÓN DE BRÓCOLI",
+      "shift": "AM",
+      "sourceRow": 28,
+      "positions": [
+        {
+          "code": "1BRR2A001",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 693
+        },
+        {
+          "code": "1BRR2A002",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 694
+        },
+        {
+          "code": "1BRR2A003",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 695
+        },
+        {
+          "code": "1BRR2A004",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 696
+        },
+        {
+          "code": "1BRR2A005",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 697
+        },
+        {
+          "code": "1BRR2A006",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 698
+        },
+        {
+          "code": "1BRR2A007",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 699
+        },
+        {
+          "code": "1BRR2A008",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 700
+        },
+        {
+          "code": "1BRR2A009",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 701
+        },
+        {
+          "code": "1BRR2A010",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 702
+        },
+        {
+          "code": "1BRR2A011",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 703
+        }
+      ]
+    },
+    {
+      "code": "1PIQ2A",
+      "displayName": "LINEA IQF 2 AM PROCESO",
+      "shift": "AM",
+      "sourceRow": 29,
+      "positions": [
+        {
+          "code": "1PIQ2A001",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 316
+        },
+        {
+          "code": "1PIQ2A002",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 317
+        },
+        {
+          "code": "1PIQ2A003",
+          "jobTitle": "EMPAREJADOR",
+          "sourceRow": 318
+        },
+        {
+          "code": "1PIQ2A004",
+          "jobTitle": "RECEPTOR DE SALIDA DE TUNEL",
+          "sourceRow": 319
+        },
+        {
+          "code": "1PIQ2A005",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 320
+        },
+        {
+          "code": "1PIQ2A006",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 321
+        },
+        {
+          "code": "1PIQ2A007",
+          "jobTitle": "PALLETIZADOR",
+          "sourceRow": 322
+        },
+        {
+          "code": "1PIQ2A008",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 323
+        },
+        {
+          "code": "1PIQ2A009",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 324
+        }
+      ]
+    },
+    {
+      "code": "1BRR2B",
+      "displayName": "LINEA IQF 2 PM INSPECCIÓN DE BRÓCOLI",
+      "shift": "PM",
+      "sourceRow": 30,
+      "positions": [
+        {
+          "code": "1BRR2B001",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 704
+        },
+        {
+          "code": "1BRR2B002",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 705
+        },
+        {
+          "code": "1BRR2B003",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 706
+        },
+        {
+          "code": "1BRR2B004",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 707
+        },
+        {
+          "code": "1BRR2B005",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 708
+        },
+        {
+          "code": "1BRR2B006",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 709
+        },
+        {
+          "code": "1BRR2B007",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 710
+        },
+        {
+          "code": "1BRR2B008",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 711
+        },
+        {
+          "code": "1BRR2B009",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 712
+        },
+        {
+          "code": "1BRR2B010",
+          "jobTitle": "INSPECCION REPROCESO",
+          "sourceRow": 713
+        },
+        {
+          "code": "1BRR2B011",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 714
+        }
+      ]
+    },
+    {
+      "code": "1PIQ2B",
+      "displayName": "LINEA IQF 2 PM PROCESO",
+      "shift": "PM",
+      "sourceRow": 31,
+      "positions": [
+        {
+          "code": "1PIQ2B001",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 325
+        },
+        {
+          "code": "1PIQ2B002",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 326
+        },
+        {
+          "code": "1PIQ2B003",
+          "jobTitle": "EMPAREJADOR",
+          "sourceRow": 327
+        },
+        {
+          "code": "1PIQ2B004",
+          "jobTitle": "RECEPTOR DE SALIDA DE TUNEL",
+          "sourceRow": 328
+        },
+        {
+          "code": "1PIQ2B005",
+          "jobTitle": "SELLADOR",
+          "sourceRow": 329
+        },
+        {
+          "code": "1PIQ2B006",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 330
+        },
+        {
+          "code": "1PIQ2B007",
+          "jobTitle": "PALLETIZADOR",
+          "sourceRow": 331
+        },
+        {
+          "code": "1PIQ2B008",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 332
+        },
+        {
+          "code": "1PIQ2B009",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 333
+        }
+      ]
+    },
+    {
+      "code": "1PE1DA",
+      "displayName": "PROCESO IQF 1 AM EMPAQUE (4 OPERARIOS)",
+      "shift": "AM",
+      "sourceRow": 33,
+      "positions": [
+        {
+          "code": "1PE1DA001",
+          "jobTitle": "PESADOR",
+          "sourceRow": 334
+        },
+        {
+          "code": "1PE1DA002",
+          "jobTitle": "PESADOR",
+          "sourceRow": 335
+        },
+        {
+          "code": "1PE1DA003",
+          "jobTitle": "LLENADOR",
+          "sourceRow": 336
+        },
+        {
+          "code": "1PE1DA004",
+          "jobTitle": "LLENADOR",
+          "sourceRow": 337
+        }
+      ]
+    },
+    {
+      "code": "1PI1DA",
+      "displayName": "PROCESO IQF 1 AM EMPAQUE (12 OPERARIOS)",
+      "shift": "AM",
+      "sourceRow": 32,
+      "positions": [
+        {
+          "code": "1PI1DA001",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 342
+        },
+        {
+          "code": "1PI1DA002",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 343
+        },
+        {
+          "code": "1PI1DA003",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 344
+        },
+        {
+          "code": "1PI1DA004",
+          "jobTitle": "PESADOR",
+          "sourceRow": 345
+        },
+        {
+          "code": "1PI1DA005",
+          "jobTitle": "PESADOR",
+          "sourceRow": 346
+        },
+        {
+          "code": "1PI1DA006",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 347
+        },
+        {
+          "code": "1PI1DA007",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 348
+        },
+        {
+          "code": "1PI1DA008",
+          "jobTitle": "SELLADOR DE CAJAS",
+          "sourceRow": 349
+        },
+        {
+          "code": "1PI1DA009",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 350
+        },
+        {
+          "code": "1PI1DA010",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 351
+        },
+        {
+          "code": "1PI1DA011",
+          "jobTitle": "PESADOR",
+          "sourceRow": 352
+        },
+        {
+          "code": "1PI1DA012",
+          "jobTitle": "PESADOR",
+          "sourceRow": 353
+        }
+      ]
+    },
+    {
+      "code": "1PE1DB",
+      "displayName": "PROCESO IQF 1 PM EMPAQUE (4 OPERARIOS)",
+      "shift": "PM",
+      "sourceRow": 35,
+      "positions": [
+        {
+          "code": "1PE1DB001",
+          "jobTitle": "PESADOR",
+          "sourceRow": 338
+        },
+        {
+          "code": "1PE1DB002",
+          "jobTitle": "PESADOR",
+          "sourceRow": 339
+        },
+        {
+          "code": "1PE1DB003",
+          "jobTitle": "LLENADOR",
+          "sourceRow": 340
+        },
+        {
+          "code": "1PE1DB004",
+          "jobTitle": "LLENADOR",
+          "sourceRow": 341
+        }
+      ]
+    },
+    {
+      "code": "1PI1DB",
+      "displayName": "PROCESO IQF 1 PM EMPAQUE (12 OPERARIOS)",
+      "shift": "PM",
+      "sourceRow": 34,
+      "positions": [
+        {
+          "code": "1PI1DB001",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 354
+        },
+        {
+          "code": "1PI1DB002",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 355
+        },
+        {
+          "code": "1PI1DB003",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 356
+        },
+        {
+          "code": "1PI1DB004",
+          "jobTitle": "PESADOR",
+          "sourceRow": 357
+        },
+        {
+          "code": "1PI1DB005",
+          "jobTitle": "PESADOR",
+          "sourceRow": 358
+        },
+        {
+          "code": "1PI1DB006",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 359
+        },
+        {
+          "code": "1PI1DB007",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 360
+        },
+        {
+          "code": "1PI1DB008",
+          "jobTitle": "SELLADOR DE CAJAS",
+          "sourceRow": 361
+        },
+        {
+          "code": "1PI1DB009",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 362
+        },
+        {
+          "code": "1PI1DB010",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 363
+        },
+        {
+          "code": "1PI1DB011",
+          "jobTitle": "PESADOR",
+          "sourceRow": 364
+        },
+        {
+          "code": "1PI1DB012",
+          "jobTitle": "PESADOR",
+          "sourceRow": 365
+        }
+      ]
+    },
+    {
+      "code": "1PI2DA",
+      "displayName": "PROCESO IQF 2 AM EMPAQUE (12 OPERARIOS)",
+      "shift": "AM",
+      "sourceRow": 36,
+      "positions": [
+        {
+          "code": "1PI2DA001",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 366
+        },
+        {
+          "code": "1PI2DA002",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 367
+        },
+        {
+          "code": "1PI2DA003",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 368
+        },
+        {
+          "code": "1PI2DA004",
+          "jobTitle": "PESADOR",
+          "sourceRow": 369
+        },
+        {
+          "code": "1PI2DA005",
+          "jobTitle": "PESADOR",
+          "sourceRow": 370
+        },
+        {
+          "code": "1PI2DA006",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 371
+        },
+        {
+          "code": "1PI2DA007",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 372
+        },
+        {
+          "code": "1PI2DA008",
+          "jobTitle": "SELLADOR DE CAJAS",
+          "sourceRow": 373
+        },
+        {
+          "code": "1PI2DA009",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 374
+        },
+        {
+          "code": "1PI2DA010",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 375
+        },
+        {
+          "code": "1PI2DA011",
+          "jobTitle": "PESADOR",
+          "sourceRow": 376
+        },
+        {
+          "code": "1PI2DA012",
+          "jobTitle": "PESADOR",
+          "sourceRow": 377
+        }
+      ]
+    },
+    {
+      "code": "1BRO2A",
+      "displayName": "PROCESO IQF 2 INSPECCIÓN BRÓCOLI (6) AM",
+      "shift": "AM",
+      "sourceRow": 37,
+      "positions": [
+        {
+          "code": "1BRO2A001",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 668
+        },
+        {
+          "code": "1BRO2A002",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 669
+        },
+        {
+          "code": "1BRO2A003",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 670
+        },
+        {
+          "code": "1BRO2A004",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 671
+        },
+        {
+          "code": "1BRO2A005",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 672
+        },
+        {
+          "code": "1BRO2A006",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 673
+        },
+        {
+          "code": "1BRO2A007",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 674
+        }
+      ]
+    },
+    {
+      "code": "1BRO2B",
+      "displayName": "PROCESO IQF 2 INSPECCIÓN BRÓCOLI (6) PM",
+      "shift": "PM",
+      "sourceRow": 38,
+      "positions": [
+        {
+          "code": "1BRO2B001",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 675
+        },
+        {
+          "code": "1BRO2B002",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 676
+        },
+        {
+          "code": "1BRO2B003",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 677
+        },
+        {
+          "code": "1BRO2B004",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 678
+        },
+        {
+          "code": "1BRO2B005",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 679
+        },
+        {
+          "code": "1BRO2B006",
+          "jobTitle": "INSPECCION BROCOLI",
+          "sourceRow": 680
+        },
+        {
+          "code": "1BRO2B007",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 681
+        }
+      ]
+    },
+    {
+      "code": "1PI2DB",
+      "displayName": "PROCESO IQF 2 PM EMPAQUE (12 OPERARIOS)",
+      "shift": "PM",
+      "sourceRow": 39,
+      "positions": [
+        {
+          "code": "1PI2DB001",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 378
+        },
+        {
+          "code": "1PI2DB002",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 379
+        },
+        {
+          "code": "1PI2DB003",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 380
+        },
+        {
+          "code": "1PI2DB004",
+          "jobTitle": "PESADOR",
+          "sourceRow": 381
+        },
+        {
+          "code": "1PI2DB005",
+          "jobTitle": "PESADOR",
+          "sourceRow": 382
+        },
+        {
+          "code": "1PI2DB006",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 383
+        },
+        {
+          "code": "1PI2DB007",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 384
+        },
+        {
+          "code": "1PI2DB008",
+          "jobTitle": "SELLADOR DE CAJAS",
+          "sourceRow": 385
+        },
+        {
+          "code": "1PI2DB009",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 386
+        },
+        {
+          "code": "1PI2DB010",
+          "jobTitle": "EMPACADOR",
+          "sourceRow": 387
+        },
+        {
+          "code": "1PI2DB011",
+          "jobTitle": "PESADOR",
+          "sourceRow": 388
+        },
+        {
+          "code": "1PI2DB012",
+          "jobTitle": "PESADOR",
+          "sourceRow": 389
+        }
+      ]
+    },
+    {
+      "code": "1RMPRA",
+      "displayName": "RECEPCION DE MATERIA PRIMA AM",
+      "shift": "AM",
+      "sourceRow": 40,
+      "positions": [
+        {
+          "code": "1RMPRA001",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 390
+        },
+        {
+          "code": "1RMPRA002",
+          "jobTitle": "COMODIN",
+          "sourceRow": 391
+        },
+        {
+          "code": "1RMPRA003",
+          "jobTitle": "COMODIN",
+          "sourceRow": 392
+        },
+        {
+          "code": "1RMPRA004",
+          "jobTitle": "COMODIN",
+          "sourceRow": 393
+        },
+        {
+          "code": "1RMPRA005",
+          "jobTitle": "COMODIN",
+          "sourceRow": 394
+        },
+        {
+          "code": "1RMPRA006",
+          "jobTitle": "COMODIN",
+          "sourceRow": 395
+        },
+        {
+          "code": "1RMPRA007",
+          "jobTitle": "COMODIN",
+          "sourceRow": 396
+        },
+        {
+          "code": "1RMPRA008",
+          "jobTitle": "COMODIN",
+          "sourceRow": 397
+        }
+      ]
+    },
+    {
+      "code": "1RMPRB",
+      "displayName": "RECEPCION DE MATERIA PRIMA PM",
+      "shift": "PM",
+      "sourceRow": 41,
+      "positions": [
+        {
+          "code": "1RMPRB001",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 398
+        },
+        {
+          "code": "1RMPRB002",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 399
+        },
+        {
+          "code": "1RMPRB003",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 400
+        },
+        {
+          "code": "1RMPRB004",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 401
+        },
+        {
+          "code": "1RMPRB005",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 402
+        },
+        {
+          "code": "1RMPRB006",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 403
+        },
+        {
+          "code": "1RMPRB007",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 404
+        },
+        {
+          "code": "1RMPRB008",
+          "jobTitle": "RECEPTOR",
+          "sourceRow": 405
+        }
+      ]
+    },
+    {
+      "code": "1RJUGA",
+      "displayName": "RECORTE JUGOS AM (16 R)",
+      "shift": "AM",
+      "sourceRow": 42,
+      "positions": [
+        {
+          "code": "1RJUGA001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 406
+        },
+        {
+          "code": "1RJUGA002",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 407
+        },
+        {
+          "code": "1RJUGA003",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 408
+        },
+        {
+          "code": "1RJUGA004",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 409
+        },
+        {
+          "code": "1RJUGA005",
+          "jobTitle": "EXTRACTOR DE DESCHOS",
+          "sourceRow": 410
+        },
+        {
+          "code": "1RJUGA006",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 411
+        },
+        {
+          "code": "1RJUGA007",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 412
+        },
+        {
+          "code": "1RJUGA008",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 413
+        },
+        {
+          "code": "1RJUGA009",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 414
+        },
+        {
+          "code": "1RJUGA010",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 415
+        },
+        {
+          "code": "1RJUGA011",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 416
+        },
+        {
+          "code": "1RJUGA012",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 417
+        },
+        {
+          "code": "1RJUGA013",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 418
+        },
+        {
+          "code": "1RJUGA014",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 419
+        },
+        {
+          "code": "1RJUGA015",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 420
+        },
+        {
+          "code": "1RJUGA016",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 421
+        },
+        {
+          "code": "1RJUGA017",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 422
+        },
+        {
+          "code": "1RJUGA018",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 423
+        },
+        {
+          "code": "1RJUGA019",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 424
+        },
+        {
+          "code": "1RJUGA020",
+          "jobTitle": "RECORTADOR",
+          "sourceRow": 425
+        },
+        {
+          "code": "1RJUGA021",
+          "jobTitle": "CANASTERO",
+          "sourceRow": 426
+        }
+      ]
+    },
+    {
+      "code": "1REM1A",
+      "displayName": "REEMPAQUE 1 AM (64)",
+      "shift": "AM",
+      "sourceRow": 43,
+      "positions": [
+        {
+          "code": "1REM1A001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 427
+        },
+        {
+          "code": "1REM1A002",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 428
+        },
+        {
+          "code": "1REM1A003",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 429
+        },
+        {
+          "code": "1REM1A004",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 430
+        },
+        {
+          "code": "1REM1A005",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 431
+        },
+        {
+          "code": "1REM1A006",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 432
+        },
+        {
+          "code": "1REM1A007",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 433
+        },
+        {
+          "code": "1REM1A008",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 434
+        },
+        {
+          "code": "1REM1A009",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 435
+        },
+        {
+          "code": "1REM1A010",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 436
+        },
+        {
+          "code": "1REM1A011",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 437
+        },
+        {
+          "code": "1REM1A012",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 438
+        },
+        {
+          "code": "1REM1A013",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 439
+        },
+        {
+          "code": "1REM1A014",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 440
+        },
+        {
+          "code": "1REM1A015",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 441
+        },
+        {
+          "code": "1REM1A016",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 442
+        },
+        {
+          "code": "1REM1A017",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 443
+        },
+        {
+          "code": "1REM1A018",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 444
+        },
+        {
+          "code": "1REM1A019",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 445
+        },
+        {
+          "code": "1REM1A020",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 446
+        },
+        {
+          "code": "1REM1A021",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 447
+        },
+        {
+          "code": "1REM1A022",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 448
+        },
+        {
+          "code": "1REM1A023",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 449
+        },
+        {
+          "code": "1REM1A024",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 450
+        },
+        {
+          "code": "1REM1A025",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 451
+        },
+        {
+          "code": "1REM1A026",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 452
+        },
+        {
+          "code": "1REM1A027",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 453
+        },
+        {
+          "code": "1REM1A028",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 454
+        },
+        {
+          "code": "1REM1A029",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 455
+        },
+        {
+          "code": "1REM1A030",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 456
+        },
+        {
+          "code": "1REM1A031",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 457
+        },
+        {
+          "code": "1REM1A032",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 458
+        },
+        {
+          "code": "1REM1A033",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 459
+        },
+        {
+          "code": "1REM1A034",
+          "jobTitle": "PESADOR",
+          "sourceRow": 460
+        },
+        {
+          "code": "1REM1A035",
+          "jobTitle": "PESADOR",
+          "sourceRow": 461
+        },
+        {
+          "code": "1REM1A036",
+          "jobTitle": "PESADOR",
+          "sourceRow": 462
+        },
+        {
+          "code": "1REM1A037",
+          "jobTitle": "PESADOR",
+          "sourceRow": 463
+        },
+        {
+          "code": "1REM1A038",
+          "jobTitle": "PESADOR",
+          "sourceRow": 464
+        },
+        {
+          "code": "1REM1A039",
+          "jobTitle": "PESADOR",
+          "sourceRow": 465
+        },
+        {
+          "code": "1REM1A040",
+          "jobTitle": "PESADOR",
+          "sourceRow": 466
+        },
+        {
+          "code": "1REM1A041",
+          "jobTitle": "PESADOR",
+          "sourceRow": 467
+        },
+        {
+          "code": "1REM1A042",
+          "jobTitle": "PESADOR",
+          "sourceRow": 468
+        },
+        {
+          "code": "1REM1A043",
+          "jobTitle": "PESADOR",
+          "sourceRow": 469
+        },
+        {
+          "code": "1REM1A044",
+          "jobTitle": "PESADOR",
+          "sourceRow": 470
+        },
+        {
+          "code": "1REM1A045",
+          "jobTitle": "PESADOR",
+          "sourceRow": 471
+        },
+        {
+          "code": "1REM1A046",
+          "jobTitle": "PESADOR",
+          "sourceRow": 472
+        },
+        {
+          "code": "1REM1A047",
+          "jobTitle": "PESADOR",
+          "sourceRow": 473
+        },
+        {
+          "code": "1REM1A048",
+          "jobTitle": "PESADOR",
+          "sourceRow": 474
+        },
+        {
+          "code": "1REM1A049",
+          "jobTitle": "PESADOR",
+          "sourceRow": 475
+        },
+        {
+          "code": "1REM1A050",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 476
+        },
+        {
+          "code": "1REM1A051",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 477
+        },
+        {
+          "code": "1REM1A052",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 478
+        },
+        {
+          "code": "1REM1A053",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 479
+        },
+        {
+          "code": "1REM1A054",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 480
+        },
+        {
+          "code": "1REM1A055",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 481
+        },
+        {
+          "code": "1REM1A056",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 482
+        },
+        {
+          "code": "1REM1A057",
+          "jobTitle": "SELLADOR DE BOLSA",
+          "sourceRow": 483
+        },
+        {
+          "code": "1REM1A058",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 484
+        },
+        {
+          "code": "1REM1A059",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 485
+        },
+        {
+          "code": "1REM1A060",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 486
+        },
+        {
+          "code": "1REM1A061",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 487
+        },
+        {
+          "code": "1REM1A062",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 488
+        },
+        {
+          "code": "1REM1A063",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 489
+        },
+        {
+          "code": "1REM1A064",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 490
+        },
+        {
+          "code": "1REM1A065",
+          "jobTitle": "ENCAJADOR",
+          "sourceRow": 491
+        },
+        {
+          "code": "1REM1A066",
+          "jobTitle": "SELLADOR DE CAJA",
+          "sourceRow": 492
+        },
+        {
+          "code": "1REM1A067",
+          "jobTitle": "SELLADOR DE CAJA",
+          "sourceRow": 493
+        },
+        {
+          "code": "1REM1A068",
+          "jobTitle": "SELLADOR DE CAJA",
+          "sourceRow": 494
+        },
+        {
+          "code": "1REM1A069",
+          "jobTitle": "SELLADOR DE CAJA",
+          "sourceRow": 495
+        },
+        {
+          "code": "1REM1A070",
+          "jobTitle": "CANASTERO",
+          "sourceRow": 496
+        }
+      ]
+    },
+    {
+      "code": "1REM2A",
+      "displayName": "REEMPAQUE 2 AM",
+      "shift": "AM",
+      "sourceRow": 44,
+      "positions": [
+        {
+          "code": "1REM2A001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 497
+        },
+        {
+          "code": "1REM2A002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 498
+        },
+        {
+          "code": "1REM2A003",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 499
+        },
+        {
+          "code": "1REM2A004",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 500
+        },
+        {
+          "code": "1REM2A005",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 501
+        },
+        {
+          "code": "1REM2A006",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 502
+        },
+        {
+          "code": "1REM2A007",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 503
+        },
+        {
+          "code": "1REM2A008",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 504
+        },
+        {
+          "code": "1REM2A009",
+          "jobTitle": "PESADOR",
+          "sourceRow": 505
+        },
+        {
+          "code": "1REM2A010",
+          "jobTitle": "PESADOR",
+          "sourceRow": 506
+        },
+        {
+          "code": "1REM2A011",
+          "jobTitle": "PESADOR",
+          "sourceRow": 507
+        },
+        {
+          "code": "1REM2A012",
+          "jobTitle": "PESADOR",
+          "sourceRow": 508
+        },
+        {
+          "code": "1REM2A013",
+          "jobTitle": "PESADOR",
+          "sourceRow": 509
+        },
+        {
+          "code": "1REM2A014",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 510
+        },
+        {
+          "code": "1REM2A015",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 511
+        },
+        {
+          "code": "1REM2A016",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 512
+        },
+        {
+          "code": "1REM2A017",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 513
+        },
+        {
+          "code": "1REM2A018",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 514
+        },
+        {
+          "code": "1REM2A019",
+          "jobTitle": "LLENADOR DE BOLSA MASTER",
+          "sourceRow": 515
+        },
+        {
+          "code": "1REM2A020",
+          "jobTitle": "LLENADOR DE BOLSA MASTER",
+          "sourceRow": 516
+        },
+        {
+          "code": "1REM2A021",
+          "jobTitle": "LLENADOR DE BOLSA MASTER",
+          "sourceRow": 517
+        },
+        {
+          "code": "1REM2A022",
+          "jobTitle": "LLENADOR DE BOLSA MASTER",
+          "sourceRow": 518
+        },
+        {
+          "code": "1REM2A023",
+          "jobTitle": "LLENADOR DE BOLSA MASTER",
+          "sourceRow": 519
+        },
+        {
+          "code": "1REM2A024",
+          "jobTitle": "INSPECTOR DE BOLSAS Y SELLO",
+          "sourceRow": 520
+        },
+        {
+          "code": "1REM2A025",
+          "jobTitle": "LLENADOR DE BOLSA Y CAJA",
+          "sourceRow": 521
+        },
+        {
+          "code": "1REM2A026",
+          "jobTitle": "LLENADOR DE BOLSA Y CAJA",
+          "sourceRow": 522
+        },
+        {
+          "code": "1REM2A027",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 523
+        },
+        {
+          "code": "1REM2A028",
+          "jobTitle": "PALLETIZADOR Y SELLADOR",
+          "sourceRow": 524
+        },
+        {
+          "code": "1REM2A029",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 525
+        },
+        {
+          "code": "1REM2A030",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 526
+        },
+        {
+          "code": "1REM2A031",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 527
+        },
+        {
+          "code": "1REM2A032",
+          "jobTitle": "CANASTAS",
+          "sourceRow": 528
+        }
+      ]
+    },
+    {
+      "code": "1REM3A",
+      "displayName": "REEMPAQUE 3 AM",
+      "shift": "AM",
+      "sourceRow": 45,
+      "positions": [
+        {
+          "code": "1REM3A001",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 529
+        },
+        {
+          "code": "1REM3A002",
+          "jobTitle": "SUPERVISOR DE AREA",
+          "sourceRow": 530
+        },
+        {
+          "code": "1REM3A003",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 531
+        },
+        {
+          "code": "1REM3A004",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 532
+        },
+        {
+          "code": "1REM3A005",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 533
+        },
+        {
+          "code": "1REM3A006",
+          "jobTitle": "LIMPIEZA",
+          "sourceRow": 534
+        },
+        {
+          "code": "1REM3A007",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 535
+        },
+        {
+          "code": "1REM3A008",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 536
+        },
+        {
+          "code": "1REM3A009",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 537
+        },
+        {
+          "code": "1REM3A010",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 538
+        },
+        {
+          "code": "1REM3A011",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 539
+        },
+        {
+          "code": "1REM3A012",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 540
+        },
+        {
+          "code": "1REM3A013",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 541
+        },
+        {
+          "code": "1REM3A014",
+          "jobTitle": "LLENADOR DE BOLSA",
+          "sourceRow": 542
+        },
+        {
+          "code": "1REM3A015",
+          "jobTitle": "PESADOR",
+          "sourceRow": 543
+        },
+        {
+          "code": "1REM3A016",
+          "jobTitle": "PESADOR",
+          "sourceRow": 544
+        },
+        {
+          "code": "1REM3A017",
+          "jobTitle": "PESADOR",
+          "sourceRow": 545
+        },
+        {
+          "code": "1REM3A018",
+          "jobTitle": "PESADOR",
+          "sourceRow": 546
+        },
+        {
+          "code": "1REM3A019",
+          "jobTitle": "PESADOR",
+          "sourceRow": 547
+        },
+        {
+          "code": "1REM3A020",
+          "jobTitle": "PESADOR",
+          "sourceRow": 548
+        },
+        {
+          "code": "1REM3A021",
+          "jobTitle": "PESADOR",
+          "sourceRow": 549
+        },
+        {
+          "code": "1REM3A022",
+          "jobTitle": "PESADOR",
+          "sourceRow": 550
+        },
+        {
+          "code": "1REM3A023",
+          "jobTitle": "PESADOR",
+          "sourceRow": 551
+        },
+        {
+          "code": "1REM3A024",
+          "jobTitle": "PESADOR",
+          "sourceRow": 552
+        },
+        {
+          "code": "1REM3A025",
+          "jobTitle": "PESADOR",
+          "sourceRow": 553
+        },
+        {
+          "code": "1REM3A026",
+          "jobTitle": "PESADOR",
+          "sourceRow": 554
+        },
+        {
+          "code": "1REM3A027",
+          "jobTitle": "PESADOR",
+          "sourceRow": 555
+        },
+        {
+          "code": "1REM3A028",
+          "jobTitle": "PESADOR",
+          "sourceRow": 556
+        },
+        {
+          "code": "1REM3A029",
+          "jobTitle": "PESADOR",
+          "sourceRow": 557
+        },
+        {
+          "code": "1REM3A030",
+          "jobTitle": "PESADOR",
+          "sourceRow": 558
+        },
+        {
+          "code": "1REM3A031",
+          "jobTitle": "PESADOR",
+          "sourceRow": 559
+        },
+        {
+          "code": "1REM3A032",
+          "jobTitle": "PESADOR",
+          "sourceRow": 560
+        },
+        {
+          "code": "1REM3A033",
+          "jobTitle": "PESADOR",
+          "sourceRow": 561
+        },
+        {
+          "code": "1REM3A034",
+          "jobTitle": "PESADOR",
+          "sourceRow": 562
+        },
+        {
+          "code": "1REM3A035",
+          "jobTitle": "PESADOR",
+          "sourceRow": 563
+        },
+        {
+          "code": "1REM3A036",
+          "jobTitle": "PESADOR",
+          "sourceRow": 564
+        },
+        {
+          "code": "1REM3A037",
+          "jobTitle": "PESADOR",
+          "sourceRow": 565
+        },
+        {
+          "code": "1REM3A038",
+          "jobTitle": "PESADOR",
+          "sourceRow": 566
+        },
+        {
+          "code": "1REM3A039",
+          "jobTitle": "PESADOR",
+          "sourceRow": 567
+        },
+        {
+          "code": "1REM3A040",
+          "jobTitle": "PESADOR",
+          "sourceRow": 568
+        },
+        {
+          "code": "1REM3A041",
+          "jobTitle": "PESADOR",
+          "sourceRow": 569
+        },
+        {
+          "code": "1REM3A042",
+          "jobTitle": "PESADOR",
+          "sourceRow": 570
+        },
+        {
+          "code": "1REM3A043",
+          "jobTitle": "PESADOR",
+          "sourceRow": 571
+        },
+        {
+          "code": "1REM3A044",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 572
+        },
+        {
+          "code": "1REM3A045",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 573
+        },
+        {
+          "code": "1REM3A046",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 574
+        },
+        {
+          "code": "1REM3A047",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 575
+        },
+        {
+          "code": "1REM3A048",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 576
+        },
+        {
+          "code": "1REM3A049",
+          "jobTitle": "SELLADOR BOLSA INNER Y MASTER",
+          "sourceRow": 577
+        },
+        {
+          "code": "1REM3A050",
+          "jobTitle": "CODIFICADOR",
+          "sourceRow": 578
+        },
+        {
+          "code": "1REM3A051",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 579
+        },
+        {
+          "code": "1REM3A052",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 580
+        },
+        {
+          "code": "1REM3A053",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 581
+        },
+        {
+          "code": "1REM3A054",
+          "jobTitle": "ARMADOR DE CAJA",
+          "sourceRow": 582
+        },
+        {
+          "code": "1REM3A055",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 583
+        },
+        {
+          "code": "1REM3A056",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 584
+        },
+        {
+          "code": "1REM3A057",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 585
+        },
+        {
+          "code": "1REM3A058",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 586
+        },
+        {
+          "code": "1REM3A059",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 587
+        },
+        {
+          "code": "1REM3A060",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 588
+        },
+        {
+          "code": "1REM3A061",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 589
+        },
+        {
+          "code": "1REM3A062",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 590
+        },
+        {
+          "code": "1REM3A063",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 591
+        },
+        {
+          "code": "1REM3A064",
+          "jobTitle": "PALLETIZADOR Y SELLADOR",
+          "sourceRow": 592
+        },
+        {
+          "code": "1REM3A065",
+          "jobTitle": "PALLETIZADOR Y SELLADOR",
+          "sourceRow": 593
+        },
+        {
+          "code": "1REM3A066",
+          "jobTitle": "PALLETIZADOR Y SELLADOR",
+          "sourceRow": 594
+        },
+        {
+          "code": "1REM3A067",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 595
+        },
+        {
+          "code": "1REM3A068",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 596
+        },
+        {
+          "code": "1REM3A069",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 597
+        },
+        {
+          "code": "1REM3A070",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 598
+        },
+        {
+          "code": "1REM3A071",
+          "jobTitle": "VACEADOR",
+          "sourceRow": 599
+        },
+        {
+          "code": "1REM3A072",
+          "jobTitle": "CANASTERO",
+          "sourceRow": 600
+        }
+      ]
+    },
+    {
+      "code": "1REM9A",
+      "displayName": "REEMPAQUE 9 AM",
+      "shift": "AM",
+      "sourceRow": 46,
+      "positions": [
+        {
+          "code": "1REM9A001",
+          "jobTitle": "SUPERVISOR DE LINEA",
+          "sourceRow": 601
+        },
+        {
+          "code": "1REM9A002",
+          "jobTitle": "INSPECTOR DE CALIDAD",
+          "sourceRow": 602
+        },
+        {
+          "code": "1REM9A003",
+          "jobTitle": "ABASTECEDOR",
+          "sourceRow": 603
+        },
+        {
+          "code": "1REM9A004",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 604
+        },
+        {
+          "code": "1REM9A005",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 605
+        },
+        {
+          "code": "1REM9A006",
+          "jobTitle": "EMBUDERA",
+          "sourceRow": 606
+        },
+        {
+          "code": "1REM9A007",
+          "jobTitle": "PESADOR",
+          "sourceRow": 607
+        },
+        {
+          "code": "1REM9A008",
+          "jobTitle": "PESADOR",
+          "sourceRow": 608
+        },
+        {
+          "code": "1REM9A009",
+          "jobTitle": "SELLADOR DE CAJA",
+          "sourceRow": 609
+        },
+        {
+          "code": "1REM9A010",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 610
+        },
+        {
+          "code": "1REM9A011",
+          "jobTitle": "LLENADOR DE CAJA",
+          "sourceRow": 611
+        },
+        {
+          "code": "1REM9A012",
+          "jobTitle": "SELLADOR DE CAJA",
+          "sourceRow": 612
+        }
+      ]
+    },
+    {
+      "code": "1URSTA",
+      "displayName": "URSHELL TALLO AM",
+      "shift": "AM",
+      "sourceRow": 47,
+      "positions": [
+        {
+          "code": "1URSTA001",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 613
+        },
+        {
+          "code": "1URSTA002",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 614
+        },
+        {
+          "code": "1URSTA003",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 615
+        },
+        {
+          "code": "1URSTA004",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 616
+        }
+      ]
+    },
+    {
+      "code": "1URSTB",
+      "displayName": "URSHELL TALLO PM",
+      "shift": "PM",
+      "sourceRow": 48,
+      "positions": [
+        {
+          "code": "1URSTB001",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 617
+        },
+        {
+          "code": "1URSTB002",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 618
+        },
+        {
+          "code": "1URSTB003",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 619
+        },
+        {
+          "code": "1URSTB004",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 620
+        }
+      ]
+    },
+    {
+      "code": "1URSZA",
+      "displayName": "URSHELL ZANAHORIA AM",
+      "shift": "AM",
+      "sourceRow": 49,
+      "positions": [
+        {
+          "code": "1URSZA001",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 621
+        },
+        {
+          "code": "1URSZA002",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 622
+        },
+        {
+          "code": "1URSZA003",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 623
+        },
+        {
+          "code": "1URSZA004",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 624
+        }
+      ]
+    },
+    {
+      "code": "1URSZB",
+      "displayName": "URSHELL ZANAHORIA PM",
+      "shift": "PM",
+      "sourceRow": 50,
+      "positions": [
+        {
+          "code": "1URSZB001",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 625
+        },
+        {
+          "code": "1URSZB002",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 626
+        },
+        {
+          "code": "1URSZB003",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 627
+        },
+        {
+          "code": "1URSZB004",
+          "jobTitle": "OPERADOR",
+          "sourceRow": 628
+        }
+      ]
+    }
+  ],
+  "example": {
+    "code": "T-LD1-REC",
+    "displayName": "Plantilla Línea Directa 1 Recorte — ejemplo Excel",
+    "lineCode": "1LNDTA",
+    "positions": [
+      {
+        "code": "1LNDTA001",
+        "jobTitle": "SUPERVISOR DE AREA",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA002",
+        "jobTitle": "INSPECTOR DE CALIDAD",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA003",
+        "jobTitle": "LIMPIEZA",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA004",
+        "jobTitle": "ABASTECEDOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA005",
+        "jobTitle": "ABASTECEDOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA006",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA007",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA008",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA009",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA010",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA011",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA012",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA013",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA014",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA015",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA016",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA017",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA018",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA019",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA020",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA021",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA022",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA023",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA024",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA025",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA026",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA027",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA028",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA029",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA030",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA031",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA032",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA033",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA034",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA035",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA036",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA037",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA038",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA039",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA040",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA041",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA042",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      },
+      {
+        "code": "1LNDTA043",
+        "jobTitle": "RECORTADOR",
+        "salaryMonthlyGtq": 2921.9,
+        "bonusMonthlyGtq": 250,
+        "isActive": true,
+        "applicableBenefitCodes": [
+          "BONO14",
+          "AGUINALDO",
+          "INDEMNIZACION",
+          "VACACIONES",
+          "PATRONAL"
+        ]
+      }
+    ],
+    "expectedHourlyCostGtq": 994.7147241737043,
+    "sourceSheet": "EJEMPLO PLANTILLA",
+    "sourceRange": "B3:G63"
+  }
+}

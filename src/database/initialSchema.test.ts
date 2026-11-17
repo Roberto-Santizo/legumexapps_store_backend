@@ -1,15 +1,35 @@
 import { Sequelize } from "sequelize-typescript"
 import { databaseModels } from "./models"
 import { schemaChecks, schemaFunctions, schemaTriggers } from "./schemaExtras"
+import { PERMISSIONS } from "../features/accessControl/permissions/constants/accessControlPolicy"
 const metadata=new Sequelize({dialect:'postgres',logging:false,models:databaseModels})
 afterAll(()=>metadata.close())
-test("the sole current schema contract has 49 models, 16 checks, 5 functions and 7 triggers",()=>{
-    expect(databaseModels).toHaveLength(49)
-    expect(new Set(metadata.modelManager.models.map(model=>model.tableName)).size).toBe(49)
+test("the sole current schema contract has 51 models, 16 checks, 5 functions and 7 triggers",()=>{
+    expect(databaseModels).toHaveLength(51)
+    expect(new Set(metadata.modelManager.models.map(model=>model.tableName)).size).toBe(51)
     expect(schemaChecks).toHaveLength(16)
     expect(schemaFunctions).toHaveLength(5)
     expect(schemaTriggers).toHaveLength(7)
     for(const trigger of schemaTriggers) expect(schemaFunctions.some(fn=>fn.name===trigger.functionName)).toBe(true)
+})
+
+test("labor templates register their own GTQ catalog and history without changing PCS or quotation models", () => {
+    for (const name of ["LaborTemplateLine", "LaborTemplate", "LaborTemplatePosition", "LaborTemplateRevision"]) expect(metadata.model(name)).toBeDefined()
+    expect(metadata.model("LaborTemplate").rawAttributes.lineId.references).toMatchObject({ model: "laborTemplateLines", key: "id" })
+    expect(metadata.model("LaborTemplatePosition").options.indexes).toEqual(expect.arrayContaining([expect.objectContaining({ unique: true, fields: ["templateId", "code"] })]))
+    expect(metadata.model("LaborTemplateRevision").options.indexes).toEqual(expect.arrayContaining([expect.objectContaining({ unique: true, fields: ["templateId", "revision"] })]))
+    expect(String(metadata.model("LaborTemplateRevision").rawAttributes.snapshot.type)).toBe("JSONB")
+    expect(metadata.model("RawMaterialTransformationCost").rawAttributes).not.toHaveProperty("laborTemplateId")
+    expect(metadata.model("RawMaterial").rawAttributes).not.toHaveProperty("laborTemplateId")
+})
+
+test("retired prospect and landing image modules cannot recreate their tables or permissions", () => {
+    expect(metadata.modelManager.models.map(model => model.tableName)).not.toContain("leads")
+    expect(metadata.modelManager.models.map(model => model.tableName)).not.toContain("site_images")
+    expect(PERMISSIONS).toHaveLength(87)
+    expect(PERMISSIONS.some(permission => permission.name.startsWith("leads:"))).toBe(false)
+    expect(PERMISSIONS.some(permission => permission.name === "siteContent:edit")).toBe(false)
+    for (const name of ["Client", "Salesperson", "Quote", "CustomQuote", "QuoteOrderReview"]) expect(metadata.model(name)).toBeDefined()
 })
 test("current juice and USD models exclude retired economic fields",()=>{
     const attrs=(name:string)=>metadata.model(name).rawAttributes

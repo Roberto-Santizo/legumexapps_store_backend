@@ -97,7 +97,7 @@ export function mapImportHeaders<TField extends string>(
 }
 
 
-export async function loadWorkbookFromBuffer(buffer: Buffer): Promise<ExcelJS.Workbook> {
+export async function loadWorkbookFromBuffer(buffer: Buffer, options: { requireStyles?: boolean } = {}): Promise<ExcelJS.Workbook> {
     validateXlsxBuffer(buffer)
     let archive: Map<string, Buffer>
     try { archive = await readXlsxArchive(buffer) }
@@ -107,6 +107,9 @@ export async function loadWorkbookFromBuffer(buffer: Buffer): Promise<ExcelJS.Wo
         await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0])
         if (!workbook.worksheets.length) throw new Error("XLSX contains no readable worksheets")
     } catch (cause) {
+        // Some importers use number formats to distinguish percentages from ordinary numbers.
+        // Their inputs must not fall back to the data-only adapter, which discards styles.
+        if (options.requireStyles) throw new ExcelImportParseError(cause)
         try {
             const data = parseXlsxData(archive)
             // One compatibility adapter for all importers, using only normalized data.

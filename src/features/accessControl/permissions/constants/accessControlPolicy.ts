@@ -23,6 +23,9 @@ const RESOURCE_KEYS = [
 
 const ACTION_SUFFIXES = ["view", "create", "edit", "delete"] as const
 const EXTRA_PERMISSIONS = [
+    { name: "laborTemplates:view" },
+    { name: "laborTemplates:create" },
+    { name: "laborTemplates:edit" },
     { name: "quotes:view" },
     { name: "quotes:calculate" },
     // Revisión gerencial: ver costos internos de un pedido pendiente, definir la ganancia por libra y aprobarlo.
@@ -32,9 +35,6 @@ const EXTRA_PERMISSIONS = [
     { name: "customQuotes:view" },
     { name: "customQuotes:edit" },
     { name: "dashboard:view" },
-    { name: "leads:view" },
-    { name: "leads:edit" },
-    { name: "siteContent:edit" },
 ]
 
 export const PERMISSIONS = [

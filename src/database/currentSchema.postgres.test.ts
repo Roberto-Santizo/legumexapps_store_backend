@@ -50,7 +50,7 @@ suite("current Sequelize schema contract", () => {
         }
         fs.writeFileSync(path.join(process.env.LEGUMEX_TEST_CLUSTER_DIR!, "..", "current-schema-catalog.json"), JSON.stringify(result, null, 2))
         const contract=currentModelContract(current)
-        expect(contract).toHaveLength(49)
+        expect(contract).toHaveLength(51)
         expect((result.columns as any[])).toHaveLength(current.modelManager.models.reduce((sum,model)=>sum+Object.keys(model.rawAttributes).length,0))
         expect((result.keys as any[]).filter(row=>row.kind==='c')).toHaveLength(schemaChecks.length)
         expect(result.triggers).toHaveLength(schemaTriggers.length)
@@ -58,7 +58,7 @@ suite("current Sequelize schema contract", () => {
         expect((result.functions as any[]).map(row=>row.name).sort()).toEqual(schemaFunctions.map(fn=>fn.name).sort())
         expect((result.indexes as any[]).map(row=>row.name).sort()).toEqual(contract.flatMap(model=>model.indexes.map(index=>index.name)).sort())
         for(const model of contract) for(const unique of model.unique) expect((result.keys as any[])).toEqual(expect.arrayContaining([expect.objectContaining({table_name:model.table,name:unique.name,kind:'u'})]))
-        expect(databaseModels).toHaveLength(49)
+        expect(databaseModels).toHaveLength(51)
         const [versions] = await current.query("SELECT current_setting('server_version_num')::int AS version")
         const version = Number((versions as { version: number }[])[0].version)
         const [nativeNotNull] = await current.query(`SELECT c.relname AS table_name, a.attname AS column_name

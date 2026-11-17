@@ -79,6 +79,24 @@
     "excludeGroup": "Do not include this group"
   },
   "errors": {
+    "labor_import_sheet": "The {{field}} worksheet is missing. Download the template again.",
+    "labor_import_limit": "The worksheet exceeds the limit of {{max}} data rows.",
+    "labor_import_column": "Missing or unknown header: {{field}}. Keep the columns from the downloaded template.",
+    "labor_import_duplicate": "Duplicate {{field}}. Each code must appear only once within its template.",
+    "labor_import_formula": "Formulas are not accepted in input sheets. Enter the actual value.",
+    "labor_import_reference": "The {{field}} reference does not match the current line, shift and position catalog. Check the code and download an updated template.",
+    "labor_import_missingPosition": "Position {{field}} is missing. Keep all positions and complete salary and bonus for the entire line being imported.",
+    "labor_import_value": "Complete {{field}} with a valid value and preserve reference codes and names.",
+    "labor_import_amount": "Complete {{field}} with an amount from 0 to 1000000 GTQ and up to 2 decimals. Enter 0 if it does not apply; do not leave it blank.",
+    "labor_import_configuration": "Check the template's base configuration in the system. HR only needs to enter monthly salary and statutory bonus in Excel.",
+    "labor_import_exists": "The template code already exists. This import only creates new templates; use Edit template to update an existing one.",
+    "labor_import_selection": "Enter monthly salary and statutory bonus for at least one complete line. Entirely blank lines remain pending.",
+    "labor_import_changed": "The file, catalog, configuration or date changed since validation. Validate again before confirming.",
+    "labor_template_version_conflict": "The version changed while you were editing. Reload and review your changes before saving.",
+    "labor_line_code_mismatch": "The line code does not match the opened record.",
+    "labor_line_unavailable": "The line does not exist or is inactive.",
+    "labor_template_future_date": "The effective date cannot be in the future. Changes apply when saved.",
+    "labor_template_duplicate_code": "A template with this code already exists.",
     "request_invalid_json": "The request body must contain valid JSON.",
     "request_body_too_large": "The request body exceeds the allowed size.",
     "packaging_material_type_in_use": "The type of a material with existing associations cannot be changed.",
@@ -370,6 +388,9 @@
     }
   },
   "success": {
+    "labor_import_completed": "Templates imported. Costs calculated and initial versions saved.",
+    "labor_template_saved": "Template version saved.",
+    "labor_line_saved": "Line saved.",
     "representative_clients_updated": "Client assignments updated.",
     "created": "{{resource}} created successfully",
     "updated": "{{resource}} updated successfully",
@@ -385,6 +406,8 @@
     "pallet_kit_updated": "Pallet kit updated."
   },
   "resources": {
+    "LaborTemplate": "Labor template",
+    "LaborTemplateRevision": "Template version",
     "PackagingGroup": "Packaging group",
     "Category": "Category",
     "SubCategory": "Sub-category",
@@ -409,8 +432,6 @@
     "Quote": "Quote",
     "QuoteDraft": "Unfinished quote",
     "ProcessingCost": "Additional cost",
-    "Lead": "Lead",
-    "SiteImage": "Site image",
     "CustomQuote": "Custom quote",
     "Juice": "Juice",
     "JuiceRawMaterial": "Juice raw material",
@@ -430,6 +451,7 @@
     "review": "Review"
   },
   "resourcePlurals": {
+    "laborTemplates": "direct labor templates",
     "genericPackaging": "Generic packaging",
     "packagingGroups": "packaging option groups",
     "categories": "categories",
@@ -450,7 +472,6 @@
     "quoteDrafts": "unfinished quotes",
     "dashboard": "dashboard",
     "processingCosts": "additional costs",
-    "leads": "leads",
     "siteContent": "site content",
     "customQuotes": "custom quotes",
     "juices": "juices",

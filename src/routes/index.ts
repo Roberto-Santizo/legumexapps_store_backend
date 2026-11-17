@@ -11,6 +11,7 @@ import packagingRouter from "../features/packaging/routes/packaging.routes"
 import presentationRouter from "../features/presentation/routes/presentation.routes"
 import rawMaterialRouter from "../features/rawMaterial/routes/rawMaterial.routes"
 import rawMaterialTransformationRouter from "../features/rawMaterialTransformation/routes/rawMaterialTransformation.routes"
+import laborTemplateRouter from "../features/rawMaterialTransformation/routes/laborTemplate.routes"
 import ingredientRouter from "../features/ingredient/routes/ingredient.routes"
 import destinationRouter from "../features/destination/routes/destination.routes"
 import productVariantRouter from "../features/product/routes/productVariant.routes"
@@ -38,10 +39,6 @@ import quoteReviewRouter from "../features/quoteReview/routes/quoteReview.routes
 import adminQuoteReviewRouter from "../features/quoteReview/routes/adminQuoteReview.routes"
 import dashboardRouter from "../features/dashboard/routes/dashboard.routes"
 import processingCostRouter from "../features/processingCost/routes/processingCost.routes"
-import leadRouter from "../features/lead/routes/lead.routes"
-import adminLeadRouter from "../features/lead/routes/adminLead.routes"
-import siteImageRouter from "../features/siteImage/routes/siteImage.routes"
-import adminSiteImageRouter from "../features/siteImage/routes/adminSiteImage.routes"
 
 import juiceRouter from "../features/juice/routes/juice.routes"
 
@@ -66,10 +63,6 @@ appRouter.use("/admin/custom-quotes", adminCustomQuoteRouter)
 appRouter.use("/quote-reviews", quoteReviewRouter)
 appRouter.use("/admin/quote-reviews", adminQuoteReviewRouter)
 appRouter.use("/admin/dashboard", dashboardRouter)
-appRouter.use("/leads", leadRouter)
-appRouter.use("/admin/leads", adminLeadRouter)
-appRouter.use("/site-images", siteImageRouter)
-appRouter.use("/admin/site-images", adminSiteImageRouter)
 
 appRouter.use("/admin/juices", juiceRouter)
 
@@ -84,6 +77,7 @@ appRouter.use("/pallet-kit", palletKitRouter)
 appRouter.use("/presentations", presentationRouter)
 appRouter.use("/raw-materials", rawMaterialRouter)
 appRouter.use("/raw-material-transformations", rawMaterialTransformationRouter)
+appRouter.use("/labor-templates", laborTemplateRouter)
 appRouter.use("/ingredients", ingredientRouter)
 appRouter.use("/destinations", destinationRouter)
 appRouter.use("/processing-costs", processingCostRouter)

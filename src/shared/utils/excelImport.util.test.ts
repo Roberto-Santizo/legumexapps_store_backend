@@ -114,6 +114,7 @@ describe("loadWorkbookFromBuffer", () => {
         const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
         await expect(new ExcelJS.Workbook().xlsx.load(buffer as never)).rejects.toThrow()
         expect((await loadWorkbookFromBuffer(buffer)).worksheets[0].getCell("B1").value).toBe("TEST-1")
+        await expect(loadWorkbookFromBuffer(buffer, { requireStyles: true })).rejects.toMatchObject({ statusCode: 422, key: "errors.bulk_import_unreadable_xlsx" })
     })
 
     it("rejects malformed/truncated XML rather than accepting a partial workbook", async () => {
